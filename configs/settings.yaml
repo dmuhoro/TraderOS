@@ -1,0 +1,40 @@
+# Market Intelligence Platform Configuration
+
+project_name: "Market Intelligence Platform"
+version: "0.1.0"
+
+database:
+  path: "database/market_intelligence.db"
+
+data_collection:
+  forex_symbols:
+    - "EURUSD"
+    - "GBPUSD"
+    - "USDJPY"
+  crypto_symbols:
+    - "BTCUSDT"
+    - "ETHUSDT"
+  timeframe: "1h"
+  history_days: 30
+
+analysis:
+  regime_windows:
+    short: 20
+    medium: 50
+    long: 200
+  volatility_window: 14
+
+liquidity:
+  swing_window: 5
+  sr_clustering_threshold: 0.002
+  consolidation_vol_threshold: 0.001
+  breakout_sensitivity: 2.0
+  sessions:
+    london: [8, 16]
+    new_york: [13, 21]
+    asian: [0, 8]
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/platform.log"
