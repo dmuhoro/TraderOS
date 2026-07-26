@@ -41,6 +41,13 @@
 - **`database/db_manager.py` updated:** Replaced inline `_create_tables()` with `_run_migrations()` calling migration manager.
 - **ADR-005:** Documented SQLite Dev / PostgreSQL Prod database strategy (`docs/adr/ADR-005.md`).
 
+### New: Docker Compose + Entry Points + Debt Cleanup
+- **`pyproject.toml`**: Added `[project.scripts]` — `traderos` (unified CLI) and `traderos-api` (FastAPI server) entry points.
+- **`Dockerfile`**: Rewritten to use `pyproject.toml` → `pip install -e .[api,alpaca]`, default entry point now `traderos`.
+- **`docker-compose.yml`**: Dual-service setup — `traderos` (CLI/orchestrator daemon) and `traderos-api` (FastAPI on port 8000).
+- **Root scripts** (`main.py`, `strategy_lab_cli.py`): Updated to delegate to `traderos.interfaces.cli.main` (unified CLI). Backward compat maintained.
+- **Unified CLI**: Import paths fixed (registry reference). All 7 command groups working.
+
 ### New: REST API + Data Ingestion Service
 - **REST API** (`interfaces/api/server.py`): FastAPI server with 12 endpoints — health, strategies list/detail, backtest execute, orchestrator start/stop/status, paper session CRUD, audit trail, metrics snapshot, run manifest. Built with FastAPI + Pydantic models.
 - **API entry point** (`interfaces/api/main.py`): `uvicorn.run()` on 0.0.0.0:8000.

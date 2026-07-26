@@ -55,6 +55,13 @@ Build the full trading pipeline from strategy → signal → risk → portfolio 
 - `BacktestStep` NamedTuple for per-bar granularity
 - 5 tests pass
 
+### Docker Compose + Entry Points + Debt Cleanup — COMPLETED
+- `pyproject.toml`: `traderos` and `traderos-api` entry points
+- `Dockerfile`: Rewritten for pyproject.toml-based install, default entry `traderos`
+- `docker-compose.yml`: Dual-service (CLI daemon + API server on port 8000)
+- Root scripts updated to delegate to unified CLI
+- 507 tests pass, coverage 88.3%, lint/typecheck clean
+
 ### New: REST API + Data Ingestion Service — COMPLETED
 - FastAPI REST server (`traderos.interfaces.api.server`) — 12 endpoints: health, strategies, backtest, orchestrator control, paper sessions, audit, metrics, manifest
 - API entry point: `uvicorn traderos.interfaces.api.main:app --host 0.0.0.0 --port 8000`
@@ -99,7 +106,7 @@ Build the full trading pipeline from strategy → signal → risk → portfolio 
 ## Deliverables
 - 18 domain services across 7 engines (Strategy, Signal, Portfolio, Risk, Execution, Backtest, Paper)
 - Full trading pipeline: strategy → signal → risk → portfolio → execution → backtesting → paper trading
-- 507 tests pass (376 baseline + 131 new)
+- 507 tests pass (376 baseline + 131 new across all layers)
 - Test coverage: 87.7%
 
 ## Out of Scope

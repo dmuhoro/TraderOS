@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from traderos.application.orchestrator import main
+from traderos.interfaces.cli.main import main
 
 if __name__ == "__main__":
     main()

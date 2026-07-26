@@ -14,7 +14,7 @@ from traderos.domain.services.strategy_framework import MovingAverageTrend
 from traderos.domain.services.strategy_framework import StrategyRegistry
 from traderos.domain.services.strategy_framework import VolatilityBreakout
 from traderos.domain.services.strategy_framework import MeanReversion
-from traderos.domain.services.strategy_framework import strategy_registry
+from traderos.domain.services.strategy_framework import registry as strategy_registry
 from traderos.infrastructure.audit import AuditService
 from traderos.infrastructure.health import HealthService
 
@@ -60,7 +60,7 @@ def cmd_strategies(args: argparse.Namespace) -> None:
             print(f"Strategy '{args.name}' not found")
     else:
         print("Registered strategies:")
-        for name in strategy_registry.list_strategies():
+        for name in strategy_registry.list():
             print(f"  - {name}")
 
 

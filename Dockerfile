@@ -1,8 +1,9 @@
 FROM python:3.11-slim AS builder
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt
+COPY pyproject.toml .
+COPY src/ src/
+RUN pip install --user --no-cache-dir -e ".[api,alpaca]"
 
 FROM python:3.11-slim AS runtime
 
@@ -21,4 +22,5 @@ RUN mkdir -p /app/data /app/exports
 
 VOLUME ["/app/data", "/app/exports"]
 
-ENTRYPOINT ["python", "main.py"]
+ENTRYPOINT ["traderos"]
+CMD ["--help"]

@@ -8,6 +8,23 @@ services:
     environment:
       - DB_PATH=/app/data/traderos.db
       - LOG_LEVEL=INFO
+      - MODE=paper
+    restart: unless-stopped
+
+  traderos-api:
+    build: .
+    container_name: traderos-api
+    command: traderos-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - traderos_data:/app/data
+    environment:
+      - DB_PATH=/app/data/traderos.db
+      - LOG_LEVEL=INFO
+      - MODE=paper
+    depends_on:
+      - traderos
     restart: unless-stopped
 
 volumes:
