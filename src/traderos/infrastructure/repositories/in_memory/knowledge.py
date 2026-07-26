@@ -29,20 +29,4 @@ class InMemoryKnowledgeEdgeRepository(InMemoryRepository[KnowledgeEdge], Knowled
         return [e for e in self.list() if e.target_id == target_id]
 
     def get_neighbors(self, node_id: uuid.UUID, depth: int = 1) -> list[KnowledgeNode]:
-        visited: set[uuid.UUID] = {node_id}
-        frontier: list[uuid.UUID] = [node_id]
-
-        for _ in range(depth):
-            next_frontier: list[uuid.UUID] = []
-            for fid in frontier:
-                for edge in self._store.values():
-                    neighbor = None
-                    if edge.source_id == fid and edge.target_id not in visited:
-                        neighbor = edge.target_id
-                    elif edge.target_id == fid and edge.source_id not in visited:
-                        neighbor = edge.source_id
-                    if neighbor is not None:
-                        visited.add(neighbor)
-                        next_frontier.append(neighbor)
-            frontier = next_frontier
         return []

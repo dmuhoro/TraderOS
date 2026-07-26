@@ -41,6 +41,12 @@
 - **`database/db_manager.py` updated:** Replaced inline `_create_tables()` with `_run_migrations()` calling migration manager.
 - **ADR-005:** Documented SQLite Dev / PostgreSQL Prod database strategy (`docs/adr/ADR-005.md`).
 
+### WP-059-062: Backtesting Engine
+- **`BacktestingService`:** Time-series iteration over candles, strategy evaluation loop, trade simulation via `ExecutionService`, equity curve tracking, and metrics computation.
+- **Metrics:** Sharpe/Sortino/Calmar ratios, max drawdown, win rate, profit factor, recovery factor — all using sample standard deviation (ddof=1).
+- **5 tests pass.**
+- **`BacktestStep` NamedTuple** captures per-bar equity, order, and fill price for granular analysis.
+
 ### WP-008: Namespace Package Restructuring
 - **New layered structure under `src/traderos/`:**
   - `domain/` — `analysis/`, `liquidity/`, `risk/`, `strategies/`, `backtesting/`, `research/`
