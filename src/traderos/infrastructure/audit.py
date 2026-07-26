@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from dataclasses import field
+from datetime import UTC
+from datetime import datetime
+from typing import NamedTuple
+
+
+class AuditEntry(NamedTuple):
+    id: uuid.UUID
+    action: str
+    actor: str
+    resource: str
+    detail: str
+    timestamp: datetime
+    previous_hash: str
+    hash: str
+
+
+def _compute_hash(entry: AuditEntry) -> str:
+    parts = (
+        str(entry.id), entry.action, entry.actor,
+        entry.resource, entry.detail,
+        entry.timestamp.isoformat(), entry.previous_hash,
+    )
+    return str(hash("|".join(parts)))
+
+
+@dataclass
+class AuditService:
+    _entries: list[AuditEntry] = field(default_factory=list)
+
+    def record(
+        self,
+        action: str,
+        actor: str,
+        resource: str,
+        detail: str = "",
+    ) -> AuditEntry:
+        prev_hash = self._entries[-1].hash if self._entries else "genesis"
+        entry = AuditEntry(
+            id=uuid.uuid4(),
+            action=action,
+            actor=actor,
+            resource=resource,
+            detail=detail,
+            timestamp=datetime.now(UTC),
+            previous_hash=prev_hash,
+            hash="",
+        )
+        entry = entry._replace(hash=_compute_hash(entry))
+        self._entries.append(entry)
+        return entry
+
+    def get_entries(
+        self, limit: int = 100, offset: int = 0
+    ) -> list[AuditEntry]:
+        return self._entries[offset:offset + limit]
+
+    def verify_chain(self) -> bool:
+        for i in range(1, len(self._entries)):
+            expected_prev = self._entries[i - 1].hash
+            if self._entries[i].previous_hash != expected_prev:
+                return False
+        return True
+
+    def find(self, action: str | None = None, actor: str | None = None) -> list[AuditEntry]:
+        results = list(self._entries)
+        if action:
+            results = [e for e in results if e.action == action]
+        if actor:
+            results = [e for e in results if e.actor == actor]
+        return results
+
+    def clear(self) -> None:
+        self._entries.clear()

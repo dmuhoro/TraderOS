@@ -41,6 +41,13 @@
 - **`database/db_manager.py` updated:** Replaced inline `_create_tables()` with `_run_migrations()` calling migration manager.
 - **ADR-005:** Documented SQLite Dev / PostgreSQL Prod database strategy (`docs/adr/ADR-005.md`).
 
+### WP-067-070: Platform Layers (Notification, Health, Audit, CLI)
+- **`NotificationService`:** Multi-channel notification system (CONSOLE/FILE/WEBHOOK) with INFO/WARNING/ERROR/CRITICAL levels, metadata support, and structured logging output.
+- **`HealthService`:** Service registry with health check function execution, pass/fail reporting, history tracking, and aggregate status queries.
+- **`AuditService`:** Append-only audit trail with cryptographic hash chaining, chain verification, and action/actor filtering.
+- **`Unified CLI`:** Modular argparse-based CLI (`traderos.interfaces.cli.main`) with commands for strategies list/details, backtest run, paper session create/list, health status, audit trail view, and notification send.
+- **26 tests pass.**
+
 ### WP-063-066: Paper Trading Engine
 - **`PaperTradingService`:** Session lifecycle management (created→running→paused→stopped), signal-driven pipeline (signal→risk→portfolio→execution), equity curve tracking.
 - **`PaperBrokerAdapter`:** Simulated broker with configurable slippage, fill probability, partial fills, and market/limit/stop order execution.

@@ -31,6 +31,10 @@ from traderos.domain.services.session_analysis import SessionAnalysisService
 from traderos.domain.services.session_analysis import SessionStats
 from traderos.domain.services.signal_service import SignalProvenance
 from traderos.domain.services.signal_service import SignalService
+from traderos.domain.services.notification_service import NotificationChannel
+from traderos.domain.services.notification_service import NotificationEvent
+from traderos.domain.services.notification_service import NotificationLevel
+from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.strategy_framework import MeanReversion
 from traderos.domain.services.strategy_framework import MovingAverageTrend
 from traderos.domain.services.strategy_framework import StrategyEvaluationService
@@ -58,6 +62,10 @@ __all__ = [
     "LiquidityZoneService",
     "MeanReversion",
     "MovingAverageTrend",
+    "NotificationChannel",
+    "NotificationEvent",
+    "NotificationLevel",
+    "NotificationService",
     "PaperBrokerAdapter",
     "PaperSession",
     "PaperSessionStatus",
