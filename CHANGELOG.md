@@ -52,6 +52,13 @@
 - **Tooling configs updated:** pyproject.toml (pyright extraPaths, coverage source), Makefile (PYTHONPATH=src), Dockerfile (ENV PYTHONPATH), CI workflow.
 - **Entry point scripts** (`main.py`, `dashboard_cli.py`, `research_cli.py`, `strategy_lab_cli.py`) become thin wrappers that add `src` to path and delegate to new structure.
 
+### AI Engineering Operating System
+- **`.ai/context/` — 13 permanent context files** enabling any AI model to understand the project instantly:
+  - Architecture, system map, domain model, code standards, DB contracts, ADR decisions, release readiness, security (core + subsystems), roadmap, workflow rules, UI context, playbook, and meta-files (cross-reference, dependency graph, maintenance, expansion).
+- **`.ai/agents/` — 9 AI agent files** defining mission, inputs, outputs, and interaction protocols for planner, builder, auditor, reviewer, migration, performance, security, product, and release agents.
+- **Layer 3 meta-files:** Cross-reference matrix, dependency graph, maintenance guide, future expansion strategy.
+- **Design:** Files follow strict template, use references (never copies), and are versioned alongside TraderOS. Maintained via the `.ai/VERSION` convention and `99_maintenance_guide.md`.
+
 ## [0.2.0] - 2026-06-01
 ### Added
 - **Strategy Lab:** New module for developing and registering trading strategies.
