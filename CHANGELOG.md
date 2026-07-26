@@ -1,5 +1,15 @@
 # Changelog - TraderOS
 
+## [0.4.0] - Real-Market Wiring: Data Feed, Broker, Price Integrity
+### Fixed
+- **fill_price multiplier bug (Gap 3):** `PaperBrokerAdapter.place_market_order()` now returns absolute price (`close_price * slippage`) instead of just the slippage multiplier. `BrokerAdapter` ABC accepts optional `close_price` parameter. `PaperTradingService.process_candle()` no longer double-multiplies. `TradingOrchestrator.run_cycle()` passes `close_price` to broker for accurate trade records.
+- **Daemon panic recovery:** `run_forever()` wraps `run_cycle()` in try/except; per-cycle errors are logged and reported to health service without crashing the daemon.
+
+### Added
+- **Real market data feed (Gap 1):** `DataIngestionService.get_latest_close(market_id)` resolves latest close price from configured collectors. Factory builds `CollectorRegistry` with `MockDataCollector` + optional `BinanceCollector`. Symbols parsed from `settings.yaml` (`data_collection.forex_symbols` + `crypto_symbols`) generate deterministic market IDs. `run_forever()` reads real prices instead of hardcoded `100.0`.
+- **Alpaca broker for LIVE mode (Gap 2):** Factory branches broker selection on `TradingMode.LIVE` — uses `AlpacaBrokerAdapter` when `alpaca_api_key` + `alpaca_secret_key` are configured; falls back to `PaperBrokerAdapter` gracefully. Config typed fields `alpaca_api_key`, `alpaca_secret_key`, `alpaca_paper` with `ALPACA_API_KEY`/`ALPACA_SECRET_KEY`/`ALPACA_PAPER` env var support.
+- **SPRINT_4.md** documents the sprint.
+
 ## [0.3.0] - Programme Alpha — Engineering Foundations
 ### Added
 - **Engineering Constitution:** Ratified highest engineering authority document (docs/engineering/CONSTITUTION.md).

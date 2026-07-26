@@ -13,6 +13,7 @@ from typing import Any
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
+from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.paper_trading_service import PaperTradingService
@@ -62,6 +63,7 @@ class TradingOrchestrator:
     metrics: MetricsService
     notifications: NotificationService
     run_manifest: RunManifestService
+    data_ingestion: DataIngestionService | None = None
 
     market_ids: list[uuid.UUID] = field(default_factory=list)
     _running: bool = False
@@ -69,12 +71,9 @@ class TradingOrchestrator:
     def start(self) -> None:
         self._running = True
         self.health.report_healthy("orchestrator", "started")
-        self.audit.record("orchestrator.start", "system", "orchestrator",
-                          f"mode={self.mode.value}")
-        self.notifications.info("Orchestrator Started",
-                                f"Trading mode: {self.mode.value}")
-        self.run_manifest.record("orchestrator", "start",
-                                 metadata={"mode": self.mode.value})
+        self.audit.record("orchestrator.start", "system", "orchestrator", f"mode={self.mode.value}")
+        self.notifications.info("Orchestrator Started", f"Trading mode: {self.mode.value}")
+        self.run_manifest.record("orchestrator", "start", metadata={"mode": self.mode.value})
 
     def stop(self) -> None:
         self._running = False
@@ -83,23 +82,30 @@ class TradingOrchestrator:
         self.notifications.info("Orchestrator Stopped")
         self.run_manifest.record("orchestrator", "stop")
 
-    def run_cycle(self, market_id: uuid.UUID, close_price: float,
-                  candle_time: datetime | None = None) -> CycleResult:
+    def run_cycle(
+        self, market_id: uuid.UUID, close_price: float, candle_time: datetime | None = None
+    ) -> CycleResult:
         start = time.perf_counter()
         errors: list[str] = []
         signals_count = 0
         trades_count = 0
 
         cycle_id = uuid.uuid4()
-        self.event_bus.publish(Event("cycle.start", {
-            "cycle_id": str(cycle_id), "market_id": str(market_id),
-        }))
+        self.event_bus.publish(
+            Event(
+                "cycle.start",
+                {
+                    "cycle_id": str(cycle_id),
+                    "market_id": str(market_id),
+                },
+            )
+        )
 
         try:
             if self.mode == TradingMode.BACKTEST:
-                self.run_manifest.record("orchestrator", "cycle",
-                                         metadata={"market": str(market_id),
-                                                    "mode": "backtest"})
+                self.run_manifest.record(
+                    "orchestrator", "cycle", metadata={"market": str(market_id), "mode": "backtest"}
+                )
                 return CycleResult(market_id, 0, 0, [], 0.0, datetime.now(UTC))
 
             strategies = strategy_registry.list()
@@ -110,14 +116,16 @@ class TradingOrchestrator:
                         continue
                     strategy = strat_cls()
                     state = MarketState(
-                        candles=[], indicators={
+                        candles=[],
+                        indicators={
                             "close": close_price,
                             "high": close_price * 1.01,
                             "low": close_price * 0.99,
                             "volume": 1000.0,
                             "sma_20": close_price,
                             "atr_14": close_price * 0.01,
-                        }, timestamp=candle_time or datetime.now(UTC),
+                        },
+                        timestamp=candle_time or datetime.now(UTC),
                     )
                     result = strategy.evaluate(state)
                     if result is None:
@@ -133,22 +141,25 @@ class TradingOrchestrator:
                     if provenance is None:
                         continue
                     signals_count += 1
-                    self.event_bus.publish(Event("signal.generated", {
-                        "market_id": str(market_id),
-                        "strategy": name,
-                        "direction": result.direction,
-                        "confidence": result.confidence,
-                    }))
+                    self.event_bus.publish(
+                        Event(
+                            "signal.generated",
+                            {
+                                "market_id": str(market_id),
+                                "strategy": name,
+                                "direction": result.direction,
+                                "confidence": result.confidence,
+                            },
+                        )
+                    )
 
-                    active_signals = self.signal_service.get_active_signals(
-                        market_id)
+                    active_signals = self.signal_service.get_active_signals(market_id)
                     for signal in active_signals:
                         risk = self.risk_service.assess_trade(
                             price=close_price,
                             confidence=signal.confidence,
                             atr=close_price * 0.01,
-                            account_equity=self.portfolio_service.get_summary(
-                                10000.0).total_value,
+                            account_equity=self.portfolio_service.get_summary(10000.0).total_value,
                         )
                         if risk.kelly_fraction <= 0:
                             continue
@@ -160,31 +171,41 @@ class TradingOrchestrator:
                             continue
                         side = "buy" if signal.direction.value == "long" else "sell"
                         fill = self.broker.place_market_order(
-                            market_id, side, qty)
+                            market_id, side, qty, close_price=close_price
+                        )
                         if fill.filled:
                             self.portfolio_service.open_trade(
                                 signal_id=signal.id,
                                 market_id=market_id,
-                                side=("buy" if signal.direction.value == "long"
-                                      else "sell"),
+                                side=("buy" if signal.direction.value == "long" else "sell"),
                                 quantity=fill.fill_quantity,
                                 price=fill.fill_price,
                             )
                             trades_count += 1
-                            self.event_bus.publish(Event("trade.executed", {
-                                "market_id": str(market_id),
-                                "side": side,
-                                "qty": fill.fill_quantity,
-                                "price": fill.fill_price,
-                            }))
+                            self.event_bus.publish(
+                                Event(
+                                    "trade.executed",
+                                    {
+                                        "market_id": str(market_id),
+                                        "side": side,
+                                        "qty": fill.fill_quantity,
+                                        "price": fill.fill_price,
+                                    },
+                                )
+                            )
                             self.metrics.counter("trades.executed")
                 except (ValueError, RuntimeError, OSError) as e:
                     errors.append(f"{name}: {e}")
-                    self.event_bus.publish(Event("cycle.error", {
-                        "market_id": str(market_id),
-                        "strategy": name,
-                        "error": str(e),
-                    }))
+                    self.event_bus.publish(
+                        Event(
+                            "cycle.error",
+                            {
+                                "market_id": str(market_id),
+                                "strategy": name,
+                                "error": str(e),
+                            },
+                        )
+                    )
                 finally:
                     self.metrics.counter("cycles.completed")
 
@@ -197,17 +218,21 @@ class TradingOrchestrator:
         self.metrics.timing("cycle.duration_ms").stop()
 
         t = candle_time or datetime.now(UTC)
-        self.event_bus.publish(Event("cycle.complete", {
-            "cycle_id": str(cycle_id),
-            "market_id": str(market_id),
-            "signals": signals_count,
-            "trades": trades_count,
-            "errors": errors,
-            "duration_ms": round(duration, 2),
-        }))
+        self.event_bus.publish(
+            Event(
+                "cycle.complete",
+                {
+                    "cycle_id": str(cycle_id),
+                    "market_id": str(market_id),
+                    "signals": signals_count,
+                    "trades": trades_count,
+                    "errors": errors,
+                    "duration_ms": round(duration, 2),
+                },
+            )
+        )
 
-        return CycleResult(market_id, signals_count, trades_count,
-                           errors, duration, t)
+        return CycleResult(market_id, signals_count, trades_count, errors, duration, t)
 
     def run_forever(self, interval_seconds: int = 60) -> None:
         self.start()
@@ -222,11 +247,19 @@ class TradingOrchestrator:
             for mid in self.market_ids:
                 if not self._running:
                     break
-                result = self.run_cycle(mid, 100.0)
-                if result.errors:
-                    for err in result.errors:
-                        self.notifications.warning("Cycle Error",
-                                                   f"{mid}: {err}")
+                try:
+                    close_price = 100.0
+                    if self.data_ingestion is not None:
+                        price = self.data_ingestion.get_latest_close(mid)
+                        if price is not None:
+                            close_price = price
+                    result = self.run_cycle(mid, close_price)
+                    if result.errors:
+                        for err in result.errors:
+                            self.notifications.warning("Cycle Error", f"{mid}: {err}")
+                except (ValueError, RuntimeError, OSError) as e:
+                    self.notifications.warning("Cycle Panic", f"{mid}: {e}")
+                    self.health.report_unhealthy(f"market.{mid}", str(e))
             time.sleep(interval_seconds)
 
     def get_status(self) -> dict[str, Any]:

@@ -21,6 +21,9 @@ class Config:
     exports_dir: str = "exports"
     configs_dir: str = "configs"
     paper_trading: bool = False
+    alpaca_api_key: str = ""
+    alpaca_secret_key: str = ""
+    alpaca_paper: bool = True
     _raw_settings: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -36,6 +39,9 @@ class Config:
             "log_level": os.getenv("LOG_LEVEL"),
             "log_file": os.getenv("LOG_FILE"),
             "paper_trading": os.getenv("PAPER_TRADING"),
+            "alpaca_api_key": os.getenv("ALPACA_API_KEY"),
+            "alpaca_secret_key": os.getenv("ALPACA_SECRET_KEY"),
+            "alpaca_paper": os.getenv("ALPACA_PAPER"),
         }
 
         kwargs: dict[str, Any] = {}
@@ -44,7 +50,7 @@ class Config:
                 continue
             value = env_overrides.get(key) or settings.get(key)
             if value is not None:
-                if key == "paper_trading" and isinstance(value, str):
+                if isinstance(value, str) and key in ("paper_trading", "alpaca_paper"):
                     value = value.lower() in ("true", "1", "yes")
                 kwargs[key] = value
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from datetime import datetime
-from datetime import timezone
 from unittest.mock import Mock
 
 from traderos.application.orchestrator import CycleResult
@@ -21,7 +21,7 @@ from traderos.infrastructure.run_manifest import RunManifestService
 
 
 class MockBroker(BrokerAdapter):
-    def place_market_order(self, market_id, side, quantity):
+    def place_market_order(self, market_id, side, quantity, close_price=None):
         return FillResult(True, quantity, 100.0, 0.0, "filled", "ord1")
 
     def place_limit_order(self, market_id, side, quantity, price):
@@ -79,8 +79,7 @@ class TestTradingOrchestrator:
         orch = self._make(TradingMode.PAPER)
         orch.start()
         mid = uuid.uuid4()
-        result = orch.run_cycle(mid, 100.0,
-                                candle_time=datetime.now(timezone.utc))
+        result = orch.run_cycle(mid, 100.0, candle_time=datetime.now(UTC))
         assert isinstance(result, CycleResult)
         assert result.market_id == mid
         orch.stop()

@@ -2,20 +2,14 @@ from __future__ import annotations
 
 import argparse
 import uuid
+from datetime import UTC
 
+from traderos.application.factory import build_orchestrator
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.execution_service import ExecutionService
-from traderos.domain.services.paper_trading_service import PaperBrokerAdapter
-from traderos.domain.services.paper_trading_service import PaperTradingService
-from traderos.domain.services.portfolio_service import PortfolioService
-from traderos.domain.services.risk_service import RiskService
-from traderos.domain.services.signal_service import SignalService
-from traderos.domain.services.strategy_framework import MovingAverageTrend
-from traderos.domain.services.strategy_framework import StrategyRegistry
-from traderos.domain.services.strategy_framework import VolatilityBreakout
-from traderos.domain.services.strategy_framework import MeanReversion
 from traderos.domain.services.strategy_framework import registry as strategy_registry
 from traderos.infrastructure.audit import AuditService
+from traderos.infrastructure.config.config_loader import Config
 from traderos.infrastructure.health import HealthService
 
 
@@ -35,18 +29,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_paper_sub.add_parser("create", help="Create a new paper session")
     p_paper_sub.add_parser("list", help="List paper sessions")
 
-    p_health = sub.add_parser("health", help="System health status")
+    sub.add_parser("health", help="System health status")
 
     p_audit = sub.add_parser("audit", help="View audit trail")
     p_audit.add_argument("--limit", type=int, default=10, help="Number of entries")
 
     p_notify = sub.add_parser("notify", help="Send a test notification")
-    p_notify.add_argument("--level", default="info", choices=["info", "warning", "error", "critical"])
+    p_notify.add_argument(
+        "--level", default="info", choices=["info", "warning", "error", "critical"]
+    )
     p_notify.add_argument("--title", default="Test Notification")
     p_notify.add_argument("--message", default="")
 
     p_regime = sub.add_parser("signal", help="Check active signals for a market")
     p_regime.add_argument("market_id", type=str, help="Market UUID")
+
+    p_daemon = sub.add_parser("daemon", help="Run the trading daemon")
+    p_daemon.add_argument("--interval", type=int, default=60, help="Cycle interval in seconds")
+    p_daemon.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
 
     return parser
 
@@ -70,26 +70,29 @@ def cmd_backtest(args: argparse.Namespace) -> None:
         print(f"Unknown strategy: {args.strategy}")
         return
     from datetime import datetime
-    from datetime import timezone
-    from traderos.domain.entities import Candle
-    from traderos.domain.entities import OHLCV
-    from traderos.domain.entities import Timeframe
     from decimal import Decimal
+
+    from traderos.domain.entities import OHLCV
+    from traderos.domain.entities import Candle
+    from traderos.domain.entities import Timeframe
+
     mid = uuid.uuid4()
     candles: list[Candle] = []
     for i in range(args.candles):
-        candles.append(Candle(
-            market_id=mid,
-            ohlcv=OHLCV(
-                open=Decimal(str(100 + i)),
-                high=Decimal(str(101 + i)),
-                low=Decimal(str(99 + i)),
-                close=Decimal(str(100 + i)),
-                volume=Decimal("1000"),
-            ),
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            timeframe=Timeframe.DAY_1,
-        ))
+        candles.append(
+            Candle(
+                market_id=mid,
+                ohlcv=OHLCV(
+                    open=Decimal(str(100 + i)),
+                    high=Decimal(str(101 + i)),
+                    low=Decimal(str(99 + i)),
+                    close=Decimal(str(100 + i)),
+                    volume=Decimal("1000"),
+                ),
+                timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+                timeframe=Timeframe.DAY_1,
+            )
+        )
     svc = BacktestingService(execution=ExecutionService())
     result, steps = svc.run(strat, candles, mid)
     m = result.metrics
@@ -101,18 +104,15 @@ def cmd_backtest(args: argparse.Namespace) -> None:
 
 
 def cmd_paper(args: argparse.Namespace) -> None:
-    svc = PaperTradingService(
-        broker=PaperBrokerAdapter(),
-        signal_service=SignalService.__new__(SignalService),
-        risk_service=RiskService(),
-        portfolio_service=PortfolioService.__new__(PortfolioService),
-        execution=ExecutionService(),
-    )
+    orch = build_orchestrator(mode="paper")
+    if orch.paper is None:
+        print("Paper trading not available")
+        return
     if args.paper_cmd == "create":
-        session = svc.create_session(uuid.uuid4(), [uuid.uuid4()])
+        session = orch.paper.create_session(uuid.uuid4(), [uuid.uuid4()])
         print(f"Created session {session.id}")
     elif args.paper_cmd == "list":
-        sessions = svc.list_sessions()
+        sessions = orch.paper.list_sessions()
         for s in sessions:
             print(f"  {s.id} — {s.status.value} — ${s.current_capital:.2f}")
 
@@ -139,6 +139,7 @@ def cmd_audit(args: argparse.Namespace) -> None:
 def cmd_notify(args: argparse.Namespace) -> None:
     from traderos.domain.services.notification_service import NotificationLevel
     from traderos.domain.services.notification_service import NotificationService
+
     svc = NotificationService()
     level = NotificationLevel[args.level.upper()]
     svc.send(level, args.title, args.message)
@@ -148,6 +149,12 @@ def cmd_notify(args: argparse.Namespace) -> None:
 def cmd_signal(args: argparse.Namespace) -> None:
     mid = uuid.UUID(args.market_id) if args.market_id else uuid.uuid4()
     print(f"Active signals for market {mid}: (none — requires running system)")
+
+
+def cmd_daemon(args: argparse.Namespace) -> None:
+    cfg = Config.load()
+    orch = build_orchestrator(mode=args.mode, config=cfg)
+    orch.run_forever(interval_seconds=args.interval)
 
 
 def main() -> None:
@@ -168,6 +175,8 @@ def main() -> None:
         cmd_notify(args)
     elif args.command == "signal":
         cmd_signal(args)
+    elif args.command == "daemon":
+        cmd_daemon(args)
     else:
         parser.print_help()
 

@@ -1,29 +1,22 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from typing import Any
 
-from traderos.application.orchestrator import TradingMode
+from traderos.application.factory import build_orchestrator
 from traderos.application.orchestrator import TradingOrchestrator
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.execution_service import ExecutionService
-from traderos.domain.services.paper_trading_service import PaperBrokerAdapter
-from traderos.domain.services.paper_trading_service import PaperTradingService
-from traderos.domain.services.portfolio_service import PortfolioService
-from traderos.domain.services.risk_service import RiskService
-from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
-from traderos.infrastructure.audit import AuditService
-from traderos.infrastructure.events import InMemoryEventBus
-from traderos.infrastructure.health import HealthService
-from traderos.infrastructure.metrics import MetricsService
-from traderos.infrastructure.run_manifest import RunManifestService
-from datetime import UTC
+from traderos.infrastructure.config.config_loader import Config
 
 try:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI
+    from fastapi import HTTPException
     from fastapi import Query
     from pydantic import BaseModel
+
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False
@@ -54,41 +47,15 @@ def create_orchestrator(mode: str = "paper") -> TradingOrchestrator:
     if _orchestrator is not None:
         return _orchestrator
 
-    paper = PaperTradingService(
-        broker=PaperBrokerAdapter(fill_probability=1.0),
-        signal_service=SignalService.__new__(SignalService),
-        risk_service=RiskService(),
-        portfolio_service=PortfolioService.__new__(PortfolioService),
-        execution=ExecutionService(),
-    )
-
-    orch = TradingOrchestrator(
-        mode=TradingMode(mode),
-        signal_service=SignalService.__new__(SignalService),
-        risk_service=RiskService(),
-        portfolio_service=PortfolioService.__new__(PortfolioService),
-        execution=ExecutionService(),
-        analysis=None,  # type: ignore
-        broker=PaperBrokerAdapter(fill_probability=1.0),
-        backtest=BacktestingService(execution=ExecutionService()),
-        paper=paper,
-        event_bus=InMemoryEventBus(),
-        health=HealthService(),
-        audit=AuditService(),
-        metrics=MetricsService(),
-        notifications=None,  # type: ignore
-        run_manifest=RunManifestService(),
-        market_ids=[],
-    )
+    cfg = Config.load()
+    orch = build_orchestrator(mode=mode, config=cfg)
     _orchestrator = orch
     return orch
 
 
 def _ensure_fastapi() -> None:
     if not HAS_FASTAPI:
-        raise ImportError(
-            "FastAPI is required. Install with: pip install 'traderos[api]'"
-        )
+        raise ImportError("FastAPI is required. Install with: pip install 'traderos[api]'")
 
 
 def build_app() -> Any:
@@ -120,7 +87,11 @@ def build_app() -> Any:
         svc = BacktestingService(execution=ExecutionService())
         from datetime import datetime
         from decimal import Decimal
-        from traderos.domain.entities import Candle, OHLCV, Timeframe
+
+        from traderos.domain.entities import OHLCV
+        from traderos.domain.entities import Candle
+        from traderos.domain.entities import Timeframe
+
         mid = uuid.uuid4()
         candles = [
             Candle(
@@ -182,19 +153,27 @@ def build_app() -> Any:
         orch = create_orchestrator()
         if orch.paper is None:
             return {"sessions": []}
-        return {"sessions": [
-            {"id": str(s.id), "status": s.status.value, "capital": s.current_capital}
-            for s in orch.paper.list_sessions()
-        ]}
+        return {
+            "sessions": [
+                {"id": str(s.id), "status": s.status.value, "capital": s.current_capital}
+                for s in orch.paper.list_sessions()
+            ]
+        }
 
     @app.get("/audit")
     def get_audit(limit: int = Query(10, ge=1, le=100)):
         orch = create_orchestrator()
-        return {"entries": [
-            {"action": e.action, "actor": e.actor, "resource": e.resource,
-             "timestamp": e.timestamp.isoformat()}
-            for e in orch.audit.get_entries(limit=limit)
-        ]}
+        return {
+            "entries": [
+                {
+                    "action": e.action,
+                    "actor": e.actor,
+                    "resource": e.resource,
+                    "timestamp": e.timestamp.isoformat(),
+                }
+                for e in orch.audit.get_entries(limit=limit)
+            ]
+        }
 
     @app.get("/metrics")
     def get_metrics():
@@ -204,10 +183,16 @@ def build_app() -> Any:
     @app.get("/manifest")
     def get_manifest(service: str | None = None):
         orch = create_orchestrator()
-        return {"runs": [
-            {"service": e.service, "action": e.action, "status": e.status,
-             "duration_ms": e.duration_ms}
-            for e in orch.run_manifest.get_runs(service=service)
-        ]}
+        return {
+            "runs": [
+                {
+                    "service": e.service,
+                    "action": e.action,
+                    "status": e.status,
+                    "duration_ms": e.duration_ms,
+                }
+                for e in orch.run_manifest.get_runs(service=service)
+            ]
+        }
 
     return app

@@ -18,13 +18,20 @@ class FillResult(NamedTuple):
 class BrokerAdapter(ABC):
     @abstractmethod
     def place_market_order(
-        self, market_id: uuid.UUID, side: str, quantity: float,
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        close_price: float | None = None,
     ) -> FillResult: ...
 
     @abstractmethod
     def place_limit_order(
-        self, market_id: uuid.UUID, side: str,
-        quantity: float, price: float,
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        price: float,
     ) -> FillResult: ...
 
     @abstractmethod

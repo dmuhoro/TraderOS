@@ -23,4 +23,4 @@ RUN mkdir -p /app/data /app/exports
 VOLUME ["/app/data", "/app/exports"]
 
 ENTRYPOINT ["traderos"]
-CMD ["--help"]
+CMD ["daemon", "--mode", "paper"]

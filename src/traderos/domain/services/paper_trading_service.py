@@ -6,8 +6,9 @@ from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from enum import Enum
-from typing import NamedTuple
 
+from traderos.domain.adapters.broker_adapter import BrokerAdapter
+from traderos.domain.adapters.broker_adapter import FillResult
 from traderos.domain.entities import Position
 from traderos.domain.entities import Trade
 from traderos.domain.entities import TradeSide
@@ -44,40 +45,48 @@ class PaperSession:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
-class FillSimulation(NamedTuple):
-    filled: bool
-    fill_quantity: float
-    fill_price: float
-    remaining: float
-    status: OrderStatus
-
-
 @dataclass
-class PaperBrokerAdapter:
+class PaperBrokerAdapter(BrokerAdapter):
     slippage_bps: float = 5.0
     fill_probability: float = 1.0
     partial_fill_probability: float = 0.0
     latency_ms: int = 0
+
+    def _fill_result(
+        self,
+        filled: bool,
+        qty: float,
+        price: float,
+        remaining: float,
+        status: OrderStatus,
+    ) -> FillResult:
+        return FillResult(filled, qty, price, remaining, status.value, "")
 
     def place_market_order(
         self,
         market_id: uuid.UUID,
         side: str,
         quantity: float,
-    ) -> FillSimulation:
+        close_price: float | None = None,
+    ) -> FillResult:
         import random
+
         if random.random() > self.fill_probability:
-            return FillSimulation(False, 0.0, 0.0, quantity, OrderStatus.REJECTED)
-        slippage = 1 + self.slippage_bps / 10000
+            return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.REJECTED)
+        slip_multiplier = 1 + self.slippage_bps / 10000
+        ref_price = close_price if close_price is not None else 1.0
+        fill_price = ref_price * slip_multiplier
         if random.random() < self.partial_fill_probability:
             fill_qty = quantity * random.uniform(0.1, 0.9)
             remaining = quantity - fill_qty
-            return FillSimulation(
-                True, round(fill_qty, 8), slippage, round(remaining, 8), OrderStatus.PARTIAL
+            return self._fill_result(
+                True,
+                round(fill_qty, 8),
+                round(fill_price, 8),
+                round(remaining, 8),
+                OrderStatus.PARTIAL,
             )
-        return FillSimulation(
-            True, quantity, slippage, 0.0, OrderStatus.FILLED
-        )
+        return self._fill_result(True, quantity, round(fill_price, 8), 0.0, OrderStatus.FILLED)
 
     def place_limit_order(
         self,
@@ -85,14 +94,8 @@ class PaperBrokerAdapter:
         side: str,
         quantity: float,
         price: float,
-        market_price: float,
-    ) -> FillSimulation:
-        can_fill = (side == "buy" and market_price <= price) or (
-            side == "sell" and market_price >= price
-        )
-        if not can_fill:
-            return FillSimulation(False, 0.0, 0.0, quantity, OrderStatus.PENDING)
-        return self.place_market_order(market_id, side, quantity)
+    ) -> FillResult:
+        return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING)
 
     def place_stop_order(
         self,
@@ -101,21 +104,27 @@ class PaperBrokerAdapter:
         quantity: float,
         stop_price: float,
         market_price: float,
-    ) -> FillSimulation:
+    ) -> FillResult:
         triggered = (side == "buy" and market_price >= stop_price) or (
             side == "sell" and market_price <= stop_price
         )
         if not triggered:
-            return FillSimulation(False, 0.0, 0.0, quantity, OrderStatus.PENDING)
-        return self.place_market_order(market_id, side, quantity)
+            return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING)
+        return self.place_market_order(market_id, side, quantity, close_price=market_price)
 
-    def cancel_order(self) -> FillSimulation:
-        return FillSimulation(True, 0.0, 0.0, 0.0, OrderStatus.CANCELLED)
+    def cancel_order(self, order_id: str) -> FillResult:
+        return self._fill_result(True, 0.0, 0.0, 0.0, OrderStatus.CANCELLED)
+
+    def get_account_balance(self) -> float:
+        return 100000.0
+
+    def get_positions(self) -> list[dict]:
+        return []
 
 
 @dataclass
 class PaperTradingService:
-    broker: PaperBrokerAdapter
+    broker: BrokerAdapter
     signal_service: SignalService
     risk_service: RiskService
     portfolio_service: PortfolioService
@@ -191,9 +200,9 @@ class PaperTradingService:
                 continue
             side = "buy" if signal.direction.value == "long" else "sell"
             order = self.execution.create_market_order(market_id, side, qty)
-            fill = self.broker.place_market_order(market_id, side, qty)
+            fill = self.broker.place_market_order(market_id, side, qty, close_price=close_price)
             if fill.filled:
-                fill_price = close_price * fill.fill_price
+                fill_price = fill.fill_price
                 trade = Trade(
                     signal_id=signal.id,
                     market_id=market_id,
@@ -210,7 +219,7 @@ class PaperTradingService:
                     pnl=0.0,
                 )
                 session.positions[market_id] = position
-                if fill.status == OrderStatus.PARTIAL:
+                if fill.status == "partial":
                     session.open_orders.append(order)
                 else:
                     session.filled_orders.append(order)

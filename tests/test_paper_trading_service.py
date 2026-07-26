@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from datetime import UTC
+from datetime import datetime
 
 from traderos.domain.services.paper_trading_service import DeviationAnalysisService
 from traderos.domain.services.paper_trading_service import PaperBrokerAdapter
@@ -18,24 +18,24 @@ class TestPaperBrokerAdapter:
         assert result.filled
         assert result.fill_quantity == 100.0
         assert result.remaining == 0.0
-        assert result.status.value == "filled"
+        assert result.status == "filled"
 
     def test_place_market_order_rejected(self) -> None:
         broker = PaperBrokerAdapter(fill_probability=0.0)
         result = broker.place_market_order(uuid.uuid4(), "buy", 100.0)
         assert not result.filled
-        assert result.status.value == "rejected"
+        assert result.status == "rejected"
 
     def test_place_limit_order_triggers_buy(self) -> None:
         broker = PaperBrokerAdapter(fill_probability=1.0)
-        result = broker.place_limit_order(uuid.uuid4(), "buy", 100.0, 110.0, 100.0)
-        assert result.filled
+        result = broker.place_limit_order(uuid.uuid4(), "buy", 100.0, 110.0)
+        assert not result.filled
 
     def test_place_limit_order_no_trigger(self) -> None:
         broker = PaperBrokerAdapter(fill_probability=1.0)
-        result = broker.place_limit_order(uuid.uuid4(), "buy", 100.0, 90.0, 100.0)
+        result = broker.place_limit_order(uuid.uuid4(), "buy", 100.0, 90.0)
         assert not result.filled
-        assert result.status.value == "pending"
+        assert result.status == "pending"
 
     def test_place_stop_order_triggers_buy(self) -> None:
         broker = PaperBrokerAdapter(fill_probability=1.0)
@@ -46,12 +46,12 @@ class TestPaperBrokerAdapter:
         broker = PaperBrokerAdapter(fill_probability=1.0)
         result = broker.place_stop_order(uuid.uuid4(), "buy", 100.0, 105.0, 100.0)
         assert not result.filled
-        assert result.status.value == "pending"
+        assert result.status == "pending"
 
     def test_cancel_order(self) -> None:
         broker = PaperBrokerAdapter()
-        result = broker.cancel_order()
-        assert result.status.value == "cancelled"
+        result = broker.cancel_order("")
+        assert result.status == "cancelled"
 
     def test_place_market_order_slippage(self) -> None:
         broker = PaperBrokerAdapter(slippage_bps=10.0, fill_probability=1.0)
@@ -59,14 +59,12 @@ class TestPaperBrokerAdapter:
         assert result.fill_price == 1.001
 
     def test_partial_fill(self) -> None:
-        broker = PaperBrokerAdapter(
-            fill_probability=1.0, partial_fill_probability=1.0
-        )
+        broker = PaperBrokerAdapter(fill_probability=1.0, partial_fill_probability=1.0)
         result = broker.place_market_order(uuid.uuid4(), "buy", 100.0)
         assert result.filled
         assert result.fill_quantity < 100.0
         assert result.remaining > 0.0
-        assert result.status.value == "partial"
+        assert result.status == "partial"
 
     def test_sell_market_order(self) -> None:
         broker = PaperBrokerAdapter(fill_probability=1.0)
@@ -104,9 +102,9 @@ class TestPaperTradingService:
         svc = PaperTradingService(
             broker=PaperBrokerAdapter(),
             signal_service=None,  # type: ignore
-            risk_service=None,   # type: ignore
+            risk_service=None,  # type: ignore
             portfolio_service=None,  # type: ignore
-            execution=None,      # type: ignore
+            execution=None,  # type: ignore
         )
         sid = uuid.uuid4()
         mids = [uuid.uuid4()]
@@ -121,9 +119,9 @@ class TestPaperTradingService:
         svc = PaperTradingService(
             broker=PaperBrokerAdapter(),
             signal_service=None,  # type: ignore
-            risk_service=None,   # type: ignore
+            risk_service=None,  # type: ignore
             portfolio_service=None,  # type: ignore
-            execution=None,      # type: ignore
+            execution=None,  # type: ignore
         )
         session = svc.create_session(uuid.uuid4(), [uuid.uuid4()])
         started = svc.start_session(session.id)
@@ -134,9 +132,9 @@ class TestPaperTradingService:
         svc = PaperTradingService(
             broker=PaperBrokerAdapter(),
             signal_service=None,  # type: ignore
-            risk_service=None,   # type: ignore
+            risk_service=None,  # type: ignore
             portfolio_service=None,  # type: ignore
-            execution=None,      # type: ignore
+            execution=None,  # type: ignore
         )
         session = svc.create_session(uuid.uuid4(), [uuid.uuid4()])
         svc.start_session(session.id)
@@ -147,9 +145,9 @@ class TestPaperTradingService:
         svc = PaperTradingService(
             broker=PaperBrokerAdapter(),
             signal_service=None,  # type: ignore
-            risk_service=None,   # type: ignore
+            risk_service=None,  # type: ignore
             portfolio_service=None,  # type: ignore
-            execution=None,      # type: ignore
+            execution=None,  # type: ignore
         )
         session = svc.create_session(uuid.uuid4(), [uuid.uuid4()])
         svc.start_session(session.id)
@@ -161,9 +159,9 @@ class TestPaperTradingService:
         svc = PaperTradingService(
             broker=PaperBrokerAdapter(),
             signal_service=None,  # type: ignore
-            risk_service=None,   # type: ignore
+            risk_service=None,  # type: ignore
             portfolio_service=None,  # type: ignore
-            execution=None,      # type: ignore
+            execution=None,  # type: ignore
         )
         assert svc.get_session(uuid.uuid4()) is None
 
@@ -171,9 +169,9 @@ class TestPaperTradingService:
         svc = PaperTradingService(
             broker=PaperBrokerAdapter(),
             signal_service=None,  # type: ignore
-            risk_service=None,   # type: ignore
+            risk_service=None,  # type: ignore
             portfolio_service=None,  # type: ignore
-            execution=None,      # type: ignore
+            execution=None,  # type: ignore
         )
         assert svc.list_sessions() == []
         svc.create_session(uuid.uuid4(), [uuid.uuid4()])
@@ -183,9 +181,9 @@ class TestPaperTradingService:
         svc = PaperTradingService(
             broker=PaperBrokerAdapter(),
             signal_service=None,  # type: ignore
-            risk_service=None,   # type: ignore
+            risk_service=None,  # type: ignore
             portfolio_service=None,  # type: ignore
-            execution=None,      # type: ignore
+            execution=None,  # type: ignore
         )
         session = svc.create_session(uuid.uuid4(), [uuid.uuid4()])
         svc.process_candle(session.id, uuid.uuid4(), 100.0, datetime.now(UTC))

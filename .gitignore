@@ -22,6 +22,7 @@ node_modules/
 # Build
 dist/
 build/
+*.egg-info/
 
 # Coverage
 coverage/
