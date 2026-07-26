@@ -41,6 +41,12 @@
 - **`database/db_manager.py` updated:** Replaced inline `_create_tables()` with `_run_migrations()` calling migration manager.
 - **ADR-005:** Documented SQLite Dev / PostgreSQL Prod database strategy (`docs/adr/ADR-005.md`).
 
+### WP-071-078: Observability & Visualization
+- **`MetricsService`:** Counter/gauge/timing metrics collection with named samples, snapshot export, and time-series query with limit. `TimingContext` context manager for `with`-block profiling.
+- **`RunManifestService`:** Session/run recording with service, action, status, duration, metadata, and filtered retrieval.
+- **`VisualizationService`:** Chart data generators for equity curves, returns distribution (bucketed), drawdown charts, and performance summary bar charts. Outputs structured `LineChart`/`BarChart` named tuples.
+- **24 tests pass.**
+
 ### WP-067-070: Platform Layers (Notification, Health, Audit, CLI)
 - **`NotificationService`:** Multi-channel notification system (CONSOLE/FILE/WEBHOOK) with INFO/WARNING/ERROR/CRITICAL levels, metadata support, and structured logging output.
 - **`HealthService`:** Service registry with health check function execution, pass/fail reporting, history tracking, and aggregate status queries.

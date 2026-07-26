@@ -55,6 +55,12 @@ Build the full trading pipeline from strategy → signal → risk → portfolio 
 - `BacktestStep` NamedTuple for per-bar granularity
 - 5 tests pass
 
+### WP-071-078: Observability & Visualization — COMPLETED
+- `MetricsService` — Counter/gauge/timing metrics with snapshot and query
+- `RunManifestService` — Run recording with metadata and filtered retrieval
+- `VisualizationService` — Equity curve, returns distribution, drawdown, performance summary chart generators
+- 24 tests pass
+
 ### WP-067-070: Platform Layers — COMPLETED
 - `NotificationService` — Multi-channel (CONSOLE/FILE/WEBHOOK), 4 severity levels, metadata
 - `HealthService` — Service registry, check function execution, history tracking
@@ -74,7 +80,7 @@ Build the full trading pipeline from strategy → signal → risk → portfolio 
 ## Deliverables
 - 18 domain services across 7 engines (Strategy, Signal, Portfolio, Risk, Execution, Backtest, Paper)
 - Full trading pipeline: strategy → signal → risk → portfolio → execution → backtesting → paper trading
-- 465 tests pass (376 baseline + 89 new)
+- 489 tests pass (376 baseline + 113 new)
 - Test coverage: 87.7%
 
 ## Out of Scope
