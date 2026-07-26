@@ -41,6 +41,13 @@
 - **`database/db_manager.py` updated:** Replaced inline `_create_tables()` with `_run_migrations()` calling migration manager.
 - **ADR-005:** Documented SQLite Dev / PostgreSQL Prod database strategy (`docs/adr/ADR-005.md`).
 
+### New: REST API + Data Ingestion Service
+- **REST API** (`interfaces/api/server.py`): FastAPI server with 12 endpoints — health, strategies list/detail, backtest execute, orchestrator start/stop/status, paper session CRUD, audit trail, metrics snapshot, run manifest. Built with FastAPI + Pydantic models.
+- **API entry point** (`interfaces/api/main.py`): `uvicorn.run()` on 0.0.0.0:8000.
+- **`DataIngestionService`** (`domain/services/data_ingestion_service.py`): Manages data sources by market, fetches from configured collectors (MOCK/BINANCE/YFINANCE), returns normalized OHLCV dicts. Source CRUD included.
+- **`pyproject.toml`**: Added `[project.optional-dependencies]` for `api` (fastapi, uvicorn), `alpaca` (alpaca-py), `all`.
+- **5 tests pass.**
+
 ### New: Application Orchestrator + Broker Adapters
 - **`TradingOrchestrator`** (application/orchestrator.py): Central runtime that wires all services together. Modes: PAPER, LIVE, BACKTEST. Signal-driven trading cycle: strategy evaluation → signal processing → risk assessment → trade execution. Emits events, tracks health/metrics/audit/manifest. `run_cycle()` for single-pass, `run_forever()` for daemon mode with SIGINT/SIGTERM handling.
 - **`BrokerAdapter` ABC** (domain/adapters/broker_adapter.py): Polymorphic broker interface with market/limit/cancel/balance/positions.

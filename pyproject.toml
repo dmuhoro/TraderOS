@@ -3,6 +3,12 @@ name = "traderos"
 version = "0.2.0"
 description = "Research-first operating system for systematic traders"
 requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+api = ["fastapi>=0.110.0", "uvicorn>=0.29.0"]
+alpaca = ["alpaca-py>=0.30.0"]
+all = ["traderos[api]", "traderos[alpaca]"]
 
 [tool.black]
 line-length = 100

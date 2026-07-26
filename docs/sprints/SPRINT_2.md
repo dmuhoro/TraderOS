@@ -55,6 +55,13 @@ Build the full trading pipeline from strategy → signal → risk → portfolio 
 - `BacktestStep` NamedTuple for per-bar granularity
 - 5 tests pass
 
+### New: REST API + Data Ingestion Service — COMPLETED
+- FastAPI REST server (`traderos.interfaces.api.server`) — 12 endpoints: health, strategies, backtest, orchestrator control, paper sessions, audit, metrics, manifest
+- API entry point: `uvicorn traderos.interfaces.api.main:app --host 0.0.0.0 --port 8000`
+- `DataIngestionService` — multi-source data fetching via CollectorRegistry, normalized OHLCV output
+- Optional dependency groups: `traderos[api]`, `traderos[alpaca]`, `traderos[all]`
+- 5 tests pass
+
 ### New: Application Orchestrator + Broker Adapters — COMPLETED
 - `TradingOrchestrator` — central runtime with PAPER/LIVE/BACKTEST modes, signal-driven trading cycle, event emission, health/metrics/audit tracking
 - `BrokerAdapter` ABC — polymorphic interface for real/paper trading
@@ -92,7 +99,7 @@ Build the full trading pipeline from strategy → signal → risk → portfolio 
 ## Deliverables
 - 18 domain services across 7 engines (Strategy, Signal, Portfolio, Risk, Execution, Backtest, Paper)
 - Full trading pipeline: strategy → signal → risk → portfolio → execution → backtesting → paper trading
-- 502 tests pass (376 baseline + 126 new)
+- 507 tests pass (376 baseline + 131 new)
 - Test coverage: 87.7%
 
 ## Out of Scope
