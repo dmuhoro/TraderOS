@@ -45,7 +45,7 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short --cov=."
 
 [tool.coverage.run]
-source = ["analysis_engine", "backtesting", "configs", "correlation_engine", "data_pipeline", "database", "journal_engine", "liquidity_engine", "risk_engine", "strategy_lab", "visualization"]
+source = ["src/traderos"]
 omit = ["tests/*", ".venv/*", "*.pyc"]
 
 [tool.coverage.report]
@@ -63,17 +63,8 @@ reportMissingParameterType = false
 reportMissingTypeArgument = false
 reportUnknownLambdaType = false
 reportMissingImports = false
+extraPaths = ["src"]
 include = [
-    "analysis_engine",
-    "backtesting",
-    "configs",
-    "correlation_engine",
-    "data_pipeline",
-    "database",
-    "journal_engine",
-    "liquidity_engine",
-    "risk_engine",
-    "strategy_lab",
-    "visualization",
+    "src/traderos",
 ]
 exclude = ["tests", ".venv"]

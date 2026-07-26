@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 PROJECT := traderos
 PYTHON := python3
+export PYTHONPATH := src:$(PYTHONPATH)
 
 .PHONY: help setup test test-fast test-coverage lint lint-fix format format-check typecheck clean pre-commit pre-commit-install docker-build docker-up docker-down ci
 

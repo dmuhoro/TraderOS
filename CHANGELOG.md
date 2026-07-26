@@ -37,9 +37,20 @@
 
 ### WP-007: Database Migration Framework
 - **`database/migration_manager.py`:** Versioned schema migration engine with up/down support, automatic discovery of migration files, `_schema_version` tracking table.
-- **`database/migrations/001_initial.py`:** Initial schema migration capturing all 15 tables (market data, knowledge graph, strategy registry, etc.).
+- **`database/migrations/v001_initial.py`:** Initial schema migration capturing all 15 tables (market data, knowledge graph, strategy registry, etc.).
 - **`database/db_manager.py` updated:** Replaced inline `_create_tables()` with `_run_migrations()` calling migration manager.
 - **ADR-005:** Documented SQLite Dev / PostgreSQL Prod database strategy (`docs/adr/ADR-005.md`).
+
+### WP-008: Namespace Package Restructuring
+- **New layered structure under `src/traderos/`:**
+  - `domain/` — `analysis/`, `liquidity/`, `risk/`, `strategies/`, `backtesting/`, `research/`
+  - `infrastructure/` — `config/`, `database/`, `data/`
+  - `application/` — `orchestrator.py`
+  - `interfaces/` — `cli/`, `visualization/`
+- **Dual directory strategy:** Old flat modules (`analysis_engine/`, `database/`, etc.) become re-export shims preserving backward compatibility.
+- **All internal imports updated** to `traderos.domain.*`, `traderos.infrastructure.*`, `traderos.application.*`, `traderos.interfaces.*`.
+- **Tooling configs updated:** pyproject.toml (pyright extraPaths, coverage source), Makefile (PYTHONPATH=src), Dockerfile (ENV PYTHONPATH), CI workflow.
+- **Entry point scripts** (`main.py`, `dashboard_cli.py`, `research_cli.py`, `strategy_lab_cli.py`) become thin wrappers that add `src` to path and delegate to new structure.
 
 ## [0.2.0] - 2026-06-01
 ### Added
