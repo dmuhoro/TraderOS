@@ -1,29 +1,33 @@
-import pandas as pd
 import numpy as np
-from typing import Dict
+import pandas as pd
+
 
 class MarketAnalyzer:
     @staticmethod
-    def compute_moving_averages(df: pd.DataFrame, windows=[20, 50, 200]) -> pd.DataFrame:
+    def compute_moving_averages(df: pd.DataFrame, windows=None) -> pd.DataFrame:
+        if windows is None:
+            windows = [20, 50, 200]
         for window in windows:
-            df[f'sma_{window}'] = df['close'].rolling(window=window).mean()
+            df[f"sma_{window}"] = df["close"].rolling(window=window).mean()
         return df
 
     @staticmethod
     def compute_volatility(df: pd.DataFrame, window=14) -> pd.DataFrame:
         # Standard deviation of returns
-        df['returns'] = df['close'].pct_change()
-        df['volatility'] = df['returns'].rolling(window=window).std() * np.sqrt(252 * 24) # Annualized
-        
+        df["returns"] = df["close"].pct_change()
+        df["volatility"] = df["returns"].rolling(window=window).std() * np.sqrt(
+            252 * 24
+        )  # Annualized
+
         # ATR - Average True Range
-        high_low = df['high'] - df['low']
-        high_close = np.abs(df['high'] - df['close'].shift())
-        low_close = np.abs(df['low'] - df['close'].shift())
-        
+        high_low = df["high"] - df["low"]
+        high_close = np.abs(df["high"] - df["close"].shift())
+        low_close = np.abs(df["low"] - df["close"].shift())
+
         ranges = pd.concat([high_low, high_close, low_close], axis=1)
         true_range = np.max(ranges, axis=1)
-        df['atr'] = true_range.rolling(window=window).mean()
-        
+        df["atr"] = pd.Series(true_range, index=df.index).rolling(window=window).mean()
+
         return df
 
     @staticmethod
@@ -37,23 +41,23 @@ class MarketAnalyzer:
         """
         df = MarketAnalyzer.compute_moving_averages(df)
         df = MarketAnalyzer.compute_volatility(df)
-        
+
         def classify(row):
-            if pd.isna(row['sma_200']):
+            if pd.isna(row["sma_200"]):
                 return "Unknown"
-            
+
             trend = "Ranging"
-            if row['close'] > row['sma_50'] > row['sma_200']:
+            if row["close"] > row["sma_50"] > row["sma_200"]:
                 trend = "Trending Bullish"
-            elif row['close'] < row['sma_50'] < row['sma_200']:
+            elif row["close"] < row["sma_50"] < row["sma_200"]:
                 trend = "Trending Bearish"
-            
-            vol_mean = df['volatility'].mean()
-            vol_status = "High Vol" if row['volatility'] > vol_mean else "Low Vol"
-            
+
+            vol_mean = df["volatility"].mean()
+            vol_status = "High Vol" if row["volatility"] > vol_mean else "Low Vol"
+
             return f"{trend} ({vol_status})"
 
-        df['regime'] = df.apply(classify, axis=1)
+        df["regime"] = df.apply(classify, axis=1)
         return df
 
     @staticmethod
@@ -61,13 +65,13 @@ class MarketAnalyzer:
         """Format features for the database."""
         # We'll store regime, volatility, and atr as features
         melted = []
-        for feature in ['regime', 'volatility', 'atr']:
+        for feature in ["regime", "volatility", "atr"]:
             if feature in df.columns:
-                temp = df[['timestamp', feature]].copy()
-                temp['feature_name'] = feature
-                temp['feature_value'] = temp[feature]
-                melted.append(temp[['timestamp', 'feature_name', 'feature_value']])
-        
+                temp = df[["timestamp", feature]].copy()
+                temp["feature_name"] = feature
+                temp["feature_value"] = temp[feature]
+                melted.append(temp[["timestamp", "feature_name", "feature_value"]])
+
         if not melted:
             return pd.DataFrame()
         return pd.concat(melted)

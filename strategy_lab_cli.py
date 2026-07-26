@@ -1,10 +1,10 @@
 import argparse
-from database.db_manager import DatabaseManager
-from strategy_lab.strategies import registry
+
 from backtesting.engine import BacktestEngine
+from database.db_manager import DatabaseManager
 from journal_engine.research_engine import ResearchEngine
-from tabulate import tabulate
-import pandas as pd
+from strategy_lab.strategies import registry
+
 
 def main():
     parser = argparse.ArgumentParser(description="TraderOS Strategy Lab & Backtest CLI")
@@ -40,8 +40,8 @@ def main():
 
             print(f"Running backtest for {args.strategy} on {args.symbol}...")
             results = bt_engine.run_backtest(strategy, df)
-            
-            metrics = results['metrics']
+
+            metrics = results["metrics"]
             print("\n=== BACKTEST RESULTS ===")
             for k, v in metrics.items():
                 print(f"{k.replace('_', ' ').title()}: {v:.4f}")
@@ -52,16 +52,21 @@ def main():
                 cursor = db.conn.cursor()
                 cursor.execute("SELECT id FROM backtest_results ORDER BY id DESC LIMIT 1")
                 bt_id = cursor.fetchone()[0]
-                
-                tid = research.create_test(args.hyp_id, {"strategy": args.strategy, "symbol": args.symbol}, backtest_id=bt_id)
+
+                tid = research.create_test(
+                    args.hyp_id,
+                    {"strategy": args.strategy, "symbol": args.symbol},
+                    backtest_id=bt_id,
+                )
                 research.record_result(tid, metrics)
                 print(f"\nSuccessfully linked backtest to Hypothesis #{args.hyp_id}")
 
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             print(f"Error: {e}")
 
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,79 @@
+[project]
+name = "traderos"
+version = "0.2.0"
+description = "Research-first operating system for systematic traders"
+requires-python = ">=3.11"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+force_single_line = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+extend-select = [
+    "B",    # bugbear
+    "N",    # naming
+    "W",    # warnings
+    "E",    # errors
+    "F",    # pyflakes
+    "UP",   # pyupgrade
+    "LOG",  # logging
+    "G",    # flake8-logging-format
+]
+ignore = ["I001"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+force-single-line = true
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --cov=."
+
+[tool.coverage.run]
+source = ["analysis_engine", "backtesting", "configs", "correlation_engine", "data_pipeline", "database", "journal_engine", "liquidity_engine", "risk_engine", "strategy_lab", "visualization"]
+omit = ["tests/*", ".venv/*", "*.pyc"]
+
+[tool.coverage.report]
+fail_under = 30
+show_missing = true
+
+[tool.pyright]
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownParameterType = false
+reportUnknownArgumentType = false
+reportMissingParameterType = false
+reportMissingTypeArgument = false
+reportUnknownLambdaType = false
+reportMissingImports = false
+include = [
+    "analysis_engine",
+    "backtesting",
+    "configs",
+    "correlation_engine",
+    "data_pipeline",
+    "database",
+    "journal_engine",
+    "liquidity_engine",
+    "risk_engine",
+    "strategy_lab",
+    "visualization",
+]
+exclude = ["tests", ".venv"]

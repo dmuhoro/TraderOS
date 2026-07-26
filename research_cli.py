@@ -1,8 +1,10 @@
 import argparse
-import sys
+
+from tabulate import tabulate
+
 from database.db_manager import DatabaseManager
 from journal_engine.research_engine import ResearchEngine
-from tabulate import tabulate
+
 
 def main():
     parser = argparse.ArgumentParser(description="TraderOS Research CLI")
@@ -40,7 +42,9 @@ def main():
 
     elif args.command == "list":
         cursor = db.conn.cursor()
-        cursor.execute("SELECT id, timestamp, symbol, content FROM observations ORDER BY id DESC LIMIT 10")
+        cursor.execute(
+            "SELECT id, timestamp, symbol, content FROM observations ORDER BY id DESC LIMIT 10"
+        )
         rows = cursor.fetchall()
         print(tabulate(rows, headers=["ID", "Timestamp", "Symbol", "Content"]))
 
@@ -58,6 +62,7 @@ def main():
 
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()

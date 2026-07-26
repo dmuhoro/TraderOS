@@ -1,9 +1,11 @@
-from abc import ABC, abstractmethod
+from abc import ABC
+from abc import abstractmethod
+
 import pandas as pd
-from typing import Dict, Optional
+
 
 class Strategy(ABC):
-    def __init__(self, name: str, params: Optional[Dict] = None):
+    def __init__(self, name: str, params: dict | None = None):
         self.name = name
         self.params = params or {}
 
@@ -13,17 +15,15 @@ class Strategy(ABC):
         Input: OHLC DataFrame
         Output: DataFrame with a 'signal' column (1: Long, -1: Short, 0: Neutral)
         """
-        pass
 
     @abstractmethod
     def calculate_risk(self, df: pd.DataFrame) -> float:
         """Calculate recommended risk per trade based on strategy logic."""
-        pass
 
     @abstractmethod
-    def define_exit(self, df: pd.DataFrame) -> Dict:
+    def define_exit(self, df: pd.DataFrame) -> dict:
         """Define take profit and stop loss levels."""
-        pass
+
 
 class StrategyRegistry:
     def __init__(self):
@@ -33,12 +33,13 @@ class StrategyRegistry:
         self._strategies[strategy_cls.__name__] = strategy_cls
         return strategy_cls
 
-    def get_strategy(self, name: str, params: Optional[Dict] = None):
+    def get_strategy(self, name: str, params: dict | None = None):
         if name in self._strategies:
             return self._strategies[name](params)
         raise ValueError(f"Strategy {name} not found in registry.")
 
     def list_strategies(self):
         return list(self._strategies.keys())
+
 
 registry = StrategyRegistry()

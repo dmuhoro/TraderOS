@@ -1,11 +1,14 @@
-import unittest
-import pandas as pd
-import numpy as np
-from database.db_manager import DatabaseManager
-from strategy_lab.strategies import MovingAverageTrend
-from backtesting.engine import BacktestEngine
-from risk_engine.engine import RiskEngine
 import os
+import unittest
+
+import numpy as np
+import pandas as pd
+
+from backtesting.engine import BacktestEngine
+from database.db_manager import DatabaseManager
+from risk_engine.engine import RiskEngine
+from strategy_lab.strategies import MovingAverageTrend
+
 
 class TestTraderOSSprint1(unittest.TestCase):
     @classmethod
@@ -20,37 +23,41 @@ class TestTraderOSSprint1(unittest.TestCase):
     def test_strategy_signal_generation(self):
         strategy = MovingAverageTrend()
         # Create crossover data
-        dates = pd.date_range(start="2023-01-01", periods=100, freq='h')
+        dates = pd.date_range(start="2023-01-01", periods=100, freq="h")
         price = np.concatenate([np.linspace(100, 110, 50), np.linspace(110, 90, 50)])
-        df = pd.DataFrame({
-            'timestamp': dates,
-            'open': price,
-            'high': price + 1,
-            'low': price - 1,
-            'close': price,
-            'volume': 100,
-            'symbol': 'TEST'
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": dates,
+                "open": price,
+                "high": price + 1,
+                "low": price - 1,
+                "close": price,
+                "volume": 100,
+                "symbol": "TEST",
+            }
+        )
         df = strategy.generate_signal(df)
-        self.assertIn('signal', df.columns)
-        self.assertTrue(any(df['signal'] != 0))
+        self.assertIn("signal", df.columns)
+        self.assertTrue(any(df["signal"] != 0))
 
     def test_backtest_execution(self):
         strategy = MovingAverageTrend()
-        dates = pd.date_range(start="2023-01-01", periods=200, freq='h')
+        dates = pd.date_range(start="2023-01-01", periods=200, freq="h")
         price = 100 + np.random.normal(0, 1, 200).cumsum()
-        df = pd.DataFrame({
-            'timestamp': dates,
-            'open': price,
-            'high': price + 1,
-            'low': price - 1,
-            'close': price,
-            'volume': 100,
-            'symbol': 'TEST'
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": dates,
+                "open": price,
+                "high": price + 1,
+                "low": price - 1,
+                "close": price,
+                "volume": 100,
+                "symbol": "TEST",
+            }
+        )
         results = self.bt_engine.run_backtest(strategy, df)
-        self.assertIn('metrics', results)
-        self.assertIn('total_return', results['metrics'])
+        self.assertIn("metrics", results)
+        self.assertIn("total_return", results["metrics"])
 
     def test_risk_position_sizing(self):
         # 100k capital, 2% volatility
@@ -79,6 +86,7 @@ class TestTraderOSSprint1(unittest.TestCase):
         cls.db.close()
         if os.path.exists("test_sprint1.db"):
             os.remove("test_sprint1.db")
+
 
 if __name__ == "__main__":
     unittest.main()

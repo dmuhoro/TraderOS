@@ -1,10 +1,13 @@
 import logging
-from typing import List
+
 from configs.config_loader import config
+from data_pipeline.collectors import BinanceCollector
+from data_pipeline.collectors import MockDataCollector
+from data_pipeline.collectors import YFinanceCollector
 from database.db_manager import DatabaseManager
-from data_pipeline.collectors import BinanceCollector, YFinanceCollector, MockDataCollector
 
 logger = logging.getLogger(__name__)
+
 
 class DataPipeline:
     def __init__(self, db_manager: DatabaseManager):
@@ -13,10 +16,10 @@ class DataPipeline:
         self.yfinance = YFinanceCollector()
         self.mock = MockDataCollector()
 
-    def run(self, symbols: List[str] = None):
+    def run(self, symbols: list[str] | None = None):
         """Execute the data collection pipeline."""
         logger.info("Starting data collection pipeline...")
-        
+
         if not symbols:
             forex = config.get("data_collection.forex_symbols", [])
             crypto = config.get("data_collection.crypto_symbols", [])
@@ -33,13 +36,13 @@ class DataPipeline:
                 df = self.yfinance.fetch_data(symbol, days)
                 if not df.empty:
                     self.db.save_ohlc(df, symbol)
-                    logger.info(f"Successfully collected {len(df)} rows for {symbol}")
+                    logger.info("Successfully collected %d rows for %s", len(df), symbol)
                 else:
-                    logger.warning(f"No data returned for {symbol}, trying mock...")
+                    logger.warning("No data returned for %s, trying mock...", symbol)
                     df = self.mock.fetch_data(symbol, days)
                     self.db.save_ohlc(df, symbol)
-            except Exception as e:
-                logger.error(f"Pipeline error for {symbol}: {e}")
+            except (ValueError, ConnectionError) as e:
+                logger.error("Pipeline error for %s: %s", symbol, e)
 
         # Process Crypto
         for symbol in crypto:
@@ -47,12 +50,12 @@ class DataPipeline:
                 df = self.binance.fetch_data(symbol, days)
                 if not df.empty:
                     self.db.save_ohlc(df, symbol)
-                    logger.info(f"Successfully collected {len(df)} rows for {symbol}")
+                    logger.info("Successfully collected %d rows for %s", len(df), symbol)
                 else:
-                    logger.warning(f"No data returned for {symbol}, trying mock...")
+                    logger.warning("No data returned for %s, trying mock...", symbol)
                     df = self.mock.fetch_data(symbol, days)
                     self.db.save_ohlc(df, symbol)
-            except Exception as e:
-                logger.error(f"Pipeline error for {symbol}: {e}")
+            except (ValueError, ConnectionError) as e:
+                logger.error("Pipeline error for %s: %s", symbol, e)
 
         logger.info("Data collection pipeline completed.")
