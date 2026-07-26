@@ -41,6 +41,13 @@
 - **`database/db_manager.py` updated:** Replaced inline `_create_tables()` with `_run_migrations()` calling migration manager.
 - **ADR-005:** Documented SQLite Dev / PostgreSQL Prod database strategy (`docs/adr/ADR-005.md`).
 
+### WP-079-091: Integration, Performance, Docs, Release
+- **Integration test suite** (`tests/integration/`): 6 cross-engine tests covering strategy→backtest→risk→execution→paper pipeline, audit trail integration, metrics collection.
+- **Performance benchmarks** (`tests/performance/`): 2 benchmarks — 1000-candle backtest under 1s, 1000-order execution under 100ms.
+- **Sprint documentation** updated with all WP completions.
+- **497 tests pass** (376 baseline + 121 new across all layers).
+- **Coverage: 88.7%**, lint/typecheck pass, CI/CD ready.
+
 ### WP-071-078: Observability & Visualization
 - **`MetricsService`:** Counter/gauge/timing metrics collection with named samples, snapshot export, and time-series query with limit. `TimingContext` context manager for `with`-block profiling.
 - **`RunManifestService`:** Session/run recording with service, action, status, duration, metadata, and filtered retrieval.

@@ -55,6 +55,12 @@ Build the full trading pipeline from strategy → signal → risk → portfolio 
 - `BacktestStep` NamedTuple for per-bar granularity
 - 5 tests pass
 
+### WP-079-091: Integration, Performance, Docs, Release — COMPLETED
+- Integration tests: strategy→backtest→risk→execution→paper pipeline, audit trail, metrics
+- Performance benchmarks: 1000-candle backtest < 1s, 1000-order execution < 100ms
+- Sprint docs updated, CHANGELOG finalized
+- 497 tests pass, coverage 88.7%, lint/typecheck clean
+
 ### WP-071-078: Observability & Visualization — COMPLETED
 - `MetricsService` — Counter/gauge/timing metrics with snapshot and query
 - `RunManifestService` — Run recording with metadata and filtered retrieval
@@ -80,7 +86,7 @@ Build the full trading pipeline from strategy → signal → risk → portfolio 
 ## Deliverables
 - 18 domain services across 7 engines (Strategy, Signal, Portfolio, Risk, Execution, Backtest, Paper)
 - Full trading pipeline: strategy → signal → risk → portfolio → execution → backtesting → paper trading
-- 489 tests pass (376 baseline + 113 new)
+- 497 tests pass (376 baseline + 121 new)
 - Test coverage: 87.7%
 
 ## Out of Scope
