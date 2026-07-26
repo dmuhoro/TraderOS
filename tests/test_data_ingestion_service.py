@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from datetime import datetime
 
 from traderos.domain.collectors.base import CollectorOHLCV
-from traderos.domain.collectors.base import CollectorType
 from traderos.domain.collectors.base import CollectorRegistry
+from traderos.domain.collectors.base import CollectorType
 from traderos.domain.collectors.base import DataCollector
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 
@@ -16,8 +17,13 @@ class _MockCollector(DataCollector):
     def fetch_historical(self, symbol, interval="1d", start=None, end=None, limit=500):
         return [
             CollectorOHLCV(
-                open=100, high=101, low=99, close=100, volume=1000,
-                timestamp=datetime.now(), symbol=symbol,
+                open=100,
+                high=101,
+                low=99,
+                close=100,
+                volume=1000,
+                timestamp=datetime.now(tz=UTC),
+                symbol=symbol,
             )
             for _ in range(limit)
         ]
@@ -71,6 +77,6 @@ class TestDataIngestionService:
         source = svc.add_source(uuid.uuid4(), "TEST", CollectorType.BINANCE)
         try:
             svc.fetch_latest(source)
-            assert False, "Expected ValueError"
+            raise AssertionError("Expected ValueError")
         except ValueError:
             pass

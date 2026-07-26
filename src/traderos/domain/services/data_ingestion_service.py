@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from dataclasses import field
-from datetime import datetime
 from typing import NamedTuple
 
 from traderos.domain.collectors.base import CollectorRegistry
@@ -45,10 +44,7 @@ class DataIngestionService:
         result: list[dict] = []
         for r in raw:
             ts = r.timestamp
-            if hasattr(r, "timestamp") and isinstance(ts, datetime):
-                ts_str = ts.isoformat()
-            else:
-                ts_str = str(ts)
+            ts_str = ts.isoformat()
             result.append(
                 {
                     "timestamp": ts_str,

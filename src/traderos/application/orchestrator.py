@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any
 
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
+from traderos.domain.entities.trade import TradeSide
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.data_ingestion_service import DataIngestionService
@@ -67,6 +68,10 @@ class TradingOrchestrator:
 
     market_ids: list[uuid.UUID] = field(default_factory=list)
     _running: bool = False
+
+    @property
+    def running(self) -> bool:
+        return self._running
 
     def start(self) -> None:
         self._running = True
@@ -159,7 +164,7 @@ class TradingOrchestrator:
                             price=close_price,
                             confidence=signal.confidence,
                             atr=close_price * 0.01,
-                            account_equity=self.portfolio_service.get_summary(10000.0).total_value,
+                            account_equity=self.portfolio_service.get_summary(10000.0).total_equity,
                         )
                         if risk.kelly_fraction <= 0:
                             continue
@@ -177,7 +182,11 @@ class TradingOrchestrator:
                             self.portfolio_service.open_trade(
                                 signal_id=signal.id,
                                 market_id=market_id,
-                                side=("buy" if signal.direction.value == "long" else "sell"),
+                                side=(
+                                    TradeSide.BUY
+                                    if signal.direction.value == "long"
+                                    else TradeSide.SELL
+                                ),
                                 quantity=fill.fill_quantity,
                                 price=fill.fill_price,
                             )

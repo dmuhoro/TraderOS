@@ -65,10 +65,11 @@ def cmd_strategies(args: argparse.Namespace) -> None:
 
 
 def cmd_backtest(args: argparse.Namespace) -> None:
-    strat = strategy_registry.get(args.strategy)
-    if strat is None:
+    strat_cls = strategy_registry.get(args.strategy)
+    if strat_cls is None:
         print(f"Unknown strategy: {args.strategy}")
         return
+    strat = strat_cls()
     from datetime import datetime
     from decimal import Decimal
 
@@ -87,7 +88,7 @@ def cmd_backtest(args: argparse.Namespace) -> None:
                     high=Decimal(str(101 + i)),
                     low=Decimal(str(99 + i)),
                     close=Decimal(str(100 + i)),
-                    volume=Decimal("1000"),
+                    volume=Decimal(1000),
                 ),
                 timestamp=datetime(2024, 1, 1, tzinfo=UTC),
                 timeframe=Timeframe.DAY_1,

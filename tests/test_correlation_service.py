@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from datetime import datetime
 from decimal import Decimal
 
@@ -18,7 +19,7 @@ def _c(close: float, ts: datetime) -> Candle:
             high=Decimal(str(close + 1)),
             low=Decimal(str(close - 1)),
             close=Decimal(str(close)),
-            volume=Decimal("1000"),
+            volume=Decimal(1000),
         ),
         timestamp=ts,
         timeframe=Timeframe.DAY_1,
@@ -26,7 +27,7 @@ def _c(close: float, ts: datetime) -> Candle:
 
 
 def _ts(day: int) -> datetime:
-    return datetime(2024, 1, day)
+    return datetime(2024, 1, day, tzinfo=UTC)
 
 
 class TestCorrelationService:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from decimal import Decimal
@@ -19,9 +20,9 @@ def _c(close: float, idx: int = 0) -> Candle:
             high=Decimal(str(close + 1)),
             low=Decimal(str(close - 1)),
             close=Decimal(str(close)),
-            volume=Decimal("1000"),
+            volume=Decimal(1000),
         ),
-        timestamp=datetime(2024, 1, 1) + timedelta(days=idx),
+        timestamp=datetime(2024, 1, 1, tzinfo=UTC) + timedelta(days=idx),
         timeframe=Timeframe.DAY_1,
     )
 

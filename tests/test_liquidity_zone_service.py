@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from datetime import datetime
 
 from traderos.domain.entities import Indicator
@@ -15,7 +16,7 @@ def _ind(value: float, ts: datetime) -> Indicator:
 
 
 def _ts(day: int) -> datetime:
-    return datetime(2024, 1, day)
+    return datetime(2024, 1, day, tzinfo=UTC)
 
 
 class TestLiquidityZoneService:

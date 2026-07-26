@@ -69,9 +69,7 @@ def build_orchestrator(
     collector_registry = CollectorRegistry()
     collector_registry.register(MockDataCollector())
     try:
-        from traderos.infrastructure.collectors.binance_collector import (  # noqa: PLC0415
-            BinanceCollector,
-        )
+        from traderos.infrastructure.collectors.binance_collector import BinanceCollector
 
         collector_registry.register(BinanceCollector())
     except ImportError:
@@ -97,7 +95,7 @@ def build_orchestrator(
     broker: BrokerAdapter
     if trading_mode == TradingMode.LIVE and cfg.alpaca_api_key and cfg.alpaca_secret_key:
         try:
-            from traderos.infrastructure.alpaca_broker import AlpacaBrokerAdapter  # noqa: PLC0415
+            from traderos.infrastructure.alpaca_broker import AlpacaBrokerAdapter
 
             broker = AlpacaBrokerAdapter(
                 api_key=cfg.alpaca_api_key,

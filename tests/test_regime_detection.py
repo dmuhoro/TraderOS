@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from datetime import datetime
 from decimal import Decimal
 
@@ -19,9 +20,9 @@ def _c(close: float, idx: int = 0) -> Candle:
             high=Decimal(str(close + 5)),
             low=Decimal(str(close - 5)),
             close=Decimal(str(close)),
-            volume=Decimal("1000"),
+            volume=Decimal(1000),
         ),
-        timestamp=datetime(2024, 1, 1 + idx, tzinfo=None),
+        timestamp=datetime(2024, 1, 1 + idx, tzinfo=UTC),
         timeframe=Timeframe.DAY_1,
     )
 
@@ -77,7 +78,7 @@ class TestRegimeWithVolatility:
         candles = [_c(p, idx=i) for i, p in enumerate(prices)]
         results = RegimeDetectionService.detect_with_volatility(candles, 3, 5)
         assert len(results) > 0
-        regimes, volatilities = zip(*results, strict=False)
+        regimes, _volatilities = zip(*results, strict=False)
         assert all(r.regime == Regime.TRENDING_BULLISH for r in regimes)
 
     def test_empty_with_volatility(self) -> None:

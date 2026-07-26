@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from datetime import datetime
 from decimal import Decimal
 
@@ -14,17 +15,17 @@ def _candle(
     close: float, high: float | None = None, low: float | None = None, idx: int = 0
 ) -> Candle:
     h = close + 5 if high is None else high
-    l = close - 5 if low is None else low
+    low_val = close - 5 if low is None else low
     return Candle(
         market_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
         ohlcv=OHLCV(
             open=Decimal(str(close)),
             high=Decimal(str(h)),
-            low=Decimal(str(l)),
+            low=Decimal(str(low_val)),
             close=Decimal(str(close)),
-            volume=Decimal("1000"),
+            volume=Decimal(1000),
         ),
-        timestamp=datetime(2024, 1, 1 + idx, tzinfo=None),
+        timestamp=datetime(2024, 1, 1 + idx, tzinfo=UTC),
         timeframe=Timeframe.DAY_1,
     )
 
@@ -37,9 +38,9 @@ def _candle_ohlcv(open_v: float, high: float, low: float, close: float, idx: int
             high=Decimal(str(high)),
             low=Decimal(str(low)),
             close=Decimal(str(close)),
-            volume=Decimal("1000"),
+            volume=Decimal(1000),
         ),
-        timestamp=datetime(2024, 1, 1 + idx, tzinfo=None),
+        timestamp=datetime(2024, 1, 1 + idx, tzinfo=UTC),
         timeframe=Timeframe.DAY_1,
     )
 

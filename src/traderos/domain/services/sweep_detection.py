@@ -48,7 +48,9 @@ class SweepDetectionService:
                     SweepEvent(
                         timestamp=candle.timestamp,
                         event_type="Liquidity Sweep (Bearish)",
-                        description=f"Price swept above previous high {last_high:.4f} and rejected.",
+                        description=(
+                            f"Price swept above previous high {last_high:.4f} and rejected."
+                        ),
                     )
                 )
 

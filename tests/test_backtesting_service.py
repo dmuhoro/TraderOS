@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from datetime import UTC
+from datetime import datetime
 from decimal import Decimal
 
 from traderos.domain.entities import OHLCV
@@ -38,7 +38,7 @@ class TestBacktestingService:
                         high=Decimal(str(start_price + i + 1)),
                         low=Decimal(str(start_price + i - 1)),
                         close=Decimal(str(start_price + i)),
-                        volume=Decimal("1000"),
+                        volume=Decimal(1000),
                     ),
                     timestamp=datetime(2024, 1, 1, tzinfo=UTC),
                     timeframe=Timeframe.DAY_1,

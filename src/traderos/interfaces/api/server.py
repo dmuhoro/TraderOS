@@ -1,7 +1,10 @@
+# pyright: reportUntypedFunctionDecorator=false, reportUnusedFunction=false, reportOptionalCall=false, reportPrivateUsage=false
+
 from __future__ import annotations
 
 import uuid
 from datetime import UTC
+from typing import TYPE_CHECKING
 from typing import Any
 
 from traderos.application.factory import build_orchestrator
@@ -11,29 +14,41 @@ from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
 from traderos.infrastructure.config.config_loader import Config
 
-try:
+if TYPE_CHECKING:
     from fastapi import FastAPI
     from fastapi import HTTPException
     from fastapi import Query
     from pydantic import BaseModel
 
-    HAS_FASTAPI = True
-except ImportError:
-    HAS_FASTAPI = False
+    _has_fastapi = True
+else:
+    try:
+        from fastapi import FastAPI
+        from fastapi import HTTPException
+        from fastapi import Query
+        from pydantic import BaseModel  # type: ignore[assignment]
+
+        _has_fastapi = True
+    except ImportError:
+        _has_fastapi = False
+        BaseModel = object  # type: ignore[assignment]
+        FastAPI = None  # type: ignore[assignment]
+        HTTPException = None  # type: ignore[assignment]
+        Query = None  # type: ignore[assignment]
 
 
-class TradeRequest(BaseModel):
+class TradeRequest(BaseModel):  # type: ignore[valid-type,misc]
     market_id: str
     side: str
     quantity: float
 
 
-class BacktestRequest(BaseModel):
+class BacktestRequest(BaseModel):  # type: ignore[valid-type,misc]
     strategy: str
     candles: int = 50
 
 
-class PaperSessionResponse(BaseModel):
+class PaperSessionResponse(BaseModel):  # type: ignore[valid-type,misc]
     id: str
     status: str
     capital: float
@@ -53,19 +68,20 @@ def create_orchestrator(mode: str = "paper") -> TradingOrchestrator:
     return orch
 
 
-def _ensure_fastapi() -> None:
-    if not HAS_FASTAPI:
+def ensure_fastapi() -> None:
+    if not _has_fastapi:
         raise ImportError("FastAPI is required. Install with: pip install 'traderos[api]'")
 
 
 def build_app() -> Any:
-    _ensure_fastapi()
+    ensure_fastapi()
+    assert FastAPI is not None
     app = FastAPI(title="TraderOS API", version="0.3.0")
 
     @app.get("/health")
     def get_health():
         orch = create_orchestrator()
-        return {"status": "ok", "mode": orch.mode.value, "running": orch._running}
+        return {"status": "ok", "mode": orch.mode.value, "running": orch.running}
 
     @app.get("/strategies")
     def list_strategies():
