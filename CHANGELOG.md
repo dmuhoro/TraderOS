@@ -41,6 +41,13 @@
 - **`database/db_manager.py` updated:** Replaced inline `_create_tables()` with `_run_migrations()` calling migration manager.
 - **ADR-005:** Documented SQLite Dev / PostgreSQL Prod database strategy (`docs/adr/ADR-005.md`).
 
+### WP-063-066: Paper Trading Engine
+- **`PaperTradingService`:** Session lifecycle management (created→running→paused→stopped), signal-driven pipeline (signal→risk→portfolio→execution), equity curve tracking.
+- **`PaperBrokerAdapter`:** Simulated broker with configurable slippage, fill probability, partial fills, and market/limit/stop order execution.
+- **`PaperSession` entity:** Tracks session state, open/filled orders, positions, trades, equity curve, and capital allocation.
+- **`DeviationAnalysisService`:** Compares paper trading vs backtest metrics (Sharpe, max DD, win rate deviations), computes correlation corridor and RMSE between return streams.
+- **26 tests pass.**
+
 ### WP-059-062: Backtesting Engine
 - **`BacktestingService`:** Time-series iteration over candles, strategy evaluation loop, trade simulation via `ExecutionService`, equity curve tracking, and metrics computation.
 - **Metrics:** Sharpe/Sortino/Calmar ratios, max drawdown, win rate, profit factor, recovery factor — all using sample standard deviation (ddof=1).

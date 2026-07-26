@@ -3,6 +3,11 @@ from traderos.domain.services.analysis_service import BollingerBands
 from traderos.domain.services.analysis_service import Stochastic
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.backtesting_service import BacktestStep
+from traderos.domain.services.paper_trading_service import DeviationAnalysisService
+from traderos.domain.services.paper_trading_service import PaperBrokerAdapter
+from traderos.domain.services.paper_trading_service import PaperSession
+from traderos.domain.services.paper_trading_service import PaperSessionStatus
+from traderos.domain.services.paper_trading_service import PaperTradingService
 from traderos.domain.services.breakout_detection import BreakoutDetectionService
 from traderos.domain.services.breakout_detection import BreakoutEvent
 from traderos.domain.services.correlation_service import CorrelationResult
@@ -48,10 +53,15 @@ __all__ = [
     "CorrelationService",
     "DataNormalizer",
     "DataValidator",
+    "DeviationAnalysisService",
     "KnowledgeGraphService",
     "LiquidityZoneService",
     "MeanReversion",
     "MovingAverageTrend",
+    "PaperBrokerAdapter",
+    "PaperSession",
+    "PaperSessionStatus",
+    "PaperTradingService",
     "PortfolioRisk",
     "PortfolioService",
     "PortfolioSummary",
