@@ -41,6 +41,12 @@
 - **`database/db_manager.py` updated:** Replaced inline `_create_tables()` with `_run_migrations()` calling migration manager.
 - **ADR-005:** Documented SQLite Dev / PostgreSQL Prod database strategy (`docs/adr/ADR-005.md`).
 
+### New: Application Orchestrator + Broker Adapters
+- **`TradingOrchestrator`** (application/orchestrator.py): Central runtime that wires all services together. Modes: PAPER, LIVE, BACKTEST. Signal-driven trading cycle: strategy evaluation → signal processing → risk assessment → trade execution. Emits events, tracks health/metrics/audit/manifest. `run_cycle()` for single-pass, `run_forever()` for daemon mode with SIGINT/SIGTERM handling.
+- **`BrokerAdapter` ABC** (domain/adapters/broker_adapter.py): Polymorphic broker interface with market/limit/cancel/balance/positions.
+- **`AlpacaBrokerAdapter`** (infrastructure/alpaca_broker.py): Real broker adapter using alpaca-py (optional dependency). Supports market orders, cancel, account balance, position queries. Paper/live toggle.
+- **5 tests pass.**
+
 ### WP-079-091: Integration, Performance, Docs, Release
 - **Integration test suite** (`tests/integration/`): 6 cross-engine tests covering strategy→backtest→risk→execution→paper pipeline, audit trail integration, metrics collection.
 - **Performance benchmarks** (`tests/performance/`): 2 benchmarks — 1000-candle backtest under 1s, 1000-order execution under 100ms.

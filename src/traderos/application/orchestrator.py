@@ -1,141 +1,239 @@
-import logging
+from __future__ import annotations
 
-import pandas as pd
+import signal
+import time
+import uuid
+from dataclasses import dataclass
+from dataclasses import field
+from datetime import UTC
+from datetime import datetime
+from enum import Enum
+from typing import Any
 
-from traderos.domain.analysis.correlation import CorrelationEngine
-from traderos.domain.analysis.indicators import MarketAnalyzer
-from traderos.domain.liquidity.breakout_detection import BreakoutDetector
-from traderos.domain.liquidity.liquidity_zones import LiquidityZoneMapper
-from traderos.domain.liquidity.session_analysis import SessionAnalyzer
-from traderos.domain.liquidity.sweep_detection import SweepDetector
-from traderos.domain.liquidity.swing_detection import SwingDetector
-from traderos.domain.research.logger import JournalLogger
-from traderos.infrastructure.config.config_loader import config
-from traderos.infrastructure.data.pipeline import DataPipeline
-from traderos.infrastructure.database.db_manager import DatabaseManager
-from traderos.interfaces.visualization.charts import Visualizer
-from traderos.interfaces.visualization.liquidity_charts import LiquidityVisualizer
-
-# Setup Logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger("MarketIntelligence")
-
-
-def main():
-    logger.info("Initializing Market Intelligence Platform...")
-
-    # 1. Initialize Components
-    db = DatabaseManager()
-    pipeline = DataPipeline(db)
-    corr_engine = CorrelationEngine(db)
-    journal = JournalLogger(db)
-    viz = Visualizer()
-    liq_viz = LiquidityVisualizer()
-
-    # Layer 4 Components
-    swing_detector = SwingDetector(window=config.get("liquidity.swing_window", 5))
-    zone_mapper = LiquidityZoneMapper(
-        threshold=config.get("liquidity.sr_clustering_threshold", 0.002)
-    )
-    sweep_detector = SweepDetector()
-    breakout_detector = BreakoutDetector(
-        vol_threshold=config.get("liquidity.consolidation_vol_threshold", 0.001),
-        sensitivity=config.get("liquidity.breakout_sensitivity", 2.0),
-    )
-    session_analyzer = SessionAnalyzer(sessions=config.get("liquidity.sessions", {}))
-
-    # 2. Run Data Pipeline
-    pipeline.run()
-
-    # 3. Perform Analysis
-    symbols = config.get("data_collection.forex_symbols", []) + config.get(
-        "data_collection.crypto_symbols", []
-    )
-
-    logger.info("Analyzing market regimes...")
-    for symbol in symbols:
-        df = db.get_ohlc(symbol)
-        if not df.empty:
-            # --- Layer 2: Analysis Engine ---
-            df = MarketAnalyzer.detect_regime(df)
-            features_df = MarketAnalyzer.prepare_features_for_db(df)
-            if not features_df.empty:
-                db.save_features(features_df, symbol)
-
-            latest = df.iloc[-1]
-            print(f"\n--- {symbol} INSIGHT ---")
-            print(f"Latest Price: {latest['close']:.4f}")
-            print(f"Current Regime: {latest['regime']}")
-            print(f"Volatility (Annualized): {latest['volatility']:.2%}")
-
-            # Save chart
-            viz.plot_price_with_regime(df.sort_values("timestamp"), symbol)
-
-            # --- Layer 4: Liquidity Analysis ---
-            logger.info("Running Liquidity Mapping for %s...", symbol)
-            df = swing_detector.detect_swings(df)
-            zones = zone_mapper.map_zones(df)
-            sweeps = sweep_detector.detect_sweeps(df)
-            df = breakout_detector.analyze(df)
-            events = breakout_detector.get_events(df)
-
-            # Persist Liquidity
-            if zones:
-                zones_df = pd.DataFrame(zones)
-                zones_df["symbol"] = symbol
-                zones_df["detected_at"] = df["timestamp"].iloc[-1]
-                db.save_liquidity_zones(zones_df)
-
-            if sweeps:
-                sweeps_df = pd.DataFrame(sweeps)
-                sweeps_df["symbol"] = symbol
-                db.save_market_events(sweeps_df)
-
-            if events:
-                events_df = pd.DataFrame(events)
-                events_df["symbol"] = symbol
-                db.save_market_events(events_df)
-
-            # Session Analysis
-            session_stats = session_analyzer.compute_session_stats(df)
-            if not session_stats.empty:
-                session_stats["symbol"] = symbol
-                db.save_session_stats(session_stats)
-
-            print(f"Liquidity Zones: {len(zones)} detected")
-            print(f"Liquidity Sweeps: {len(sweeps)} detected")
-            print(f"Market Structure Events: {len(events)} detected")
-
-            # Visualize Liquidity
-            liq_viz.plot_liquidity_map(df, zones, sweeps, symbol)
-
-    # 4. Correlation Analysis
-    logger.info("Computing correlations...")
-    corr_matrix = corr_engine.compute_correlations(symbols)
-    top_corrs = corr_engine.get_top_correlations(corr_matrix)
-
-    print("\n--- TOP CORRELATIONS ---")
-    for c in top_corrs[:5]:
-        print(f"{c['pair']}: {c['correlation']:.2f}")
-
-    viz.plot_correlation_heatmap(corr_matrix)
-
-    # 5. Log Automatic Observation
-    top_pair = top_corrs[0]["pair"] if top_corrs else "N/A"
-    journal.log_entry(
-        content=(
-            f"System run completed. Analyzed {len(symbols)} symbols."
-            f" Top correlation: {top_pair}"
-        ),
-        category="System",
-        tags="auto-run",
-    )
-
-    db.close()
-    logger.info("Platform run completed successfully. Charts saved to 'exports/' directory.")
+from traderos.domain.adapters.broker_adapter import BrokerAdapter
+from traderos.domain.services.analysis_service import AnalysisService
+from traderos.domain.services.backtesting_service import BacktestingService
+from traderos.domain.services.execution_service import ExecutionService
+from traderos.domain.services.notification_service import NotificationService
+from traderos.domain.services.paper_trading_service import PaperTradingService
+from traderos.domain.services.portfolio_service import PortfolioService
+from traderos.domain.services.risk_service import RiskService
+from traderos.domain.services.signal_service import SignalService
+from traderos.domain.services.strategy_framework import MarketState
+from traderos.domain.services.strategy_framework import registry as strategy_registry
+from traderos.infrastructure.audit import AuditService
+from traderos.infrastructure.events import Event
+from traderos.infrastructure.events import EventBus
+from traderos.infrastructure.health import HealthService
+from traderos.infrastructure.metrics import MetricsService
+from traderos.infrastructure.run_manifest import RunManifestService
 
 
-if __name__ == "__main__":
-    main()
+class TradingMode(Enum):
+    PAPER = "paper"
+    LIVE = "live"
+    BACKTEST = "backtest"
+
+
+@dataclass
+class CycleResult:
+    market_id: uuid.UUID
+    signals: int
+    trades: int
+    errors: list[str]
+    duration_ms: float
+    timestamp: datetime
+
+
+@dataclass
+class TradingOrchestrator:
+    mode: TradingMode
+    signal_service: SignalService
+    risk_service: RiskService
+    portfolio_service: PortfolioService
+    execution: ExecutionService
+    analysis: AnalysisService
+    broker: BrokerAdapter
+    backtest: BacktestingService
+    paper: PaperTradingService | None
+    event_bus: EventBus
+    health: HealthService
+    audit: AuditService
+    metrics: MetricsService
+    notifications: NotificationService
+    run_manifest: RunManifestService
+
+    market_ids: list[uuid.UUID] = field(default_factory=list)
+    _running: bool = False
+
+    def start(self) -> None:
+        self._running = True
+        self.health.report_healthy("orchestrator", "started")
+        self.audit.record("orchestrator.start", "system", "orchestrator",
+                          f"mode={self.mode.value}")
+        self.notifications.info("Orchestrator Started",
+                                f"Trading mode: {self.mode.value}")
+        self.run_manifest.record("orchestrator", "start",
+                                 metadata={"mode": self.mode.value})
+
+    def stop(self) -> None:
+        self._running = False
+        self.health.report_healthy("orchestrator", "stopped")
+        self.audit.record("orchestrator.stop", "system", "orchestrator")
+        self.notifications.info("Orchestrator Stopped")
+        self.run_manifest.record("orchestrator", "stop")
+
+    def run_cycle(self, market_id: uuid.UUID, close_price: float,
+                  candle_time: datetime | None = None) -> CycleResult:
+        start = time.perf_counter()
+        errors: list[str] = []
+        signals_count = 0
+        trades_count = 0
+
+        cycle_id = uuid.uuid4()
+        self.event_bus.publish(Event("cycle.start", {
+            "cycle_id": str(cycle_id), "market_id": str(market_id),
+        }))
+
+        try:
+            if self.mode == TradingMode.BACKTEST:
+                self.run_manifest.record("orchestrator", "cycle",
+                                         metadata={"market": str(market_id),
+                                                    "mode": "backtest"})
+                return CycleResult(market_id, 0, 0, [], 0.0, datetime.now(UTC))
+
+            strategies = strategy_registry.list()
+            for name in strategies:
+                try:
+                    strat_cls = strategy_registry.get(name)
+                    if strat_cls is None:
+                        continue
+                    strategy = strat_cls()
+                    state = MarketState(
+                        candles=[], indicators={
+                            "close": close_price,
+                            "high": close_price * 1.01,
+                            "low": close_price * 0.99,
+                            "volume": 1000.0,
+                            "sma_20": close_price,
+                            "atr_14": close_price * 0.01,
+                        }, timestamp=candle_time or datetime.now(UTC),
+                    )
+                    result = strategy.evaluate(state)
+                    if result is None:
+                        continue
+
+                    provenance = self.signal_service.process_evaluation(
+                        market_id=market_id,
+                        strategy_id=uuid.uuid5(uuid.NAMESPACE_DNS, name),
+                        strategy_name=name,
+                        result=result,
+                        indicators=state.indicators,
+                    )
+                    if provenance is None:
+                        continue
+                    signals_count += 1
+                    self.event_bus.publish(Event("signal.generated", {
+                        "market_id": str(market_id),
+                        "strategy": name,
+                        "direction": result.direction,
+                        "confidence": result.confidence,
+                    }))
+
+                    active_signals = self.signal_service.get_active_signals(
+                        market_id)
+                    for signal in active_signals:
+                        risk = self.risk_service.assess_trade(
+                            price=close_price,
+                            confidence=signal.confidence,
+                            atr=close_price * 0.01,
+                            account_equity=self.portfolio_service.get_summary(
+                                10000.0).total_value,
+                        )
+                        if risk.kelly_fraction <= 0:
+                            continue
+                        qty = self.portfolio_service.size_position(
+                            cash=10000.0,
+                            confidence=signal.confidence,
+                        )
+                        if qty <= 0:
+                            continue
+                        side = "buy" if signal.direction.value == "long" else "sell"
+                        fill = self.broker.place_market_order(
+                            market_id, side, qty)
+                        if fill.filled:
+                            self.portfolio_service.open_trade(
+                                signal_id=signal.id,
+                                market_id=market_id,
+                                side=("buy" if signal.direction.value == "long"
+                                      else "sell"),
+                                quantity=fill.fill_quantity,
+                                price=fill.fill_price,
+                            )
+                            trades_count += 1
+                            self.event_bus.publish(Event("trade.executed", {
+                                "market_id": str(market_id),
+                                "side": side,
+                                "qty": fill.fill_quantity,
+                                "price": fill.fill_price,
+                            }))
+                            self.metrics.counter("trades.executed")
+                except (ValueError, RuntimeError, OSError) as e:
+                    errors.append(f"{name}: {e}")
+                    self.event_bus.publish(Event("cycle.error", {
+                        "market_id": str(market_id),
+                        "strategy": name,
+                        "error": str(e),
+                    }))
+                finally:
+                    self.metrics.counter("cycles.completed")
+
+            self.health.report_healthy(f"market.{market_id}")
+        except (ValueError, RuntimeError, OSError) as e:
+            errors.append(str(e))
+            self.health.report_unhealthy(f"market.{market_id}", str(e))
+
+        duration = (time.perf_counter() - start) * 1000
+        self.metrics.timing("cycle.duration_ms").stop()
+
+        t = candle_time or datetime.now(UTC)
+        self.event_bus.publish(Event("cycle.complete", {
+            "cycle_id": str(cycle_id),
+            "market_id": str(market_id),
+            "signals": signals_count,
+            "trades": trades_count,
+            "errors": errors,
+            "duration_ms": round(duration, 2),
+        }))
+
+        return CycleResult(market_id, signals_count, trades_count,
+                           errors, duration, t)
+
+    def run_forever(self, interval_seconds: int = 60) -> None:
+        self.start()
+
+        def handle_stop(signum: int, frame: object | None = None) -> None:
+            self.stop()
+
+        signal.signal(signal.SIGINT, handle_stop)
+        signal.signal(signal.SIGTERM, handle_stop)
+
+        while self._running:
+            for mid in self.market_ids:
+                if not self._running:
+                    break
+                result = self.run_cycle(mid, 100.0)
+                if result.errors:
+                    for err in result.errors:
+                        self.notifications.warning("Cycle Error",
+                                                   f"{mid}: {err}")
+            time.sleep(interval_seconds)
+
+    def get_status(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode.value,
+            "running": self._running,
+            "markets": len(self.market_ids),
+            "health": self.health.summary(),
+            "metrics": self.metrics.snapshot(),
+        }

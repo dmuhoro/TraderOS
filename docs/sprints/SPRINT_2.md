@@ -55,6 +55,12 @@ Build the full trading pipeline from strategy → signal → risk → portfolio 
 - `BacktestStep` NamedTuple for per-bar granularity
 - 5 tests pass
 
+### New: Application Orchestrator + Broker Adapters — COMPLETED
+- `TradingOrchestrator` — central runtime with PAPER/LIVE/BACKTEST modes, signal-driven trading cycle, event emission, health/metrics/audit tracking
+- `BrokerAdapter` ABC — polymorphic interface for real/paper trading
+- `AlpacaBrokerAdapter` — Alpaca REST API integration (optional dep)
+- 5 tests pass
+
 ### WP-079-091: Integration, Performance, Docs, Release — COMPLETED
 - Integration tests: strategy→backtest→risk→execution→paper pipeline, audit trail, metrics
 - Performance benchmarks: 1000-candle backtest < 1s, 1000-order execution < 100ms
@@ -86,7 +92,7 @@ Build the full trading pipeline from strategy → signal → risk → portfolio 
 ## Deliverables
 - 18 domain services across 7 engines (Strategy, Signal, Portfolio, Risk, Execution, Backtest, Paper)
 - Full trading pipeline: strategy → signal → risk → portfolio → execution → backtesting → paper trading
-- 497 tests pass (376 baseline + 121 new)
+- 502 tests pass (376 baseline + 126 new)
 - Test coverage: 87.7%
 
 ## Out of Scope
