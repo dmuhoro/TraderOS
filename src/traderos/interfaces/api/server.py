@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 import uuid
 from datetime import UTC
 from importlib.metadata import version
@@ -17,6 +18,7 @@ from traderos.domain.services.strategy_framework import registry as strategy_reg
 from traderos.infrastructure.config.config_loader import Config
 
 if TYPE_CHECKING:
+    from fastapi import APIRouter
     from fastapi import FastAPI
     from fastapi import HTTPException
     from fastapi import Query
@@ -27,6 +29,7 @@ if TYPE_CHECKING:
     _has_fastapi = True
 else:
     try:
+        from fastapi import APIRouter
         from fastapi import FastAPI
         from fastapi import HTTPException
         from fastapi import Query
@@ -37,6 +40,7 @@ else:
         _has_fastapi = True
     except ImportError:
         _has_fastapi = False
+        APIRouter = None  # type: ignore[assignment]
         BaseModel = object  # type: ignore[assignment]
         FastAPI = None  # type: ignore[assignment]
         HTTPException = None  # type: ignore[assignment]
@@ -108,6 +112,12 @@ def ensure_fastapi() -> None:
         raise ImportError("FastAPI is required. Install with: pip install 'traderos[api]'")
 
 
+def _error_response(status_code: int, message: str):
+    from starlette.responses import JSONResponse
+
+    return JSONResponse(status_code=status_code, content={"error": {"code": status_code, "message": message}})
+
+
 def build_app() -> Any:
     ensure_fastapi()
     app = FastAPI(title="TraderOS API", version=version("traderos"))
@@ -118,33 +128,48 @@ def build_app() -> Any:
         allow_headers=["*"],
     )
 
+    @app.exception_handler(HTTPException)
+    async def _http_exception_handler(request: Request, exc: HTTPException):
+        return _error_response(exc.status_code, exc.detail)
+
+    @app.middleware("http")
+    async def _request_logger(request: Request, call_next):
+        import logging
+
+        _logger = logging.getLogger("traderos.api")
+        start = time.perf_counter()
+        response = await call_next(request)
+        elapsed = (time.perf_counter() - start) * 1000
+        _logger.info("%s %s %s %.0fms", request.method, request.url.path, response.status_code, elapsed)
+        return response
+
     @app.middleware("http")
     async def _auth_middleware(request: Request, call_next):
         try:
             _verify_api_key(request)
         except HTTPException as exc:
-            from starlette.responses import JSONResponse
-
-            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+            return _error_response(exc.status_code, exc.detail)
         return await call_next(request)
 
-    @app.get("/health")
+    router = APIRouter(prefix="/v1")
+
+    @router.get("/health")
     def get_health():
         orch = create_orchestrator()
         return {"status": "ok", "mode": orch.mode.value, "running": orch.running}
 
-    @app.get("/strategies")
+    @router.get("/strategies")
     def list_strategies():
         return {"strategies": strategy_registry.list()}
 
-    @app.get("/strategies/{name}")
+    @router.get("/strategies/{name}")
     def get_strategy(name: str):
         strat = strategy_registry.get(name)
         if strat is None:
             raise HTTPException(404, f"Strategy '{name}' not found")
         return {"name": name, "version": strat.version}
 
-    @app.post("/backtest")
+    @router.post("/backtest")
     def run_backtest(req: BacktestRequest):
         strat_cls = strategy_registry.get(req.strategy)
         if strat_cls is None:
@@ -185,24 +210,24 @@ def build_app() -> Any:
             "calmar_ratio": m.calmar_ratio,
         }
 
-    @app.post("/orchestrator/start")
+    @router.post("/orchestrator/start")
     def start_orchestrator():
         orch = create_orchestrator()
         orch.start()
         return {"status": "started", "mode": orch.mode.value}
 
-    @app.post("/orchestrator/stop")
+    @router.post("/orchestrator/stop")
     def stop_orchestrator():
         orch = create_orchestrator()
         orch.stop()
         return {"status": "stopped"}
 
-    @app.get("/orchestrator/status")
+    @router.get("/orchestrator/status")
     def orchestrator_status():
         orch = create_orchestrator()
         return orch.get_status()
 
-    @app.post("/papertrade/session")
+    @router.post("/papertrade/session")
     def create_paper_session(req: CreatePaperSessionRequest | None = None):
         orch = create_orchestrator()
         if orch.paper is None:
@@ -222,7 +247,7 @@ def build_app() -> Any:
             capital=session.current_capital,
         )
 
-    @app.get("/papertrade/sessions")
+    @router.get("/papertrade/sessions")
     def list_paper_sessions():
         orch = create_orchestrator()
         if orch.paper is None:
@@ -234,7 +259,7 @@ def build_app() -> Any:
             ]
         }
 
-    @app.get("/audit")
+    @router.get("/audit")
     def get_audit(limit: int = Query(10, ge=1, le=100)):
         orch = create_orchestrator()
         return {
@@ -249,14 +274,14 @@ def build_app() -> Any:
             ]
         }
 
-    @app.get("/metrics")
+    @router.get("/metrics")
     def get_metrics():
         orch = create_orchestrator()
         if not orch.running:
             return {"metrics": {}, "warning": "Orchestrator not running"}
         return {"metrics": orch.metrics.snapshot()}
 
-    @app.get("/manifest")
+    @router.get("/manifest")
     def get_manifest(service: str | None = None):
         orch = create_orchestrator()
         return {
@@ -271,4 +296,5 @@ def build_app() -> Any:
             ]
         }
 
+    app.include_router(router)
     return app
