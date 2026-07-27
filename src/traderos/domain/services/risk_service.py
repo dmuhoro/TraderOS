@@ -3,6 +3,10 @@ from __future__ import annotations
 import math
 import uuid
 from dataclasses import dataclass
+from dataclasses import field
+from datetime import UTC
+from datetime import date
+from datetime import datetime
 from typing import NamedTuple
 
 from traderos.domain.entities import Position
@@ -23,12 +27,69 @@ class PortfolioRisk(NamedTuple):
     num_over_limit: int
 
 
+class TradeVerdict(NamedTuple):
+    allowed: bool
+    reason: str
+
+
+@dataclass
+class KillSwitch:
+    consecutive_failures: int = 0
+    max_consecutive_failures: int = 5
+    daily_loss_limit: float = float("inf")
+    daily_realized_pnl: float = 0.0
+    _current_day: date = field(default_factory=lambda: datetime.now(UTC).date())
+    circuit_open: bool = False
+    circuit_open_until: datetime | None = None
+
+    def record_failure(self) -> None:
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= self.max_consecutive_failures:
+            self.circuit_open = True
+            self.circuit_open_until = datetime.now(UTC)
+
+    def record_success(self) -> None:
+        self.consecutive_failures = 0
+
+    def record_realized_pnl(self, pnl: float) -> None:
+        today = datetime.now(UTC).date()
+        if today != self._current_day:
+            self._current_day = today
+            self.daily_realized_pnl = 0.0
+        self.daily_realized_pnl += pnl
+
+    def can_trade(self) -> TradeVerdict:
+        if self.circuit_open:
+            return TradeVerdict(False, "Circuit breaker open")
+        if self.consecutive_failures >= self.max_consecutive_failures:
+            return TradeVerdict(False, f"{self.consecutive_failures} consecutive failures")
+        if abs(self.daily_realized_pnl) >= self.daily_loss_limit:
+            return TradeVerdict(False, f"Daily loss limit reached: {self.daily_realized_pnl:.2f}")
+        return TradeVerdict(True, "")
+
+    def reset(self) -> None:
+        self.consecutive_failures = 0
+        self.daily_realized_pnl = 0.0
+        self.circuit_open = False
+        self.circuit_open_until = None
+
+
 @dataclass
 class RiskService:
     max_position_size: float = 0.25
     max_leverage: float = 2.0
     max_drawdown_limit: float = 0.20
     var_confidence: float = 1.645
+    kill_switch: KillSwitch = field(default_factory=KillSwitch)
+    max_positions_total: int = 10
+
+    def can_trade(self, positions: list[Position]) -> TradeVerdict:
+        verdict = self.kill_switch.can_trade()
+        if not verdict.allowed:
+            return verdict
+        if len(positions) >= self.max_positions_total:
+            return TradeVerdict(False, f"Max positions ({self.max_positions_total}) reached")
+        return TradeVerdict(True, "")
 
     def assess_trade(
         self,

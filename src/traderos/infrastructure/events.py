@@ -6,6 +6,9 @@ from traderos.domain.ports import Event
 from traderos.domain.ports import EventBusPort
 from traderos.domain.ports import EventHandler
 
+# backward compat: EventBus was the original ABC name
+EventBus = EventBusPort
+
 
 class InMemoryEventBus(EventBusPort):
     def __init__(self) -> None:

@@ -179,6 +179,11 @@ class TradingOrchestrator:
                     )
 
                     for signal in [provenance.signal]:
+                        positions = self.portfolio_service.get_summary(0).open_positions
+                        verdict = self.risk_service.can_trade(positions)
+                        if not verdict.allowed:
+                            errors.append(f"{name}: {verdict.reason}")
+                            continue
                         cash = self._cash_balance()
                         risk = self.risk_service.assess_trade(
                             price=close_price,
@@ -222,7 +227,10 @@ class TradingOrchestrator:
                                     },
                                 )
                             )
+                            self.risk_service.kill_switch.record_success()
                             self.metrics.counter("trades.executed")
+                        else:
+                            self.risk_service.kill_switch.record_failure()
                 except (ValueError, RuntimeError, OSError) as e:
                     errors.append(f"{name}: {e}")
                     self.event_bus.publish(
