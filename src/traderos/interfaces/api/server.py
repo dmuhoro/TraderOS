@@ -120,7 +120,12 @@ def build_app() -> Any:
 
     @app.middleware("http")
     async def _auth_middleware(request: Request, call_next):
-        _verify_api_key(request)
+        try:
+            _verify_api_key(request)
+        except HTTPException as exc:
+            from starlette.responses import JSONResponse
+
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
         return await call_next(request)
 
     @app.get("/health")
