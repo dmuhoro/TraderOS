@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from dataclasses import field
@@ -8,6 +9,10 @@ from typing import Any
 
 import yaml
 from dotenv import load_dotenv
+
+_log = logging.getLogger(__name__)
+
+SECRET_FIELDS = {"alpaca_api_key", "alpaca_secret_key"}
 
 
 @dataclass(frozen=True)
@@ -56,8 +61,10 @@ class Config:
             if key.startswith("_"):
                 continue
             value = env_overrides.get(key)
-            if value is None:
+            if value is None and key not in SECRET_FIELDS:
                 value = settings.get(key)
+            if value is None and key in SECRET_FIELDS and key in settings:
+                _log.warning("Secret '%s' in settings.yaml — use env var instead", key)
             if value is None and key in nested_paths:
                 parts = nested_paths[key].split(".")
                 v: Any = settings
@@ -98,6 +105,9 @@ class Config:
             errors.append(f"Invalid log_level: {self.log_level}")
         if int(os.getenv("MAX_DRAWDOWN", "0")) > 100:
             errors.append("MAX_DRAWDOWN must be 0-100")
+        mode = os.getenv("TRADING_MODE", "paper").lower()
+        if mode == "live" and (not self.alpaca_api_key or not self.alpaca_secret_key):
+            errors.append("LIVE mode requires ALPACA_API_KEY and ALPACA_SECRET_KEY env vars")
 
         if errors:
             raise ValueError(f"Config validation failed: {', '.join(errors)}")
