@@ -8,7 +8,6 @@ services:
     environment:
       - DB_PATH=/app/data/traderos.db
       - LOG_LEVEL=INFO
-      - MODE=paper
     restart: unless-stopped
 
   traderos-api:
@@ -22,7 +21,6 @@ services:
     environment:
       - DB_PATH=/app/data/traderos.db
       - LOG_LEVEL=INFO
-      - MODE=paper
     depends_on:
       - traderos
     restart: unless-stopped

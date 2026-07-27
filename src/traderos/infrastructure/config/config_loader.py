@@ -48,6 +48,10 @@ class Config:
             "alpaca_paper": os.getenv("ALPACA_PAPER"),
         }
 
+        nested_paths: dict[str, str] = {
+            "db_path": "database.path",
+            "log_level": "logging.level",
+        }
         kwargs: dict[str, Any] = {}
         for key in cls.__dataclass_fields__:
             if key.startswith("_"):
@@ -55,6 +59,16 @@ class Config:
             value = env_overrides.get(key)
             if value is None:
                 value = settings.get(key)
+            if value is None and key in nested_paths:
+                parts = nested_paths[key].split(".")
+                v: Any = settings
+                for p in parts:
+                    if isinstance(v, dict):
+                        v = v.get(p)
+                    else:
+                        v = None
+                        break
+                value = v
             if value is not None:
                 if isinstance(value, str) and key in ("paper_trading", "alpaca_paper"):
                     value = value.lower() in ("true", "1", "yes")

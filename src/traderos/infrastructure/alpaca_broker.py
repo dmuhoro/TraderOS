@@ -74,7 +74,31 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         quantity: float,
         price: float,
     ) -> FillResult:
-        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+        try:
+            from alpaca.trading.enums import OrderSide
+            from alpaca.trading.enums import TimeInForce
+            from alpaca.trading.requests import LimitOrderRequest
+
+            symbol = self._symbol_map.get(market_id, str(market_id))
+            order = self._client.submit_order(
+                order_data=LimitOrderRequest(
+                    symbol=symbol,
+                    qty=quantity,
+                    side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
+                    time_in_force=TimeInForce.DAY,
+                    limit_price=round(price, 2),
+                )
+            )
+            return FillResult(
+                filled=bool(order.filled_qty),
+                fill_quantity=float(order.filled_qty or 0),
+                fill_price=float(order.filled_avg_price or price),
+                remaining=float(order.qty - (order.filled_qty or 0)),
+                status="filled" if order.filled_qty == order.qty else "pending",
+                order_id=order.id,
+            )
+        except (ValueError, RuntimeError, OSError) as e:
+            return FillResult(False, 0.0, 0.0, quantity, "rejected", str(e))
 
     def cancel_order(self, order_id: str) -> FillResult:
         try:

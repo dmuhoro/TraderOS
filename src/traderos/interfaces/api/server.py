@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
     from fastapi import HTTPException
     from fastapi import Query
+    from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
 
     _has_fastapi = True
@@ -27,6 +28,7 @@ else:
         from fastapi import FastAPI
         from fastapi import HTTPException
         from fastapi import Query
+        from fastapi.middleware.cors import CORSMiddleware
         from pydantic import BaseModel  # type: ignore[assignment]
 
         _has_fastapi = True
@@ -36,6 +38,7 @@ else:
         FastAPI = None  # type: ignore[assignment]
         HTTPException = None  # type: ignore[assignment]
         Query = None  # type: ignore[assignment]
+        CORSMiddleware = None  # type: ignore[assignment]
 
 
 class TradeRequest(BaseModel):  # type: ignore[valid-type,misc]
@@ -47,6 +50,10 @@ class TradeRequest(BaseModel):  # type: ignore[valid-type,misc]
 class BacktestRequest(BaseModel):  # type: ignore[valid-type,misc]
     strategy: str
     candles: int = 50
+
+
+class CreatePaperSessionRequest(BaseModel):  # type: ignore[valid-type,misc]
+    market_ids: list[str] | None = None
 
 
 class PaperSessionResponse(BaseModel):  # type: ignore[valid-type,misc]
@@ -77,6 +84,12 @@ def ensure_fastapi() -> None:
 def build_app() -> Any:
     ensure_fastapi()
     app = FastAPI(title="TraderOS API", version=version("traderos"))
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.get("/health")
     def get_health():
@@ -153,11 +166,19 @@ def build_app() -> Any:
         return orch.get_status()
 
     @app.post("/papertrade/session")
-    def create_paper_session():
+    def create_paper_session(req: CreatePaperSessionRequest | None = None):
         orch = create_orchestrator()
         if orch.paper is None:
             raise HTTPException(400, "Paper trading not configured")
-        session = orch.paper.create_session(uuid.uuid4(), [])
+        cfg = Config.load()
+        symbols: list[str] = cfg.get("data_collection.forex_symbols", []) or []
+        symbols += cfg.get("data_collection.crypto_symbols", []) or []
+        mids = [uuid.uuid5(uuid.NAMESPACE_DNS, s) for s in symbols]
+        if req is not None and req.market_ids:
+            mids = [uuid.UUID(m) for m in req.market_ids]
+        if not mids:
+            mids = [uuid.uuid4()]
+        session = orch.paper.create_session(uuid.uuid4(), mids)
         return PaperSessionResponse(
             id=str(session.id),
             status=session.status.value,
@@ -194,6 +215,8 @@ def build_app() -> Any:
     @app.get("/metrics")
     def get_metrics():
         orch = create_orchestrator()
+        if not orch.running:
+            return {"metrics": {}, "warning": "Orchestrator not running"}
         return {"metrics": orch.metrics.snapshot()}
 
     @app.get("/manifest")

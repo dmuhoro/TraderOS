@@ -25,5 +25,8 @@ USER traderos
 
 VOLUME ["/app/data", "/app/exports"]
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD traderos health || exit 1
+
 ENTRYPOINT ["traderos"]
 CMD ["daemon", "--mode", "paper"]

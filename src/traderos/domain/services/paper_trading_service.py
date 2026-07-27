@@ -52,7 +52,7 @@ class PaperBrokerAdapter(BrokerAdapter):
     fill_probability: float = 1.0
     partial_fill_probability: float = 0.0
     latency_ms: int = 0
-    account_balance: float = 100000.0
+    account_balance: float = float(os.getenv("DEFAULT_CASH", "10000.0"))
 
     def _fill_result(
         self,

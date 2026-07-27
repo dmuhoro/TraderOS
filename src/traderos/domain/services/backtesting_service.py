@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -84,13 +85,20 @@ class BacktestingService:
         strategy: StrategyBase,
         candles: list[Candle],
         market_id: uuid.UUID,
+        max_duration_seconds: int = 300,
     ) -> tuple[BacktestResult, list[BacktestStep]]:
+        start_time = time.monotonic()
         cash = self.initial_capital
         position_qty = 0.0
         equity_curve: list[tuple[datetime, float]] = []
         steps: list[BacktestStep] = []
 
         for i, candle in enumerate(candles):
+            if time.monotonic() - start_time > max_duration_seconds:
+                remaining = len(candles) - i
+                raise TimeoutError(
+                    f"Backtest exceeded {max_duration_seconds}s ({remaining} candles remaining)"
+                )
             indicators: dict[str, float] = {
                 "close": float(candle.ohlcv.close),
                 "high": float(candle.ohlcv.high),

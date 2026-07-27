@@ -2,12 +2,25 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from enum import Enum
 from typing import NamedTuple
+
+try:
+    from urllib.error import URLError as _URLError
+    from urllib.request import Request
+    from urllib.request import urlopen
+
+    _has_urlopen = True
+except ImportError:
+    _has_urlopen = False
+    _URLError = OSError
+    Request = None  # type: ignore[assignment]
+    urlopen = None  # type: ignore[assignment]
 
 
 class NotificationChannel(Enum):
@@ -110,20 +123,40 @@ class NotificationService:
             self.log.info(msg)
 
     def _send_file(self, event: NotificationEvent) -> None:
-        line = json.dumps({
-            "level": event.level.name,
-            "title": event.title,
-            "message": event.message,
-            "timestamp": event.timestamp.isoformat(),
-            "metadata": event.metadata,
-        })
-        self.log.info("NOTIFICATION_FILE: %s", line)
+        line = json.dumps(
+            {
+                "level": event.level.name,
+                "title": event.title,
+                "message": event.message,
+                "timestamp": event.timestamp.isoformat(),
+                "metadata": event.metadata,
+            }
+        )
+        log_dir = "logs"
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "notifications.jsonl")
+        with open(log_path, "a") as f:
+            f.write(line + "\n")
 
     def _send_webhook(self, event: NotificationEvent) -> None:
-        payload = json.dumps({
-            "level": event.level.name,
-            "title": event.title,
-            "message": event.message,
-            "metadata": event.metadata,
-        })
-        self.log.info("NOTIFICATION_WEBHOOK: %s", payload)
+        if not _has_urlopen or urlopen is None or Request is None:
+            self.log.warning("Webhook unavailable (urllib not available)")
+            return
+
+        payload = json.dumps(
+            {
+                "level": event.level.name,
+                "title": event.title,
+                "message": event.message,
+                "metadata": event.metadata,
+            }
+        ).encode()
+        try:
+            webhook_url = os.getenv("WEBHOOK_URL", "")
+            if not webhook_url:
+                self.log.info("NOTIFICATION_WEBHOOK (no URL configured): %s", payload.decode())
+                return
+            req = Request(webhook_url, data=payload, headers={"Content-Type": "application/json"})
+            urlopen(req, timeout=5)
+        except (_URLError, OSError):
+            self.log.warning("Webhook POST failed")

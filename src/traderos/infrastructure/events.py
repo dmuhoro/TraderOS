@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from abc import ABC
 from abc import abstractmethod
@@ -36,11 +37,15 @@ class EventBus(ABC):
 class InMemoryEventBus(EventBus):
     def __init__(self) -> None:
         self._subscribers: dict[str, list[EventHandler]] = {}
+        self._log = logging.getLogger(__name__)
 
     def publish(self, event: Event) -> None:
         handlers = self._subscribers.get(event.event_type, [])
         for handler in handlers:
-            handler(event)
+            try:
+                handler(event)
+            except Exception:  # noqa: BLE001
+                self._log.exception("Event handler failed for %s", event.event_type)
 
     def subscribe(self, event_type: str, handler: EventHandler) -> None:
         if event_type not in self._subscribers:

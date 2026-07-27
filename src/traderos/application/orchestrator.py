@@ -263,16 +263,22 @@ class TradingOrchestrator:
 
         return CycleResult(market_id, signals_count, trades_count, errors, duration, t)
 
-    def run_forever(self, interval_seconds: int = 60) -> None:
+    def run_forever(self, interval_seconds: int = 60, shutdown_timeout: int = 30) -> None:
         self.start()
+        shutdown_at: float | None = None
 
         def handle_stop(signum: int, frame: object | None = None) -> None:
+            nonlocal shutdown_at
             self.stop()
+            shutdown_at = time.monotonic() + shutdown_timeout
 
         signal.signal(signal.SIGINT, handle_stop)
         signal.signal(signal.SIGTERM, handle_stop)
 
         while self._running:
+            if shutdown_at is not None and time.monotonic() > shutdown_at:
+                self.notifications.critical("Shutdown", "Forced shutdown after timeout")
+                break
             for mid in self.market_ids:
                 if not self._running:
                     break

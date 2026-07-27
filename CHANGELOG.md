@@ -1,5 +1,26 @@
 # Changelog - TraderOS
 
+## [0.7.0] - Sprint Finale: 15 Quick Wins
+### Added
+- **`--json` output flag on CLI:** `strategies`, `health`, `audit`, `signal` commands output structured JSON when `--json` is passed (GAP-19).
+- **Health check in Dockerfile:** `HEALTHCHECK CMD traderos health || exit 1` enables Docker orchestration health monitoring (GAP-16).
+- **CORS middleware in API:** FastAPI server allows cross-origin requests via `CORSMiddleware(allow_origins=["*"])` (GAP-17).
+- **`/papertrade/session` market_ids body:** Accepts `CreatePaperSessionRequest` with optional `market_ids`; falls back to `settings.yaml` symbols (GAP-11).
+- **Limit order support in Alpaca adapter:** `place_limit_order()` calls `trading_client.submit_order()` with `LimitOrderRequest` (GAP-21).
+- **Notification persistence + webhook:** `_send_file()` writes JSONL to `logs/notifications.jsonl`; `_send_webhook()` POSTs to `$WEBHOOK_URL` (GAP-9).
+
+### Fixed
+- **`Config.load()` ignores `settings.yaml` nested keys:** 8 fields now translate from `settings.yaml` dotted keys (`database.path`→`db_path`, `logging.level`→`log_level`, etc.) (GAP-14).
+- **Docker `MODE=paper` env var has no effect:** Removed `MODE` from both service definitions in `docker-compose.yml` (GAP-15).
+- **Paper broker balance still hardcoded in `/v1/papertrade`:** `account_balance` reads `DEFAULT_CASH` env var with `10000.0` fallback (GAP-25).
+- **`/metrics` panics when orchestrator not running:** Returns `{"warning": "Orchestrator not started"}`, removing 500 error (GAP-27).
+- **Backtest can hang forever:** `BacktestingService.run()` accepts `max_duration_seconds=300` and raises `TimeoutError` with remaining-candle count (GAP-20).
+- **Daemon can hang on shutdown:** `Orchestrator.run_forever()` forces exit after `shutdown_timeout=30` seconds (GAP-23).
+- **EventBus handler crash kills broker:** `InMemoryEventBus.publish()` wraps each handler in try/except, logging and isolating exceptions (GAP-22).
+
+### Removed
+- **Strategy lab `run` subparser:** `strategy_lab.py` stripped to just `list` command; obsolete strategy-lab run path removed (GAP-7).
+
 ## [0.6.1] - Stale Module Cleanup & CLI Wiring
 ### Fixed
 - **Hardcoded `close_price=100.0` in `run_forever()`:** Now fetches real data via `data_ingestion.get_latest_close()`; skips cycle and reports unhealthy when price unavailable instead of silently trading at $100.

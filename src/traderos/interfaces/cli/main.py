@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import uuid
 from datetime import UTC
 from importlib.metadata import version
@@ -16,6 +17,7 @@ from traderos.infrastructure.health import HealthService
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="TraderOS Unified CLI")
+    parser.add_argument("--json", action="store_true", help="Output in JSON format")
     sub = parser.add_subparsers(dest="command")
 
     p_strat = sub.add_parser("strategies", help="List and inspect strategies")
@@ -53,6 +55,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def cmd_strategies(args: argparse.Namespace) -> None:
+    if args.json:
+        if args.name:
+            strat = strategy_registry.get(args.name)
+            if strat is None:
+                print(json.dumps({"error": f"Strategy '{args.name}' not found"}))
+            else:
+                print(json.dumps({"name": args.name, "version": strat.version}))
+        else:
+            print(json.dumps({"strategies": strategy_registry.list()}))
+        return
     if args.name:
         strat = strategy_registry.get(args.name)
         if strat:
@@ -123,8 +135,12 @@ def cmd_health(args: argparse.Namespace) -> None:
     svc = HealthService()
     ver = version("traderos")
     svc.report_healthy("cli", f"TraderOS CLI v{ver}")
+    summary = svc.summary()
+    if args.json:
+        print(json.dumps({"version": ver, "services": summary}, indent=2, default=str))
+        return
     print("System Health:")
-    for name, healthy in svc.summary().items():
+    for name, healthy in summary.items():
         status = "PASS" if healthy else "FAIL"
         print(f"  [{status}] {name}")
 
@@ -132,6 +148,23 @@ def cmd_health(args: argparse.Namespace) -> None:
 def cmd_audit(args: argparse.Namespace) -> None:
     svc = AuditService()
     entries = svc.get_entries(limit=args.limit)
+    if args.json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "timestamp": e.timestamp.isoformat(),
+                        "action": e.action,
+                        "actor": e.actor,
+                        "resource": e.resource,
+                    }
+                    for e in entries
+                ],
+                indent=2,
+                default=str,
+            )
+        )
+        return
     if not entries:
         print("No audit entries")
         return
@@ -158,6 +191,20 @@ def cmd_signal(args: argparse.Namespace) -> None:
         mids = list(orch.market_ids) if orch.market_ids else []
     if not mids:
         print("No markets configured. Use --market-id or configure markets in config.")
+        return
+    if args.json:
+        result = {}
+        for mid in mids:
+            signals = orch.signal_service.get_active_signals(mid)
+            result[str(mid)] = [
+                {
+                    "direction": s.direction.name,
+                    "confidence": s.confidence,
+                    "expires_at": s.expires_at.isoformat(),
+                }
+                for s in signals
+            ]
+        print(json.dumps(result, indent=2, default=str))
         return
     for mid in mids:
         signals = orch.signal_service.get_active_signals(mid)
