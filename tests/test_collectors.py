@@ -71,6 +71,39 @@ class TestBinanceCollector:
         assert BinanceCollector().validate_symbol("BTCUSDT") is True
         assert BinanceCollector().validate_symbol("") is False
 
+    def test_fetch_historical_returns_parsed_data(self) -> None:
+        import json
+        from unittest.mock import patch
+
+        mock_json = json.dumps([
+            [
+                1704067200000,
+                "44000.0",
+                "44500.0",
+                "43900.0",
+                "44200.0",
+                "1234.5",
+                1704067260000,
+                "54321000.0",
+                100,
+                "2200.0",
+                "98765000.0",
+                "0",
+            ]
+        ])
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_resp = mock_urlopen.return_value.__enter__.return_value
+            mock_resp.read.return_value = mock_json.encode()
+            collector = BinanceCollector()
+            result = collector.fetch_historical("BTCUSDT", "1h", limit=1)
+            assert len(result) == 1
+            assert float(result[0].open) == 44000.0
+            assert float(result[0].high) == 44500.0
+            assert float(result[0].low) == 43900.0
+            assert float(result[0].close) == 44200.0
+            assert float(result[0].volume) == 1234.5
+            assert result[0].symbol == "BTCUSDT"
+
 
 class TestYFinanceCollector:
     def test_collector_type(self) -> None:
