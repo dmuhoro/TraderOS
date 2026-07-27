@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import UTC
 from importlib.metadata import version
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
     from fastapi import HTTPException
     from fastapi import Query
+    from fastapi import Request
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
 
@@ -28,6 +30,7 @@ else:
         from fastapi import FastAPI
         from fastapi import HTTPException
         from fastapi import Query
+        from fastapi import Request
         from fastapi.middleware.cors import CORSMiddleware
         from pydantic import BaseModel  # type: ignore[assignment]
 
@@ -38,6 +41,7 @@ else:
         FastAPI = None  # type: ignore[assignment]
         HTTPException = None  # type: ignore[assignment]
         Query = None  # type: ignore[assignment]
+        Request = None  # type: ignore[assignment]
         CORSMiddleware = None  # type: ignore[assignment]
 
 
@@ -63,6 +67,23 @@ class PaperSessionResponse(BaseModel):  # type: ignore[valid-type,misc]
 
 
 _orch_cache: dict[str, TradingOrchestrator] = {}
+_api_key: str | None = None
+
+
+def _load_api_key() -> str | None:
+    global _api_key
+    if _api_key is None:
+        _api_key = os.getenv("TRADEROS_API_KEY") or None
+    return _api_key
+
+
+def _verify_api_key(request: Request) -> None:
+    key = _load_api_key()
+    if key is None:
+        return
+    header_key = request.headers.get("X-API-Key")
+    if header_key != key:
+        raise HTTPException(401, "Unauthorized: invalid or missing API key")
 
 
 def create_orchestrator(mode: str = "paper") -> TradingOrchestrator:
@@ -96,6 +117,11 @@ def build_app() -> Any:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def _auth_middleware(request: Request, call_next):
+        _verify_api_key(request)
+        return await call_next(request)
 
     @app.get("/health")
     def get_health():
