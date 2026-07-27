@@ -1,5 +1,17 @@
 # Changelog - TraderOS
 
+## [1.0.0] - 2026-07-27
+
+### Added
+- **Post-merge Polish (Phases 0-3):** `assert`→`RuntimeError` in production code, version unification, MIT LICENSE, `.env.example`. Full README + CONTRIBUTING docs. Deleted 5 unused CLI/visualization files. CI/CD with pip-audit + bandit security job, Docker build/push to GHCR.
+- **Coverage Layers (A-E):** `db_manager.py` (48%→89%), `observability.py` (63%→99%), `binance_collector.py` (50%→93%), `cycle_executor.py` (63%→76%), `daemon_controller.py` (63%→94%).
+- **API v1 polish:** All routes grouped under `/v1/` prefix via `APIRouter`. Consistent error envelope `{"error": {"code": N, "message": "..."}}`. Request logging middleware (method, path, status, duration).
+- 622 tests passing at 89% coverage.
+
+### Changed
+- **API routes now under `/v1/`:** `/v1/health`, `/v1/strategies`, `/v1/strategies/{name}`, `/v1/backtest`, `/v1/orchestrator/start`, `/v1/orchestrator/stop`, `/v1/orchestrator/status`, `/v1/papertrade/session`, `/v1/papertrade/sessions`, `/v1/audit`, `/v1/metrics`, `/v1/manifest`.
+- **Error format:** 40x and 50x errors now return `{"error": {"code": N, "message": "..."}}` instead of `{"detail": "..."}`.
+
 ## [0.8.0] - v1 Readiness: Architecture Hardening
 
 ### Added
