@@ -52,7 +52,8 @@ def migrate(conn: Any, target_version: int | None = None, migrations_dir: str | 
         target_version = max(m["version"] for m in migrations) if migrations else 0
 
     current = get_current_version(conn)
-    assert isinstance(target_version, int)
+    if not isinstance(target_version, int):
+        raise TypeError(f"target_version must be int, got {type(target_version).__name__}")
 
     if target_version > current:
         pending = [

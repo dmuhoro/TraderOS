@@ -20,6 +20,7 @@ class Config:
     data_dir: str = "data"
     exports_dir: str = "exports"
     configs_dir: str = "configs"
+    default_cash: float = 10000.0
     paper_trading: bool = False
     alpaca_api_key: str = ""
     alpaca_secret_key: str = ""
@@ -34,10 +35,13 @@ class Config:
             with open(yaml_path) as f:
                 settings = yaml.safe_load(f) or {}
 
+        raw_default_cash = os.getenv("DEFAULT_CASH")
+        default_cash = float(raw_default_cash) if raw_default_cash is not None else None
         env_overrides = {
             "db_path": os.getenv("DB_PATH"),
             "log_level": os.getenv("LOG_LEVEL"),
             "log_file": os.getenv("LOG_FILE"),
+            "default_cash": default_cash,
             "paper_trading": os.getenv("PAPER_TRADING"),
             "alpaca_api_key": os.getenv("ALPACA_API_KEY"),
             "alpaca_secret_key": os.getenv("ALPACA_SECRET_KEY"),
@@ -54,6 +58,8 @@ class Config:
             if value is not None:
                 if isinstance(value, str) and key in ("paper_trading", "alpaca_paper"):
                     value = value.lower() in ("true", "1", "yes")
+                if key == "default_cash" and not isinstance(value, float):
+                    value = float(value)
                 kwargs[key] = value
 
         kwargs["_raw_settings"] = settings

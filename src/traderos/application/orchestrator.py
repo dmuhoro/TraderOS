@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import signal
 import time
 import uuid
@@ -66,7 +67,7 @@ class TradingOrchestrator:
     run_manifest: RunManifestService
     data_ingestion: DataIngestionService | None = None
 
-    default_cash: float = 10000.0
+    default_cash: float = float(os.getenv("DEFAULT_CASH", "10000.0"))
     market_ids: list[uuid.UUID] = field(default_factory=list)
     _running: bool = False
 
@@ -276,11 +277,16 @@ class TradingOrchestrator:
                 if not self._running:
                     break
                 try:
-                    close_price = 100.0
                     if self.data_ingestion is not None:
-                        price = self.data_ingestion.get_latest_close(mid)
-                        if price is not None:
-                            close_price = price
+                        close_price = self.data_ingestion.get_latest_close(mid)
+                    else:
+                        close_price = None
+                    if close_price is None:
+                        self.notifications.warning(
+                            "No Data", f"{mid}: cannot fetch price, skipping cycle"
+                        )
+                        self.health.report_unhealthy(f"market.{mid}", "no price data")
+                        continue
                     result = self.run_cycle(mid, close_price)
                     if result.errors:
                         for err in result.errors:

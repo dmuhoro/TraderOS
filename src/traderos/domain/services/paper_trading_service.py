@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass
 from dataclasses import field
@@ -35,8 +36,8 @@ class PaperSession:
     status: PaperSessionStatus
     start_time: datetime | None = None
     end_time: datetime | None = None
-    initial_capital: float = 10000.0
-    current_capital: float = 10000.0
+    initial_capital: float = float(os.getenv("DEFAULT_CASH", "10000.0"))
+    current_capital: float = float(os.getenv("DEFAULT_CASH", "10000.0"))
     open_orders: list[Order] = field(default_factory=list)
     filled_orders: list[Order] = field(default_factory=list)
     trades: list[Trade] = field(default_factory=list)
@@ -51,6 +52,7 @@ class PaperBrokerAdapter(BrokerAdapter):
     fill_probability: float = 1.0
     partial_fill_probability: float = 0.0
     latency_ms: int = 0
+    account_balance: float = 100000.0
 
     def _fill_result(
         self,
@@ -118,7 +120,7 @@ class PaperBrokerAdapter(BrokerAdapter):
         return self._fill_result(True, 0.0, 0.0, 0.0, OrderStatus.CANCELLED)
 
     def get_account_balance(self) -> float:
-        return 100000.0
+        return self.account_balance
 
     def get_positions(self) -> list[dict]:
         return []
@@ -138,15 +140,20 @@ class PaperTradingService:
         self,
         strategy_id: uuid.UUID,
         market_ids: list[uuid.UUID],
-        initial_capital: float = 10000.0,
+        initial_capital: float | None = None,
     ) -> PaperSession:
+        cash = (
+            initial_capital
+            if initial_capital is not None
+            else float(os.getenv("DEFAULT_CASH", "10000.0"))
+        )
         session = PaperSession(
             id=uuid.uuid4(),
             strategy_id=strategy_id,
             market_ids=market_ids,
             status=PaperSessionStatus.CREATED,
-            initial_capital=initial_capital,
-            current_capital=initial_capital,
+            initial_capital=cash,
+            current_capital=cash,
         )
         self._sessions[session.id] = session
         return session

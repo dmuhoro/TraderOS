@@ -1,41 +1,18 @@
 import os
 import unittest
 
-import numpy as np
-import pandas as pd
-
-from traderos.domain.analysis.indicators import MarketAnalyzer
 from traderos.domain.research.research_engine import ResearchEngine
 from traderos.infrastructure.database.db_manager import DatabaseManager
 
 
-class TestTraderOS(unittest.TestCase):
+class TestTraderOSCore(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Use a test database
         if os.path.exists("test_trader.db"):
             os.remove("test_trader.db")
         os.environ["DB_PATH"] = "test_trader.db"
         cls.db = DatabaseManager()
         cls.research = ResearchEngine(cls.db)
-
-    def test_regime_detection(self):
-        # Create trending bullish data
-        dates = pd.date_range(start="2023-01-01", periods=300, freq="h")
-        price = np.linspace(100, 200, 300)
-        df = pd.DataFrame(
-            {
-                "timestamp": dates,
-                "open": price,
-                "high": price + 1,
-                "low": price - 1,
-                "close": price,
-                "volume": 100,
-            }
-        )
-        df = MarketAnalyzer.detect_regime(df)
-        latest_regime = df.iloc[-1]["regime"]
-        self.assertIn("Trending Bullish", latest_regime)
 
     def test_knowledge_graph_workflow(self):
         oid = self.research.create_observation("BTC/USDT", "Price rejected at 70k")
@@ -53,7 +30,3 @@ class TestTraderOS(unittest.TestCase):
         cls.db.close()
         if os.path.exists("test_trader.db"):
             os.remove("test_trader.db")
-
-
-if __name__ == "__main__":
-    unittest.main()

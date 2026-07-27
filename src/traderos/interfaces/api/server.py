@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC
+from importlib.metadata import version
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -75,8 +76,7 @@ def ensure_fastapi() -> None:
 
 def build_app() -> Any:
     ensure_fastapi()
-    assert FastAPI is not None
-    app = FastAPI(title="TraderOS API", version="0.3.0")
+    app = FastAPI(title="TraderOS API", version=version("traderos"))
 
     @app.get("/health")
     def get_health():

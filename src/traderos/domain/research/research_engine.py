@@ -64,7 +64,8 @@ class ResearchEngine:
             (result_id, content, tags),
         )
         self.db.conn.commit()
-        assert cursor.lastrowid is not None
+        if cursor.lastrowid is None:
+            raise RuntimeError("Failed to record lesson")
         return cursor.lastrowid
 
     def get_full_workflow(self, lesson_id: int) -> dict:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import uuid
 from datetime import UTC
+from importlib.metadata import version
 
 from traderos.application.factory import build_orchestrator
 from traderos.domain.services.backtesting_service import BacktestingService
@@ -120,7 +121,8 @@ def cmd_paper(args: argparse.Namespace) -> None:
 
 def cmd_health(args: argparse.Namespace) -> None:
     svc = HealthService()
-    svc.report_healthy("cli", "TraderOS CLI v0.3.0")
+    ver = version("traderos")
+    svc.report_healthy("cli", f"TraderOS CLI v{ver}")
     print("System Health:")
     for name, healthy in svc.summary().items():
         status = "PASS" if healthy else "FAIL"
@@ -148,8 +150,24 @@ def cmd_notify(args: argparse.Namespace) -> None:
 
 
 def cmd_signal(args: argparse.Namespace) -> None:
-    mid = uuid.UUID(args.market_id) if args.market_id else uuid.uuid4()
-    print(f"Active signals for market {mid}: (none — requires running system)")
+    cfg = Config.load()
+    orch = build_orchestrator(mode="paper", config=cfg)
+    if args.market_id:
+        mids = [uuid.UUID(args.market_id)]
+    else:
+        mids = list(orch.market_ids) if orch.market_ids else []
+    if not mids:
+        print("No markets configured. Use --market-id or configure markets in config.")
+        return
+    for mid in mids:
+        signals = orch.signal_service.get_active_signals(mid)
+        if signals:
+            print(f"Active signals for {mid}:")
+            for s in signals:
+                expires = s.expires_at.strftime("%H:%M")
+                print(f"  {s.direction.name:>8}  conf={s.confidence:.2f}  expires={expires}")
+        else:
+            print(f"Active signals for {mid}: (none)")
 
 
 def cmd_daemon(args: argparse.Namespace) -> None:

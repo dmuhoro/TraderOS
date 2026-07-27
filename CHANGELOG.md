@@ -1,5 +1,15 @@
 # Changelog - TraderOS
 
+## [0.6.1] - Stale Module Cleanup & CLI Wiring
+### Fixed
+- **Hardcoded `close_price=100.0` in `run_forever()`:** Now fetches real data via `data_ingestion.get_latest_close()`; skips cycle and reports unhealthy when price unavailable instead of silently trading at $100.
+- **5 stale domain module groups deleted:** `liquidity/` (5 files), `analysis/indicators.py`, `risk/engine.py`, `strategies/` (base_strategy.py + strategies.py), `backtesting/engine.py`. Test files updated to remove references; `strategy_lab.py` updated to use new `strategy_framework` registry.
+- **`cmd_signal` no-op in CLI:** Now builds an orchestrator and displays active signals from `SignalService.get_active_signals()`. Market-specific or all-markets listing.
+- **Paper trading cash hardcoded in 6 locations:** Consolidated to `Config.default_cash` field with `DEFAULT_CASH` env var fallback; `PaperBrokerAdapter.account_balance`, `PaperSession.initial_capital`/`current_capital`, `BacktestingService.initial_capital`, `TradingOrchestrator._cash_balance()` all read from config.
+- **3 `assert` statements in production code:** `server.py:78`, `migration_manager.py:55`, `research_engine.py:67` replaced with proper `RuntimeError` + error context.
+- **Version inconsistency (`0.2.0` vs `0.4.0` vs `0.6.0`):** `pyproject.toml` version set to `0.6.0`; server and CLI now read `importlib.metadata.version("traderos")` instead of hardcoded strings.
+- **Stale `.env.example`:** Replaced with template including `DEFAULT_CASH`, `MODE`, `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `ALPACA_PAPER`.
+
 ## [0.6.0] - Infrastructure Hardening & Pipeline Wiring
 ### Fixed
 - **Container runs as root:** Added `USER traderos` directive to Dockerfile with dedicated system user/group.

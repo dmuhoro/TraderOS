@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -26,7 +27,7 @@ class BacktestStep(NamedTuple):
 @dataclass
 class BacktestingService:
     execution: ExecutionService
-    initial_capital: float = 10000.0
+    initial_capital: float = float(os.getenv("DEFAULT_CASH", "10000.0"))
 
     def compute_metrics(
         self,
