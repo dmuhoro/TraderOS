@@ -27,32 +27,34 @@ def _make_client(**overrides):
 class TestApiHealth:
     def test_get_health(self):
         client = _make_client()
-        resp = client.get("/health")
+        resp = client.get("/v1/health")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
     def test_get_health_with_api_key(self):
         with patch.object(server, "_load_api_key", return_value="secret123"):
             client = _make_client()
-            resp = client.get("/health")
+            resp = client.get("/v1/health")
             assert resp.status_code == 401
+            assert "error" in resp.json()
 
-            resp = client.get("/health", headers={"X-API-Key": "secret123"})
+            resp = client.get("/v1/health", headers={"X-API-Key": "secret123"})
             assert resp.status_code == 200
 
 
 class TestApiStrategies:
     def test_list_strategies(self):
-        resp = _make_client().get("/strategies")
+        resp = _make_client().get("/v1/strategies")
         assert resp.status_code == 200
         assert "strategies" in resp.json()
 
     def test_get_strategy_not_found(self):
-        resp = _make_client().get("/strategies/nonexistent")
+        resp = _make_client().get("/v1/strategies/nonexistent")
         assert resp.status_code == 404
+        assert "error" in resp.json()
 
     def test_get_strategy_found(self):
-        resp = _make_client().get("/strategies/mean_reversion")
+        resp = _make_client().get("/v1/strategies/mean_reversion")
         assert resp.status_code == 200
         assert resp.json()["name"] == "mean_reversion"
 
@@ -60,16 +62,16 @@ class TestApiStrategies:
 class TestApiOrchestrator:
     def test_orchestrator_start_stop(self):
         client = _make_client()
-        resp = client.post("/orchestrator/start")
+        resp = client.post("/v1/orchestrator/start")
         assert resp.status_code == 200
         assert resp.json()["status"] == "started"
 
-        resp = client.post("/orchestrator/stop")
+        resp = client.post("/v1/orchestrator/stop")
         assert resp.status_code == 200
         assert resp.json()["status"] == "stopped"
 
     def test_orchestrator_status(self):
-        resp = _make_client().get("/orchestrator/status")
+        resp = _make_client().get("/v1/orchestrator/status")
         assert resp.status_code == 200
         data = resp.json()
         assert data["mode"] == "paper"
@@ -80,20 +82,21 @@ class TestApiOrchestrator:
 
 class TestApiBacktest:
     def test_run_backtest(self):
-        resp = _make_client().post("/backtest", json={"strategy": "mean_reversion", "candles": 10})
+        resp = _make_client().post("/v1/backtest", json={"strategy": "mean_reversion", "candles": 10})
         assert resp.status_code == 200
         data = resp.json()
         assert "total_return" in data
         assert "sharpe_ratio" in data
 
     def test_run_backtest_strategy_not_found(self):
-        resp = _make_client().post("/backtest", json={"strategy": "Invalid", "candles": 10})
+        resp = _make_client().post("/v1/backtest", json={"strategy": "Invalid", "candles": 10})
         assert resp.status_code == 404
+        assert "error" in resp.json()
 
 
 class TestApiPaperTrade:
     def test_create_paper_session(self):
-        resp = _make_client().post("/papertrade/session")
+        resp = _make_client().post("/v1/papertrade/session")
         assert resp.status_code == 200
         data = resp.json()
         assert "id" in data
@@ -101,8 +104,8 @@ class TestApiPaperTrade:
 
     def test_list_paper_sessions(self):
         client = _make_client()
-        client.post("/papertrade/session")
-        resp = client.get("/papertrade/sessions")
+        client.post("/v1/papertrade/session")
+        resp = client.get("/v1/papertrade/sessions")
         assert resp.status_code == 200
         assert "sessions" in resp.json()
 
@@ -119,7 +122,7 @@ class TestApiAudit:
             mock_fn.return_value = orch
             orch.start()
             orch.stop()
-            resp = _make_client().get("/audit?limit=10")
+            resp = _make_client().get("/v1/audit?limit=10")
             assert resp.status_code == 200
             assert "entries" in resp.json()
 
@@ -136,16 +139,17 @@ class TestApiAudit:
             orch = build_orchestrator(mode="paper", config=cfg)
             mock_fn.return_value = orch
             client = _make_client()
-            resp = client.get("/audit")
+            resp = client.get("/v1/audit")
             assert resp.status_code == 401
+            assert "error" in resp.json()
 
-            resp = client.get("/audit", headers={"X-API-Key": "secret123"})
+            resp = client.get("/v1/audit", headers={"X-API-Key": "secret123"})
             assert resp.status_code == 200
 
 
 class TestApiMetrics:
     def test_get_metrics_not_running(self):
-        resp = _make_client().get("/metrics")
+        resp = _make_client().get("/v1/metrics")
         assert resp.status_code == 200
         assert "warning" in resp.json()
 
@@ -159,7 +163,7 @@ class TestApiMetrics:
             orch = build_orchestrator(mode="paper", config=cfg)
             mock_fn.return_value = orch
             orch.start()
-            resp = _make_client().get("/metrics")
+            resp = _make_client().get("/v1/metrics")
             assert resp.status_code == 200
             assert "metrics" in resp.json()
 
@@ -176,6 +180,6 @@ class TestApiManifest:
             mock_fn.return_value = orch
             orch.start()
             orch.stop()
-            resp = _make_client().get("/manifest")
+            resp = _make_client().get("/v1/manifest")
             assert resp.status_code == 200
             assert "runs" in resp.json()
