@@ -1,6 +1,6 @@
 [project]
 name = "traderos"
-version = "0.6.0"
+version = "0.8.0"
 description = "Research-first operating system for systematic traders"
 requires-python = ">=3.11"
 dependencies = [

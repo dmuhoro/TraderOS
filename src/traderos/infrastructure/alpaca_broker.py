@@ -53,8 +53,10 @@ class AlpacaBrokerAdapter(BrokerAdapter):
             def _submit() -> Any:
                 client = self._client
                 req_cls = MarketOrderRequest
-                assert client is not None
-                assert req_cls is not None
+                if client is None:
+                    raise RuntimeError("Alpaca client not initialized")
+                if req_cls is None:
+                    raise RuntimeError("alpaca-py MarketOrderRequest not available")
                 return client.submit_order(
                     order_data=req_cls(
                         symbol=symbol,
@@ -93,7 +95,8 @@ class AlpacaBrokerAdapter(BrokerAdapter):
 
             def _submit() -> Any:
                 client = self._client
-                assert client is not None
+                if client is None:
+                    raise RuntimeError("Alpaca client not initialized")
                 return client.submit_order(
                     order_data=LimitOrderRequest(
                         symbol=symbol,

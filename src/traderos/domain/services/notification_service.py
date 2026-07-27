@@ -161,7 +161,8 @@ class NotificationService:
             req = Request(webhook_url, data=payload, headers={"Content-Type": "application/json"})
 
             def _do_webhook():
-                assert urlopen is not None
+                if urlopen is None:
+                    raise RuntimeError("urllib.request.urlopen not available")
                 return urlopen(req, timeout=5)
 
             retry_with_backoff(_do_webhook, max_retries=2)
