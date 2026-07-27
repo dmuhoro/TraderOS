@@ -1,164 +1,126 @@
-# Market Intelligence Platform
+# TraderOS
 
-## Project Overview
+**Research-first operating system for systematic traders.** Paper trading, backtesting, live Alpaca execution — all in one CLI and API.
 
-The Market Intelligence Platform is a lightweight yet scalable algorithmic trading research system designed to empower traders in Forex and Crypto markets. This MVP focuses on providing deep market understanding, detecting market regimes, monitoring volatility, analyzing correlations, journaling insights, and exploring strategy ideas to improve decision-making. It is built with a strong emphasis on clean architecture, modularity, speed of iteration, extensibility, observability, data integrity, and simplicity over complexity.
+## Quick Start
 
-**Mission:** To build a market intelligence and research system that helps traders understand markets deeply before risking capital.
+```bash
+# Install
+pip install -e .[all]
+
+# Set up environment
+cp .env.example .env
+# Edit .env with your config
+
+# Run paper trading
+traderos papertrade create
+
+# Run API server
+traderos-api
+
+# Run tests
+make test
+```
+
+## Features
+
+- **Paper Trading** — Full simulation with configurable slippage, partial fills, position management
+- **Backtesting** — Historical replay with Sharpe, Sortino, max DD metrics
+- **Live Trading** — Alpaca integration for real market execution
+- **Risk Management** — Kill switch, circuit breaker, max drawdown, max positions
+- **Signal Framework** — Pluggable strategies (MA Trend, Volatility Breakout, Mean Reversion)
+- **REST API** — FastAPI server with health, strategies, backtest, paper trade, audit, metrics
+- **CLI** — Unified command-line interface for all operations
+- **Observability** — Audit trail (hash-chained), metrics, health checks, run manifest
+- **Persistence** — SQLite with versioned migrations, 90-day data archival
 
 ## Architecture
 
-The platform adopts a **modular monorepo** architectural style, separating concerns into distinct layers and modules to ensure maintainability and extensibility. The initial MVP focuses on four core layers:
-
-1.  **Data Engine:** Responsible for fetching, storing, and managing historical market data for Forex and Crypto assets.
-2.  **Analysis Engine:** Processes raw market data to compute various technical indicators, market features, and detect market regimes.
-3.  **Market Intelligence Layer:** Utilizes the processed data to identify correlations, provide a journaling system for insights, and generate actionable market insights.
-4.  **Liquidity Mapping Engine:** Identifies key liquidity zones, market structure events like swing highs/lows, support/resistance, consolidation, breakouts, and liquidity sweeps, along with session-based behavior analysis.
-
-### Core Components:
-
--   **`configs/`**: Manages application settings and configurations.
--   **`database/`**: Handles SQLite database interactions and schema management.
--   **`data_pipeline/`**: Contains data collectors for various assets and the pipeline orchestrator.
--   **`analysis_engine/`**: Implements market indicators and regime detection algorithms.
--   **`correlation_engine/`**: Computes and analyzes correlations between assets.
--   **`journal_engine/`**: Provides a system for logging trader observations and insights.
--   **`liquidity_engine/`**: Contains modules for swing detection, liquidity zone mapping, sweep detection, breakout detection, and session analysis.
--   **`visualization/`**: Utilities for generating charts and visual representations of market data and analysis.
--   **`scripts/`**: Placeholder for utility scripts.
--   **`tests/`**: Contains unit and integration tests.
--   **`main.py`**: The main entry point for the application.
-
-## Roadmap
-
-This project is planned in phases, ensuring a structured and incremental development process. The current MVP covers the initial phases, laying a solid foundation for future enhancements.
-
-| Phase | Description |
-| :---- | :---------- |
-| **Phase 1** | Data Infrastructure: Establish robust data collection, storage, and management systems. |
-| **Phase 2** | Market Analysis: Implement core analytical capabilities for market features and regime detection. |
-| **Phase 3** | Correlation Engine: Develop the engine for computing and visualizing inter-asset correlations. |
-| **Phase 4** | Liquidity Mapping: Integrate tools for understanding market liquidity dynamics. |
-
-
-## Phase 0: Stabilization & Persistence
-
-The platform has been upgraded to a **Persistent Learning System**. 
-
-### Key Foundation Upgrades:
-- **Persistence Layer:** All analysis (Regimes, Correlations, Liquidity) is now stored in SQLite. No more print-only insights.
-- **Real Data:** Integrated **Binance** (via ccxt) and **yfinance** for real market feeds.
-- **Knowledge Graph:** Implemented the `Observation -> Hypothesis -> Test -> Result -> Lesson` (O-H-T-R-L) workflow.
-- **Research CLI:** A dedicated tool for managing your trading research and compounding knowledge.
-
-## Research Workflow CLI
-
-Manage your research directly from the terminal:
-
-```bash
-# 1. Log an observation
-python3.11 research_cli.py obs BTC/USDT "Strong rejection at 70,000 psychological level."
-
-# 2. Create a hypothesis from an observation (using ID from step 1)
-python3.11 research_cli.py hyp 1 "Rejections at 70k lead to mean reversion to 20-day SMA."
-
-# 3. List recent observations
-python3.11 research_cli.py list
-
-# 4. Trace a full research chain (after recording tests/results/lessons via API)
-python3.11 research_cli.py trace 1
+```
+traderos/
+├── domain/          # Pure business logic (entities, services, ports, repositories)
+│   ├── entities/    # Trade, Position, Signal, Candle, Strategy, etc.
+│   ├── services/    # Backtesting, PaperTrading, Risk, Portfolio, Analysis
+│   ├── ports.py     # Protocol interfaces for dependency inversion
+│   └── adapters/    # BrokerAdapter ABC
+├── application/     # Orchestration layer
+│   ├── orchestrator.py     # TradingOrchestrator (per-mode runner)
+│   ├── cycle_executor.py   # Per-market cycle logic
+│   ├── daemon_controller.py # Lifecycle management
+│   └── factory.py          # DI composition root
+├── infrastructure/  # Concrete implementations
+│   ├── alpaca_broker.py    # Real broker adapter
+│   ├── config/             # Config loader (env vars + YAML)
+│   ├── database/           # SQLite + migration manager
+│   ├── repositories/       # In-memory + SQLite repos
+│   └── observability.py    # Audit, Metrics, Health, Manifest
+└── interfaces/      # Entry points
+    ├── api/         # FastAPI server
+    └── cli/         # Command-line interface
 ```
 
-## Setup Instructions
+## Commands
 
-To get started with the Market Intelligence Platform, follow these steps:
+```bash
+# Paper trading
+traderos papertrade create       # Start a paper session
+traderos papertrade list         # List paper sessions
+traderos papertrade status       # Show current status
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/your-username/market-intelligence-platform.git
-    cd market-intelligence-platform
-    ```
+# Backtesting
+traderos backtest run <strategy>
 
-2.  **Create a virtual environment (recommended):**
-    ```bash
-    python3.11 -m venv venv
-    source venv/bin/activate
-    ```
+# Strategies
+traderos strategies list
+traderos strategies show <name>
 
-3.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+# Observability
+traderos health                  # System health
+traderos audit                   # Audit trail
+traderos metrics                 # Metrics snapshot
+traderos signal <market_id>      # Active signals
 
-4.  **Environment Variables:**
-    Create a `.env` file in the root directory based on `.env.example`. This will be used for sensitive information like API keys (though not strictly necessary for the current mock data implementation).
-    ```ini
-    # .env example
-    # API_KEY_FOREX=your_forex_api_key
-    # API_KEY_CRYPTO=your_crypto_api_key
-    ```
+# API server
+traderos-api                     # Start on 0.0.0.0:8000
+```
 
-5.  **Run the platform:**
-    ```bash
-    python3.11 main.py
-    ```
-    This will initiate data collection (using mock data for now), perform analysis, generate market intelligence, and map liquidity zones, producing insights and visualizations.
+## Configuration
 
-## Philosophy
+All configuration via environment variables (see `.env.example`):
 
-The Market Intelligence Platform is envisioned as a blend of a **Bloomberg Terminal**, **TradingView**, and a **Personal Quant Lab**. It aims to be:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRADING_MODE` | `paper` | `paper`, `live`, `backtest` |
+| `DB_PATH` | `data/trader.db` | SQLite database path |
+| `DEFAULT_CASH` | `10000.0` | Paper/backtest starting capital |
+| `MAX_DRAWDOWN` | `0` | Max drawdown % (0 = no limit) |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `TRADEROS_API_KEY` | — | API auth key (optional) |
+| `WEBHOOK_URL` | — | Notification webhook URL |
+| `ALPACA_API_KEY` | — | Alpaca live trading key |
+| `ALPACA_SECRET_KEY` | — | Alpaca live trading secret |
 
--   **Lightweight:** Focused on essential features without unnecessary bloat.
--   **Educational:** Designed to foster a deeper understanding of market dynamics.
--   **Research-First:** Prioritizing analysis and insight generation over immediate execution.
--   **Modular:** Easy to extend and adapt to new research needs.
--   **Developer-Friendly:** Clean codebase with clear documentation and type hints.
+## Development
 
-Our core belief is that profound market understanding is the precursor to successful trading. This platform provides the tools to achieve that understanding.
+```bash
+git clone https://github.com/dmuhoro/TraderOS.git
+cd TraderOS
+python3.11 -m venv venv && source venv/bin/activate
+pip install -e .[all,dev]
 
-## Future Plans
+# Run all checks
+make lint          # ruff
+make typecheck     # pyright
+make test          # pytest + coverage (threshold: 70%)
 
-While the current MVP focuses on data collection, analysis, and basic intelligence, the architecture is designed to accommodate future advanced features. These include, but are not limited to:
+# Individual check
+make format        # black + isort
+```
 
--   Integration with real-time data APIs for live market feeds.
--   Advanced machine learning models for predictive analytics and pattern recognition.
--   Sophisticated backtesting and simulation environments.
--   Autonomous trading agents (with careful risk management).
--   Cloud deployment options for scalability and accessibility.
--   User authentication and multi-user support.
+## Tech Stack
 
-These features will be introduced in later phases, ensuring that the platform remains robust and stable throughout its evolution.
+Python 3.14, FastAPI, SQLite, Alpaca-py, Pydantic, NumPy, Pandas, pytest, ruff, pyright, Docker.
 
-## Market Structure Features
+## License
 
-Layer 4 introduces advanced market structure analysis capabilities:
-
--   **Swing Point Detection:** Identifies recent swing highs and lows, crucial for understanding market turning points.
--   **Support & Resistance Zones:** Detects areas where price has repeatedly reacted, indicating potential supply and demand imbalances.
--   **Liquidity Sweeps:** Pinpoints instances where price briefly moves beyond a significant high or low before reversing, often signaling liquidity grabs by larger market participants.
--   **Consolidation Detection:** Identifies periods of low volatility and tight price ranges, suggesting accumulation or distribution phases.
--   **Breakout Detection:** Recognizes when price exits a consolidation range with increased volatility and directional movement.
--   **Session Analysis:** Tracks market behavior during key trading sessions (London, New York, Asian) to understand differences in volatility, breakout frequency, and liquidity sweeps.
-
-## Screenshots (Placeholders)
-
-*(Insert screenshots of price charts, volatility charts, correlation heatmaps, journal entries, and liquidity maps here once generated.)*
-
-## Contributor Notes
-
-We welcome contributions from the community! If you're interested in contributing, please review the existing codebase, adhere to the engineering rules (production-quality code, type hints, clear documentation, separation of concerns), and submit pull requests. For major changes, please open an issue first to discuss what you would like to change.
-
-**Engineering Rules:**
-
--   Write production-quality code.
--   Use type hints extensively.
--   Document functions clearly.
--   Separate concerns properly; avoid monolithic files.
--   Keep functions small and focused.
--   Utilize configuration files for settings.
--   Manage sensitive data with environment variables.
--   Implement comprehensive logging.
--   Include robust error handling.
--   Maintain an extensible architecture.
-
-Thank you for being a part of this journey to build a powerful market intelligence tool!
+MIT

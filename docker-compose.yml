@@ -1,0 +1,30 @@
+services:
+  traderos:
+    build: .
+    container_name: traderos
+    volumes:
+      - traderos_data:/app/data
+      - traderos_exports:/app/exports
+    environment:
+      - DB_PATH=/app/data/traderos.db
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+
+  traderos-api:
+    build: .
+    container_name: traderos-api
+    command: traderos-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - traderos_data:/app/data
+    environment:
+      - DB_PATH=/app/data/traderos.db
+      - LOG_LEVEL=INFO
+    depends_on:
+      - traderos
+    restart: unless-stopped
+
+volumes:
+  traderos_data:
+  traderos_exports:
