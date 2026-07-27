@@ -18,7 +18,10 @@ ENV PYTHONPATH=/app/src
 
 COPY . .
 
-RUN mkdir -p /app/data /app/exports
+RUN groupadd -r traderos && useradd -r -g traderos -d /app traderos && \
+    chown -R traderos:traderos /app
+
+USER traderos
 
 VOLUME ["/app/data", "/app/exports"]
 

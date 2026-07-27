@@ -11,7 +11,9 @@ class DatabaseManager:
     def __init__(self):
         self.db_path = os.environ.get("DB_PATH") or config.db_path
         self._ensure_db_dir()
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(self.db_path, timeout=10)
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self._run_migrations()
 
     def _ensure_db_dir(self):
@@ -94,5 +96,12 @@ class DatabaseManager:
             query, self.conn, params=[symbol, limit], parse_dates=["timestamp"]
         )
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
     def close(self):
-        self.conn.close()
+        if self.conn:
+            self.conn.close()

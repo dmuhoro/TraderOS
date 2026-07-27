@@ -25,10 +25,17 @@ except ImportError:
 
 
 class AlpacaBrokerAdapter(BrokerAdapter):
-    def __init__(self, api_key: str, secret_key: str, paper: bool = True) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        secret_key: str,
+        paper: bool = True,
+        symbol_map: dict[uuid.UUID, str] | None = None,
+    ) -> None:
         if not _has_alpaca or _TradingClient is None:
             raise ImportError("alpaca-py is required. Install with: pip install alpaca-py")
         self._client: Any = _TradingClient(api_key, secret_key, paper=paper)
+        self._symbol_map: dict[uuid.UUID, str] = symbol_map or {}
 
     def place_market_order(
         self,
@@ -40,9 +47,10 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         try:
             if MarketOrderRequest is None:
                 raise ImportError("alpaca-py not available")
+            symbol = self._symbol_map.get(market_id, str(market_id))
             order = self._client.submit_order(
                 order_data=MarketOrderRequest(
-                    symbol=str(market_id),
+                    symbol=symbol,
                     qty=quantity,
                     side=_OrderSide_BUY if side == "buy" else _OrderSide_SELL,
                     time_in_force=_TimeInForce_DAY,

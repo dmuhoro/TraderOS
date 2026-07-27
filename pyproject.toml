@@ -3,15 +3,24 @@ name = "traderos"
 version = "0.2.0"
 description = "Research-first operating system for systematic traders"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "numpy==2.5.1",
+    "pandas==3.0.5",
+    "PyYAML==6.0.3",
+    "python-dotenv==1.2.2",
+    "matplotlib==3.11.1",
+    "seaborn==0.13.2",
+    "tabulate==0.10.0",
+]
 
 [project.scripts]
 traderos = "traderos.interfaces.cli.main:main"
 traderos-api = "traderos.interfaces.api.main:main"
 
 [project.optional-dependencies]
-api = ["fastapi>=0.110.0", "uvicorn>=0.29.0"]
-alpaca = ["alpaca-py>=0.30.0"]
+api = ["fastapi==0.110.0", "uvicorn==0.29.0", "pydantic==2.11.1"]
+alpaca = ["alpaca-py==0.30.0"]
+dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.0", "pyright==1.1.411", "black==26.5.1", "isort==8.0.1"]
 all = ["traderos[api]", "traderos[alpaca]"]
 
 [tool.black]

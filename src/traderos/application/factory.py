@@ -85,10 +85,12 @@ def build_orchestrator(
     if isinstance(crypto, list):
         symbols.extend(crypto)
 
+    symbol_map: dict[uuid.UUID, str] = {}
     data_market_ids: list[uuid.UUID] = []
     for symbol in symbols:
         mid = uuid.uuid5(uuid.NAMESPACE_DNS, f"traderos/{symbol}")
         data_ingestion.add_source(mid, symbol, CollectorType.MOCK)
+        symbol_map[mid] = symbol
         data_market_ids.append(mid)
 
     # --- Broker Selection ---
@@ -101,6 +103,7 @@ def build_orchestrator(
                 api_key=cfg.alpaca_api_key,
                 secret_key=cfg.alpaca_secret_key,
                 paper=cfg.alpaca_paper,
+                symbol_map=symbol_map,
             )
         except ImportError:
             broker = PaperBrokerAdapter(fill_probability=1.0)

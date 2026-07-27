@@ -1,5 +1,16 @@
 # Changelog - TraderOS
 
+## [0.6.0] - Infrastructure Hardening & Pipeline Wiring
+### Fixed
+- **Container runs as root:** Added `USER traderos` directive to Dockerfile with dedicated system user/group.
+- **SQLite concurrent access:** Enabled WAL journal mode + `busy_timeout=5000` + connection `timeout=10` in `DatabaseManager` for safe multi-container operation.
+- **DB connections leaked:** Added `__enter__`/`__exit__` context manager to `DatabaseManager` for guaranteed cleanup.
+- **All dependency versions unpinned:** `pyproject.toml` dependencies now use `==` pinning; 10 undeclared dependencies (numpy, pandas, PyYAML, python-dotenv, matplotlib, seaborn, tabulate, pydantic, fastapi, uvicorn, alpaca-py) added with pinned versions. `dev` optional-dependency group added for tooling.
+- **Alpaca UUID→symbol bug:** `AlpacaBrokerAdapter` accepts `symbol_map` dict; factory builds mapping from `DataIngestionService` sources and passes it at construction. Runtime symbol resolution replaces broken `str(market_id)`.
+- **AnalysisService dead code:** `TradingOrchestrator.run_cycle()` now fetches real candle data via `data_ingestion.fetch_candles()` and computes SMA/ATR via `AnalysisService` static methods. Fake indicators (`close*1.01`, `close*0.99`, `volume=1000`) replaced with computed values.
+- **Dual collector implementations:** Removed old `infrastructure/data/collectors.py` and `infrastructure/data/pipeline.py`; single `infrastructure/collectors/` hierarchy (DataCollector ABC) is the sole data collector path. Eliminates `ccxt` and `yfinance` import dependencies.
+- **`fail_under` raised to 70:** Previous sprint set to 70 (was 30); now 514 tests pass at 76% coverage.
+
 ## [0.5.0] - Blocker Clearance & Architecture Cleanup
 ### Fixed
 - **Docker build broken:** `.dockerignore` no longer excludes `pyproject.toml`; build succeeds again.

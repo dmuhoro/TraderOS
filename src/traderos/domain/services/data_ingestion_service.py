@@ -7,6 +7,9 @@ from typing import NamedTuple
 
 from traderos.domain.collectors.base import CollectorRegistry
 from traderos.domain.collectors.base import CollectorType
+from traderos.domain.entities import OHLCV
+from traderos.domain.entities import Candle
+from traderos.domain.entities import Timeframe
 
 
 class DataSource(NamedTuple):
@@ -62,6 +65,30 @@ class DataIngestionService:
         for source in self.sources:
             result[source.symbol] = self.fetch_latest(source, limit)
         return result
+
+    def fetch_candles(self, market_id: uuid.UUID, limit: int = 100) -> list[Candle]:
+        source = next((s for s in self.sources if s.market_id == market_id), None)
+        if source is None:
+            return []
+        raw = self.fetch_latest(source, limit=limit)
+        candles: list[Candle] = []
+        for r in raw:
+            candles.append(
+                Candle(
+                    market_id=market_id,
+                    ohlcv=OHLCV(
+                        open=r["open"],
+                        high=r["high"],
+                        low=r["low"],
+                        close=r["close"],
+                        volume=r["volume"],
+                    ),
+                    timestamp=r["timestamp"],
+                    timeframe=Timeframe.HOUR_1,
+                    source=source.symbol,
+                )
+            )
+        return candles
 
     def get_latest_close(self, market_id: uuid.UUID) -> float | None:
         source = next((s for s in self.sources if s.market_id == market_id), None)

@@ -119,6 +119,19 @@ class TradingOrchestrator:
                 )
                 return CycleResult(market_id, 0, 0, [], 0.0, datetime.now(UTC))
 
+            candles: list = []
+            if self.data_ingestion is not None:
+                candles = self.data_ingestion.fetch_candles(market_id, limit=100)
+            sma_20 = close_price
+            atr_14 = close_price * 0.01
+            if candles:
+                sma_results = self.analysis.compute_sma(candles, 20)
+                if sma_results:
+                    sma_20 = sma_results[-1].value
+                atr_results = self.analysis.compute_atr(candles, 14)
+                if atr_results:
+                    atr_14 = atr_results[-1].value
+
             strategies = strategy_registry.list()
             for name in strategies:
                 try:
@@ -127,14 +140,14 @@ class TradingOrchestrator:
                         continue
                     strategy = strat_cls()
                     state = MarketState(
-                        candles=[],
+                        candles=candles,
                         indicators={
                             "close": close_price,
                             "high": close_price * 1.01,
                             "low": close_price * 0.99,
                             "volume": 1000.0,
-                            "sma_20": close_price,
-                            "atr_14": close_price * 0.01,
+                            "sma_20": sma_20,
+                            "atr_14": atr_14,
                         },
                         timestamp=candle_time or datetime.now(UTC),
                     )

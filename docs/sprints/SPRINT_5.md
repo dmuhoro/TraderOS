@@ -46,15 +46,22 @@ All work executed in sequential layers, smallest tasks first, with continuous ve
 | 3 | **Update test imports** — `test_core.py` and `test_sprint1.py` updated to import from `traderos.*` paths instead of stale wrappers | 10 min | DONE |
 | 4 | **Remove `assert` in `research_engine.py`** — 4 `assert cursor.lastrowid is not None` replaced with `if cursor.lastrowid is None: raise RuntimeError(...)` | 5 min | DONE |
 
-## Layer 4: Quick Wins (Deferred)
+## Layer 4: Infrastructure Hardening (6 fixes)
 
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| 1 | API auth/validation | DEFERRED | >1hr; follow-up sprint |
-| 2 | DB connection leak | NOTED | CLI tools exit quickly; OS reclaims |
-| 3 | Alpaca UUID→symbol map | DEFERRED | Requires symbol resolution strategy |
-| 4 | 18 modules 0% coverage | DEFERRED | Requires dedicated testing sprint |
-| 5 | Dual strategy/collector registries | NOTED | Both work; interface unification deferred |
+| # | Task | Effort | Status |
+|---|------|--------|--------|
+| 1 | **Container runs as root** — added `USER traderos` to Dockerfile with dedicated group/user | 15m | DONE |
+| 2 | **SQLite concurrent access** — enabled WAL journal mode + `busy_timeout=5000` + `timeout=10` for multi-container safety | 30m | DONE |
+| 3 | **DB connection leak** — added `__enter__`/`__exit__` to `DatabaseManager` for context manager cleanup | 30m | DONE |
+| 4 | **All dependency versions pinned** — `pyproject.toml` now uses `==` for all dependencies; undeclared deps (numpy, pandas, PyYAML, python-dotenv, matplotlib, seaborn, tabulate, pydantic, fastapi, uvicorn, alpaca-py) added with pinned versions | 1h | DONE |
+| 5 | **Alpaca UUID→symbol map** — `AlpacaBrokerAdapter` now accepts `symbol_map` dict and resolves ticker symbols at runtime; factory builds map from data ingestion sources | 1h | DONE |
+| 6 | **AnalysisService wired into orchestrator** — `run_cycle()` now fetches real candle data via `data_ingestion.fetch_candles()` and computes SMA/ATR via `AnalysisService` instead of constructing fake indicators | 1.5h | DONE |
+
+## Layer 5: Architecture Simplification
+
+| # | Task | Effort | Status |
+|---|------|--------|--------|
+| 1 | **Remove dual collector implementations** — deleted old `infrastructure/data/collectors.py` and `infrastructure/data/pipeline.py`; new `infrastructure/collectors/` (DataCollector ABC) is the sole hierarchy | 15m | DONE |
 
 ---
 
