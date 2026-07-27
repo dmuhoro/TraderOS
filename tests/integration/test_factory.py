@@ -43,13 +43,13 @@ class TestServiceFactory:
     def test_orchestrator_round_trip(self) -> None:
         orch = build_orchestrator(mode="paper")
         orch.start()
-        assert orch._running
+        assert orch.running
         assert orch.health.get_status("orchestrator") is True
         result = orch.run_cycle(uuid.uuid4(), 100.0)
         assert result.signals >= 0
         assert result.trades >= 0
         orch.stop()
-        assert not orch._running
+        assert not orch.running
 
     def test_orchestrator_get_status(self) -> None:
         orch = build_orchestrator(mode="paper")

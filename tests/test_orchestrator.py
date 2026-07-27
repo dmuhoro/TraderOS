@@ -61,10 +61,10 @@ class TestTradingOrchestrator:
     def test_start_and_stop(self) -> None:
         orch = self._make()
         orch.start()
-        assert orch._running
+        assert orch.running
         assert orch.health.get_status("orchestrator") is True
         orch.stop()
-        assert not orch._running
+        assert not orch.running
 
     def test_run_cycle_backtest_mode(self) -> None:
         orch = self._make(TradingMode.BACKTEST)
