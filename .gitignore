@@ -1,27 +1,46 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
+# Environment
 .env
 .env.*
 .venv/
 venv/
 
+# Database
 *.db
 *.sqlite
 *.sqlite3
+test_*.db
 
+# Node (pre-commit)
 node_modules/
 
+# Build
 dist/
 build/
+*.egg-info/
 
+# Coverage
 coverage/
 htmlcov/
 .pytest_cache/
+.coverage
+coverage.xml
 
+# IDE
 .vscode/
 .idea/
 
+# OS
 .DS_Store
+
+# Exports (generated charts)
+exports/
+
+# Logs
+logs/
+*.log
