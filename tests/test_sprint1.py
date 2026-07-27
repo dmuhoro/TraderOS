@@ -4,10 +4,10 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from backtesting.engine import BacktestEngine
-from database.db_manager import DatabaseManager
-from risk_engine.engine import RiskEngine
-from strategy_lab.strategies import MovingAverageTrend
+from traderos.domain.backtesting.engine import BacktestEngine
+from traderos.domain.risk.engine import RiskEngine
+from traderos.domain.strategies.strategies import MovingAverageTrend
+from traderos.infrastructure.database.db_manager import DatabaseManager
 
 
 class TestTraderOSSprint1(unittest.TestCase):

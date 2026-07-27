@@ -84,7 +84,7 @@ class BacktestingService:
         candles: list[Candle],
         market_id: uuid.UUID,
     ) -> tuple[BacktestResult, list[BacktestStep]]:
-        equity = self.initial_capital
+        cash = self.initial_capital
         position_qty = 0.0
         equity_curve: list[tuple[datetime, float]] = []
         steps: list[BacktestStep] = []
@@ -132,10 +132,12 @@ class BacktestingService:
                     fill_price = fill_result.fill_price
                     if side == "buy":
                         position_qty += fill_result.fill_quantity
+                        cash -= fill_result.fill_quantity * fill_result.fill_price
                     else:
                         position_qty -= fill_result.fill_quantity
+                        cash += fill_result.fill_quantity * fill_result.fill_price
 
-            current_value = equity + position_qty * float(candle.ohlcv.close)
+            current_value = cash + position_qty * float(candle.ohlcv.close)
             equity_curve.append((candle.timestamp, current_value))
             steps.append(
                 BacktestStep(

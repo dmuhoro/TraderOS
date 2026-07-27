@@ -9,9 +9,7 @@ from traderos.infrastructure.database.migration_manager import migrate
 
 class DatabaseManager:
     def __init__(self):
-        self.db_path = os.environ.get("DB_PATH") or config.get(
-            "database.path", "database/market_intelligence.db"
-        )
+        self.db_path = os.environ.get("DB_PATH") or config.db_path
         self._ensure_db_dir()
         self.conn = sqlite3.connect(self.db_path)
         self._run_migrations()

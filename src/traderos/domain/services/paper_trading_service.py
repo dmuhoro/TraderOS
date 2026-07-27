@@ -73,8 +73,10 @@ class PaperBrokerAdapter(BrokerAdapter):
 
         if random.random() > self.fill_probability:
             return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.REJECTED)
-        slip_multiplier = 1 + self.slippage_bps / 10000
         ref_price = close_price if close_price is not None else 1.0
+        slip_multiplier = (
+            1 + self.slippage_bps / 10000 if side == "buy" else 1 - self.slippage_bps / 10000
+        )
         fill_price = ref_price * slip_multiplier
         if random.random() < self.partial_fill_probability:
             fill_qty = quantity * random.uniform(0.1, 0.9)

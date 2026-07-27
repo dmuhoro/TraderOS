@@ -1,8 +1,8 @@
-from traderos.infrastructure.database.db_manager import DatabaseManager
+from traderos.domain.ports import DatabasePort
 
 
 class RiskEngine:
-    def __init__(self, db_manager: DatabaseManager):
+    def __init__(self, db_manager: DatabasePort):
         self.db = db_manager
         self.limits = self._load_limits()
 
@@ -20,16 +20,12 @@ class RiskEngine:
     def calculate_position_size(
         self, capital: float, volatility: float, risk_factor: float = 0.01
     ) -> float:
-        """Volatility-based position sizing (Kelly-lite)."""
         if volatility == 0:
             return capital * self.limits["max_position_size"]
-
-        # Size = (Capital * Risk%) / Volatility
         size = (capital * risk_factor) / volatility
         return min(size, capital * self.limits["max_position_size"])
 
     def check_kill_switch(self, current_drawdown: float, portfolio_correlation: float) -> bool:
-        """Check if any safety limits are breached."""
         return (
             current_drawdown < self.limits["max_drawdown"]
             or portfolio_correlation > self.limits["max_correlation"]
@@ -38,6 +34,5 @@ class RiskEngine:
     def validate_exposure(
         self, current_exposure: float, new_position_size: float, total_capital: float
     ) -> bool:
-        """Ensure new position doesn't exceed portfolio limits."""
         total_new_exposure = (current_exposure + new_position_size) / total_capital
-        return total_new_exposure <= 0.50  # Hard limit: 50% total exposure
+        return total_new_exposure <= 0.50

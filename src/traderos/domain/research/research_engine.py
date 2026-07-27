@@ -1,13 +1,13 @@
 import json
 import logging
 
-from traderos.infrastructure.database.db_manager import DatabaseManager
+from traderos.domain.ports import DatabasePort
 
 logger = logging.getLogger(__name__)
 
 
 class ResearchEngine:
-    def __init__(self, db_manager: DatabaseManager):
+    def __init__(self, db_manager: DatabasePort):
         self.db = db_manager
 
     def create_observation(self, symbol: str, content: str, tags: str = "") -> int:
@@ -17,7 +17,8 @@ class ResearchEngine:
             (symbol, content, tags),
         )
         self.db.conn.commit()
-        assert cursor.lastrowid is not None
+        if cursor.lastrowid is None:
+            raise RuntimeError("Failed to create observation")
         return cursor.lastrowid
 
     def create_hypothesis(self, observation_id: int, content: str) -> int:
@@ -27,7 +28,8 @@ class ResearchEngine:
             (observation_id, content),
         )
         self.db.conn.commit()
-        assert cursor.lastrowid is not None
+        if cursor.lastrowid is None:
+            raise RuntimeError("Failed to create hypothesis")
         return cursor.lastrowid
 
     def create_test(self, hypothesis_id: int, params: dict, backtest_id: int | None = None) -> int:
@@ -40,7 +42,8 @@ class ResearchEngine:
             (hypothesis_id, json.dumps(params)),
         )
         self.db.conn.commit()
-        assert cursor.lastrowid is not None
+        if cursor.lastrowid is None:
+            raise RuntimeError("Failed to create test")
         return cursor.lastrowid
 
     def record_result(self, test_id: int, metrics: dict, visual_path: str = "") -> int:
@@ -50,7 +53,8 @@ class ResearchEngine:
             (test_id, json.dumps(metrics), visual_path),
         )
         self.db.conn.commit()
-        assert cursor.lastrowid is not None
+        if cursor.lastrowid is None:
+            raise RuntimeError("Failed to record result")
         return cursor.lastrowid
 
     def record_lesson(self, result_id: int, content: str, tags: str = "") -> int:

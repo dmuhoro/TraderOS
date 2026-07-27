@@ -38,7 +38,7 @@ class Order:
     avg_fill_price: float | None = None
 
 
-class FillResult(NamedTuple):
+class ExecutionFillResult(NamedTuple):
     filled: bool
     fill_quantity: float
     fill_price: float
@@ -107,11 +107,11 @@ class ExecutionService:
         self,
         order: Order,
         market_price: float,
-    ) -> FillResult:
+    ) -> ExecutionFillResult:
         if order.order_type != OrderType.MARKET:
-            return FillResult(False, 0, 0, order.quantity, OrderStatus.REJECTED)
+            return ExecutionFillResult(False, 0, 0, order.quantity, OrderStatus.REJECTED)
         fill_price = self.apply_slippage(market_price)
-        return FillResult(
+        return ExecutionFillResult(
             filled=True,
             fill_quantity=order.quantity,
             fill_price=fill_price,
@@ -123,15 +123,15 @@ class ExecutionService:
         self,
         order: Order,
         market_price: float,
-    ) -> FillResult:
+    ) -> ExecutionFillResult:
         if order.order_type != OrderType.LIMIT or order.price is None:
-            return FillResult(False, 0, 0, order.quantity, OrderStatus.REJECTED)
+            return ExecutionFillResult(False, 0, 0, order.quantity, OrderStatus.REJECTED)
         can_fill = (order.side == "buy" and market_price <= order.price) or (
             order.side == "sell" and market_price >= order.price
         )
         if not can_fill:
-            return FillResult(False, 0, 0, order.quantity, OrderStatus.PENDING)
-        return FillResult(
+            return ExecutionFillResult(False, 0, 0, order.quantity, OrderStatus.PENDING)
+        return ExecutionFillResult(
             filled=True,
             fill_quantity=order.quantity,
             fill_price=order.price,
@@ -143,16 +143,16 @@ class ExecutionService:
         self,
         order: Order,
         market_price: float,
-    ) -> FillResult:
+    ) -> ExecutionFillResult:
         if order.order_type != OrderType.STOP or order.stop_price is None:
-            return FillResult(False, 0, 0, order.quantity, OrderStatus.REJECTED)
+            return ExecutionFillResult(False, 0, 0, order.quantity, OrderStatus.REJECTED)
         triggered = (order.side == "buy" and market_price >= order.stop_price) or (
             order.side == "sell" and market_price <= order.stop_price
         )
         if not triggered:
-            return FillResult(False, 0, 0, order.quantity, OrderStatus.PENDING)
+            return ExecutionFillResult(False, 0, 0, order.quantity, OrderStatus.PENDING)
         fill_price = self.apply_slippage(market_price)
-        return FillResult(
+        return ExecutionFillResult(
             filled=True,
             fill_quantity=order.quantity,
             fill_price=fill_price,

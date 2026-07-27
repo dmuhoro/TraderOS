@@ -3,11 +3,11 @@ import json
 import numpy as np
 import pandas as pd
 
-from traderos.infrastructure.database.db_manager import DatabaseManager
+from traderos.domain.ports import DatabasePort
 
 
 class BacktestEngine:
-    def __init__(self, db_manager: DatabaseManager, initial_capital: float = 100000.0):
+    def __init__(self, db_manager: DatabasePort, initial_capital: float = 100000.0):
         self.db = db_manager
         self.initial_capital = initial_capital
         self.commission = 0.001  # 0.1% commission

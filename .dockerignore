@@ -19,7 +19,6 @@ docs
 tests
 *.md
 Makefile
-pyproject.toml
 docker-compose.yml
 .dockerignore
 .pre-commit-config.yaml

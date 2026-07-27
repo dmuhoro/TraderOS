@@ -48,14 +48,18 @@ class Config:
         for key in cls.__dataclass_fields__:
             if key.startswith("_"):
                 continue
-            value = env_overrides.get(key) or settings.get(key)
+            value = env_overrides.get(key)
+            if value is None:
+                value = settings.get(key)
             if value is not None:
                 if isinstance(value, str) and key in ("paper_trading", "alpaca_paper"):
                     value = value.lower() in ("true", "1", "yes")
                 kwargs[key] = value
 
         kwargs["_raw_settings"] = settings
-        return cls(**kwargs)
+        instance = cls(**kwargs)
+        instance.validate()
+        return instance
 
     def get(self, key: str, default: Any = None) -> Any:
         keys = key.split(".")

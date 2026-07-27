@@ -4,9 +4,9 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from analysis_engine.indicators import MarketAnalyzer
-from database.db_manager import DatabaseManager
-from journal_engine.research_engine import ResearchEngine
+from traderos.domain.analysis.indicators import MarketAnalyzer
+from traderos.domain.research.research_engine import ResearchEngine
+from traderos.infrastructure.database.db_manager import DatabaseManager
 
 
 class TestTraderOS(unittest.TestCase):

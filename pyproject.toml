@@ -59,7 +59,7 @@ source = ["src/traderos"]
 omit = ["tests/*", ".venv/*", "*.pyc"]
 
 [tool.coverage.report]
-fail_under = 30
+fail_under = 70
 show_missing = true
 
 [tool.pyright]

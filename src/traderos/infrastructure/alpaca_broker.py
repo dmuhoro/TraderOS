@@ -26,9 +26,8 @@ except ImportError:
 
 class AlpacaBrokerAdapter(BrokerAdapter):
     def __init__(self, api_key: str, secret_key: str, paper: bool = True) -> None:
-        if not _has_alpaca:
+        if not _has_alpaca or _TradingClient is None:
             raise ImportError("alpaca-py is required. Install with: pip install alpaca-py")
-        assert _TradingClient is not None
         self._client: Any = _TradingClient(api_key, secret_key, paper=paper)
 
     def place_market_order(
@@ -39,7 +38,8 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         close_price: float | None = None,
     ) -> FillResult:
         try:
-            assert MarketOrderRequest is not None
+            if MarketOrderRequest is None:
+                raise ImportError("alpaca-py not available")
             order = self._client.submit_order(
                 order_data=MarketOrderRequest(
                     symbol=str(market_id),

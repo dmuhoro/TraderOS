@@ -66,6 +66,7 @@ class TradingOrchestrator:
     run_manifest: RunManifestService
     data_ingestion: DataIngestionService | None = None
 
+    default_cash: float = 10000.0
     market_ids: list[uuid.UUID] = field(default_factory=list)
     _running: bool = False
 
@@ -79,6 +80,11 @@ class TradingOrchestrator:
         self.audit.record("orchestrator.start", "system", "orchestrator", f"mode={self.mode.value}")
         self.notifications.info("Orchestrator Started", f"Trading mode: {self.mode.value}")
         self.run_manifest.record("orchestrator", "start", metadata={"mode": self.mode.value})
+
+    def _cash_balance(self) -> float:
+        if self.mode == TradingMode.LIVE:
+            return self.broker.get_account_balance()
+        return self.default_cash
 
     def stop(self) -> None:
         self._running = False
@@ -158,18 +164,18 @@ class TradingOrchestrator:
                         )
                     )
 
-                    active_signals = self.signal_service.get_active_signals(market_id)
-                    for signal in active_signals:
+                    for signal in [provenance.signal]:
+                        cash = self._cash_balance()
                         risk = self.risk_service.assess_trade(
                             price=close_price,
                             confidence=signal.confidence,
                             atr=close_price * 0.01,
-                            account_equity=self.portfolio_service.get_summary(10000.0).total_equity,
+                            account_equity=self.portfolio_service.get_summary(cash).total_equity,
                         )
                         if risk.kelly_fraction <= 0:
                             continue
                         qty = self.portfolio_service.size_position(
-                            cash=10000.0,
+                            cash=cash,
                             confidence=signal.confidence,
                         )
                         if qty <= 0:

@@ -1,5 +1,37 @@
 # Changelog - TraderOS
 
+## [0.5.0] - Blocker Clearance & Architecture Cleanup
+### Fixed
+- **Docker build broken:** `.dockerignore` no longer excludes `pyproject.toml`; build succeeds again.
+- **`fail_under = 30`:** Raised to 70 to prevent coverage regression masking.
+- **`Config.load()` `or` truthiness bug:** Falsy env vars (`""`, `"0"`) no longer silently skipped to YAML defaults.
+- **`Config.validate()` dead code:** Now called at end of `Config.load()`.
+- **3 competing DB path defaults:** Consolidated to `config.db_path` as single canonical source.
+- **Slippage direction bug:** `PaperBrokerAdapter` now uses `1 - bps/10000` for sells (was always `1 + bps`, giving sells better-than-market price).
+- **Backtest equity bug:** `BacktestingService.run()` tracks cash separately from position value; equity = cash + position_qty × close (was using constant initial_capital, producing phantom profits).
+- **Old signals re-processed:** `TradingOrchestrator.run_cycle()` processes only the newly generated signal instead of all active signals.
+- **`FillResult` name collision:** `execution_service.FillResult` renamed to `ExecutionFillResult` (different `status` types: `str` vs `OrderStatus`).
+- **`assert` in alpaca_broker.py:** Replaced with proper conditional checks (assert disabled by `-O` flag).
+- **`assert` in research_engine.py:** 4 instances replaced with `if cursor.lastrowid is None: raise RuntimeError(...)`.
+- **Hardcoded $10,000 cash:** `TradingOrchestrator` uses `_cash_balance()` which returns broker balance in LIVE mode, configurable default otherwise.
+
+### Added
+- **CI pipeline:** `.github/workflows/ci.yml` — 4-job pipeline (lint → typecheck → test → docker) with concurrency grouping and caching.
+- **`DatabasePort` protocol:** `domain/ports.py` breaks dependency rule violation; 5 domain classes no longer import `DatabaseManager` from infrastructure.
+- **Missing `__init__.py`:** `infrastructure/logging/`, `infrastructure/repositories/` now have proper package init files.
+- **SPRINT_5.md** documents the blocker clearance sprint.
+
+### Removed
+- **10 stale flat module directories:** `analysis_engine/`, `backtesting/`, `correlation_engine/`, `data_pipeline/`, `database/`, `journal_engine/`, `liquidity_engine/`, `risk_engine/`, `strategy_lab/`, `visualization/` deleted.
+- **4 root-level scripts:** `main.py`, `dashboard_cli.py`, `research_cli.py`, `strategy_lab_cli.py` deleted (replaced by `traderos` entry point).
+- **`infrastructure/logging.py`:** Content moved to `infrastructure/logging/__init__.py`.
+
+### Verification
+- **Lint:** 0 ruff errors
+- **Typecheck:** 0 pyright errors
+- **Tests:** 514 passed, coverage 75% (threshold 70%)
+- **Assessment score improved:** 4.3 → 5.5 weighted
+
 ## [0.4.0] - Real-Market Wiring: Data Feed, Broker, Price Integrity
 ### Fixed
 - **fill_price multiplier bug (Gap 3):** `PaperBrokerAdapter.place_market_order()` now returns absolute price (`close_price * slippage`) instead of just the slippage multiplier. `BrokerAdapter` ABC accepts optional `close_price` parameter. `PaperTradingService.process_candle()` no longer double-multiplies. `TradingOrchestrator.run_cycle()` passes `close_price` to broker for accurate trade records.
