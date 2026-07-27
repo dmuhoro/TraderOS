@@ -95,7 +95,7 @@ class TestPortfolioService:
         trade_repo.add(trade)
         filled = svc.fill_trade(trade, 101.0)
         assert filled.status == TradeStatus.FILLED
-        assert filled.price == 101.0
+        assert filled.filled_price == 101.0
         pos = pos_repo.get_by_market(mid)
         assert pos is not None
         assert pos.quantity == 10.0

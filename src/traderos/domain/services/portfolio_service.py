@@ -57,17 +57,9 @@ class PortfolioService:
         position: Position,
         market_price: float,
     ) -> Position:
-        updated = Position(
-            market_id=position.market_id,
-            quantity=position.quantity,
-            entry_price=position.entry_price,
-            current_price=market_price,
-            pnl=self.compute_pnl(position, market_price),
-            id=position.id,
-            created_at=position.created_at,
-        )
-        self.position_repo.update(updated)
-        return updated
+        position.update_price(market_price)
+        self.position_repo.update(position)
+        return position
 
     def open_trade(
         self,
@@ -93,47 +85,42 @@ class PortfolioService:
         fill_price: float | None = None,
     ) -> Trade:
         price = fill_price or trade.price
-        filled = Trade(
-            signal_id=trade.signal_id,
-            market_id=trade.market_id,
-            side=trade.side,
-            quantity=trade.quantity,
-            price=price,
-            status=TradeStatus.FILLED,
-            id=trade.id,
-            created_at=trade.created_at,
-        )
-        self.trade_repo.update(filled)
-        existing = self.position_repo.get_by_market(filled.market_id)
-        direction = 1 if filled.side == TradeSide.BUY else -1
+        trade.fill(trade.quantity, price)
+        self.trade_repo.update(trade)
+        existing = self.position_repo.get_by_market(trade.market_id)
+        direction = 1 if trade.side == TradeSide.BUY else -1
         if existing:
-            new_qty = existing.quantity + direction * filled.quantity
+            new_qty = existing.quantity + direction * trade.quantity
             avg_price = (
-                (existing.entry_price * existing.quantity + price * filled.quantity)
-                / (existing.quantity + filled.quantity)
-                if filled.side == TradeSide.BUY
+                (existing.entry_price * existing.quantity + price * trade.quantity)
+                / (existing.quantity + trade.quantity)
+                if trade.side == TradeSide.BUY
                 else existing.entry_price
             )
-            updated = Position(
-                market_id=filled.market_id,
-                quantity=new_qty,
-                entry_price=avg_price,
-                current_price=price,
-                pnl=0.0,
-                id=existing.id,
-                created_at=existing.created_at,
-            )
-            self.position_repo.update(updated)
+            existing.quantity = new_qty
+            existing.entry_price = avg_price
+            existing.current_price = price
+            existing.updated_at = trade.filled_at or trade.updated_at
+            self.position_repo.update(existing)
         else:
             pos = Position(
-                market_id=filled.market_id,
-                quantity=direction * filled.quantity,
+                market_id=trade.market_id,
+                quantity=direction * trade.quantity,
                 entry_price=price,
                 current_price=price,
                 pnl=0.0,
             )
             self.position_repo.add(pos)
-        return filled
+        return trade
+
+    def close_position(
+        self,
+        position: Position,
+        close_price: float,
+    ) -> float:
+        realized = position.close(close_price)
+        self.position_repo.update(position)
+        return realized
 
     def rebalance(
         self,

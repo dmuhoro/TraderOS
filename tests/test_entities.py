@@ -191,7 +191,7 @@ class TestTrade:
         )
         assert trade.status == TradeStatus.PENDING
 
-    def test_frozen(self) -> None:
+    def test_fill_transition(self) -> None:
         trade = Trade(
             signal_id=uuid.uuid4(),
             market_id=uuid.uuid4(),
@@ -199,8 +199,33 @@ class TestTrade:
             quantity=1.0,
             price=50000.0,
         )
-        with pytest.raises(AttributeError):
-            trade.quantity = 2.0
+        assert trade.status == TradeStatus.PENDING
+        trade.fill(1.0, 50100.0)
+        assert trade.status == TradeStatus.FILLED
+        assert trade.filled_price == 50100.0
+        assert trade.filled_quantity == 1.0
+
+    def test_cancel_transition(self) -> None:
+        trade = Trade(
+            signal_id=uuid.uuid4(),
+            market_id=uuid.uuid4(),
+            side=TradeSide.BUY,
+            quantity=1.0,
+            price=50000.0,
+        )
+        trade.cancel()
+        assert trade.status == TradeStatus.CANCELLED
+
+    def test_reject_transition(self) -> None:
+        trade = Trade(
+            signal_id=uuid.uuid4(),
+            market_id=uuid.uuid4(),
+            side=TradeSide.BUY,
+            quantity=1.0,
+            price=50000.0,
+        )
+        trade.reject()
+        assert trade.status == TradeStatus.REJECTED
 
 
 class TestPosition:

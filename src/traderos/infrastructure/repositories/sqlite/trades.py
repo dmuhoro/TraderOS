@@ -32,7 +32,11 @@ class SQLiteTradeRepository(SQLiteRepository[Trade], TradeRepository):
                 quantity REAL NOT NULL,
                 price REAL NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
-                created_at TEXT NOT NULL
+                filled_quantity REAL DEFAULT 0.0,
+                filled_price REAL DEFAULT 0.0,
+                filled_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )
             """)
 
@@ -45,11 +49,16 @@ class SQLiteTradeRepository(SQLiteRepository[Trade], TradeRepository):
             "quantity": entity.quantity,
             "price": entity.price,
             "status": entity.status.value,
+            "filled_quantity": entity.filled_quantity,
+            "filled_price": entity.filled_price,
+            "filled_at": entity.filled_at.isoformat() if entity.filled_at else None,
             "created_at": entity.created_at.isoformat(),
+            "updated_at": entity.updated_at.isoformat(),
         }
 
     def _from_row(self, row: sqlite3.Row) -> Trade:
-        return Trade(
+        filled_at_str = row["filled_at"]
+        trade = Trade(
             id=to_uuid(row["id"]),
             signal_id=to_uuid(row["signal_id"]),
             market_id=to_uuid(row["market_id"]),
@@ -59,6 +68,12 @@ class SQLiteTradeRepository(SQLiteRepository[Trade], TradeRepository):
             status=TradeStatus(row["status"]),
             created_at=to_dt(row["created_at"]),
         )
+        trade.filled_quantity = row["filled_quantity"] or 0.0
+        trade.filled_price = row["filled_price"] or 0.0
+        if filled_at_str:
+            trade.filled_at = to_dt(filled_at_str)
+        trade.updated_at = to_dt(row["updated_at"])
+        return trade
 
     def get_by_signal(self, signal_id: uuid.UUID) -> list[Trade]:
         cursor = self.conn.execute(
@@ -92,7 +107,9 @@ class SQLitePositionRepository(SQLiteRepository[Position], PositionRepository):
                 entry_price REAL NOT NULL,
                 current_price REAL NOT NULL,
                 pnl REAL NOT NULL,
-                created_at TEXT NOT NULL
+                realized_pnl REAL DEFAULT 0.0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )
             """)
 
@@ -104,11 +121,13 @@ class SQLitePositionRepository(SQLiteRepository[Position], PositionRepository):
             "entry_price": entity.entry_price,
             "current_price": entity.current_price,
             "pnl": entity.pnl,
+            "realized_pnl": entity.realized_pnl,
             "created_at": entity.created_at.isoformat(),
+            "updated_at": entity.updated_at.isoformat(),
         }
 
     def _from_row(self, row: sqlite3.Row) -> Position:
-        return Position(
+        pos = Position(
             id=to_uuid(row["id"]),
             market_id=to_uuid(row["market_id"]),
             quantity=row["quantity"],
@@ -117,6 +136,9 @@ class SQLitePositionRepository(SQLiteRepository[Position], PositionRepository):
             pnl=row["pnl"],
             created_at=to_dt(row["created_at"]),
         )
+        pos.realized_pnl = row["realized_pnl"] or 0.0
+        pos.updated_at = to_dt(row["updated_at"])
+        return pos
 
     def get_by_market(self, market_id: uuid.UUID) -> Position | None:
         cursor = self.conn.execute("SELECT * FROM positions WHERE market_id = ?", (str(market_id),))

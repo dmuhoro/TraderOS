@@ -73,6 +73,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         side: str,
         quantity: float,
         price: float,
+        close_price: float | None = None,
     ) -> FillResult:
         try:
             from alpaca.trading.enums import OrderSide

@@ -98,7 +98,16 @@ class PaperBrokerAdapter(BrokerAdapter):
         side: str,
         quantity: float,
         price: float,
+        close_price: float | None = None,
     ) -> FillResult:
+        if close_price is None:
+            return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING)
+        if (side == "buy" and close_price <= price) or (side == "sell" and close_price >= price):
+            slip_multiplier = (
+                1 + self.slippage_bps / 10000 if side == "buy" else 1 - self.slippage_bps / 10000
+            )
+            fill_price = close_price * slip_multiplier
+            return self._fill_result(True, quantity, round(fill_price, 8), 0.0, OrderStatus.FILLED)
         return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING)
 
     def place_stop_order(

@@ -24,7 +24,7 @@ class MockBroker(BrokerAdapter):
     def place_market_order(self, market_id, side, quantity, close_price=None):
         return FillResult(True, quantity, 100.0, 0.0, "filled", "ord1")
 
-    def place_limit_order(self, market_id, side, quantity, price):
+    def place_limit_order(self, market_id, side, quantity, price, close_price=None):
         return FillResult(False, 0.0, 0.0, quantity, "pending", "")
 
     def cancel_order(self, order_id):
