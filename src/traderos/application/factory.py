@@ -19,19 +19,23 @@ from traderos.domain.services.paper_trading_service import PaperTradingService
 from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
-from traderos.infrastructure.audit import AuditService
+from traderos.infrastructure.audit import AuditService as InMemoryAuditService
 from traderos.infrastructure.collectors.mock_collector import MockDataCollector
 from traderos.infrastructure.config.config_loader import Config
 from traderos.infrastructure.events import InMemoryEventBus
-from traderos.infrastructure.health import HealthService
-from traderos.infrastructure.metrics import MetricsService
+from traderos.infrastructure.health import HealthService as InMemoryHealthService
+from traderos.infrastructure.metrics import MetricsService as InMemoryMetricsService
+from traderos.infrastructure.observability import SQLiteAuditService
+from traderos.infrastructure.observability import SQLiteHealthService
+from traderos.infrastructure.observability import SQLiteManifestService
+from traderos.infrastructure.observability import SQLiteMetricsService
 from traderos.infrastructure.repositories.in_memory import InMemoryPositionRepository
 from traderos.infrastructure.repositories.in_memory import InMemorySignalRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryTradeRepository
 from traderos.infrastructure.repositories.sqlite import SQLitePositionRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteSignalRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteTradeRepository
-from traderos.infrastructure.run_manifest import RunManifestService
+from traderos.infrastructure.run_manifest import RunManifestService as InMemoryManifestService
 
 
 def build_orchestrator(
@@ -57,11 +61,17 @@ def build_orchestrator(
     execution = ExecutionService()
     analysis = AnalysisService()
     event_bus = InMemoryEventBus()
-    health = HealthService()
-    audit = AuditService()
-    metrics = MetricsService()
+    if db is not None:
+        health = SQLiteHealthService(db)
+        audit = SQLiteAuditService(db)
+        metrics = SQLiteMetricsService(db)
+        run_manifest = SQLiteManifestService(db)
+    else:
+        health = InMemoryHealthService()
+        audit = InMemoryAuditService()
+        metrics = InMemoryMetricsService()
+        run_manifest = InMemoryManifestService()
     notifications = NotificationService()
-    run_manifest = RunManifestService()
 
     trading_mode = TradingMode(mode)
 
@@ -158,4 +168,7 @@ def _get_db(db_path: str) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
+    from traderos.infrastructure.database.migration_manager import migrate
+
+    migrate(conn)
     return conn
