@@ -1,40 +1,13 @@
 from __future__ import annotations
 
 import logging
-import uuid
-from abc import ABC
-from abc import abstractmethod
-from collections.abc import Callable
-from dataclasses import dataclass
-from dataclasses import field
-from datetime import UTC
-from datetime import datetime
-from typing import Any
+
+from traderos.domain.ports import Event
+from traderos.domain.ports import EventBusPort
+from traderos.domain.ports import EventHandler
 
 
-@dataclass(frozen=True)
-class Event:
-    event_type: str
-    payload: dict[str, Any]
-    event_id: uuid.UUID = field(default_factory=uuid.uuid4)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
-
-
-EventHandler = Callable[[Event], None]
-
-
-class EventBus(ABC):
-    @abstractmethod
-    def publish(self, event: Event) -> None: ...
-
-    @abstractmethod
-    def subscribe(self, event_type: str, handler: EventHandler) -> None: ...
-
-    @abstractmethod
-    def unsubscribe(self, event_type: str, handler: EventHandler) -> None: ...
-
-
-class InMemoryEventBus(EventBus):
+class InMemoryEventBus(EventBusPort):
     def __init__(self) -> None:
         self._subscribers: dict[str, list[EventHandler]] = {}
         self._log = logging.getLogger(__name__)

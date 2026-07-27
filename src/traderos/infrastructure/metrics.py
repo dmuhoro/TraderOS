@@ -5,37 +5,40 @@ from dataclasses import dataclass
 from dataclasses import field
 from datetime import UTC
 from datetime import datetime
-from typing import NamedTuple
 from typing import Self
 
-
-class MetricSample(NamedTuple):
-    name: str
-    value: float
-    timestamp: datetime
-    tags: dict[str, str]
+from traderos.domain.ports import MetricSample
+from traderos.domain.ports import MetricsPort
 
 
 @dataclass
-class MetricsService:
+class MetricsService(MetricsPort):
     _samples: list[MetricSample] = field(default_factory=list)
     _counters: dict[str, float] = field(default_factory=dict)
     _gauges: dict[str, float] = field(default_factory=dict)
 
     def counter(self, name: str, delta: float = 1.0) -> float:
         self._counters[name] = self._counters.get(name, 0.0) + delta
-        self._samples.append(MetricSample(
-            name=name, value=self._counters[name],
-            timestamp=datetime.now(UTC), tags={},
-        ))
+        self._samples.append(
+            MetricSample(
+                name=name,
+                value=self._counters[name],
+                timestamp=datetime.now(UTC),
+                tags={},
+            )
+        )
         return self._counters[name]
 
     def gauge(self, name: str, value: float) -> None:
         self._gauges[name] = value
-        self._samples.append(MetricSample(
-            name=name, value=value,
-            timestamp=datetime.now(UTC), tags={},
-        ))
+        self._samples.append(
+            MetricSample(
+                name=name,
+                value=value,
+                timestamp=datetime.now(UTC),
+                tags={},
+            )
+        )
 
     def timing(self, name: str) -> TimingContext:
         return TimingContext(self, name)
@@ -64,7 +67,7 @@ class MetricsService:
 
 @dataclass
 class TimingContext:
-    metrics: MetricsService
+    metrics: MetricsPort
     name: str
     start: float = field(default_factory=time.perf_counter)
 

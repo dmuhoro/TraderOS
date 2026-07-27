@@ -5,31 +5,26 @@ from dataclasses import dataclass
 from dataclasses import field
 from datetime import UTC
 from datetime import datetime
-from typing import NamedTuple
 
-
-class AuditEntry(NamedTuple):
-    id: uuid.UUID
-    action: str
-    actor: str
-    resource: str
-    detail: str
-    timestamp: datetime
-    previous_hash: str
-    hash: str
+from traderos.domain.ports import AuditEntry
+from traderos.domain.ports import AuditPort
 
 
 def _compute_hash(entry: AuditEntry) -> str:
     parts = (
-        str(entry.id), entry.action, entry.actor,
-        entry.resource, entry.detail,
-        entry.timestamp.isoformat(), entry.previous_hash,
+        str(entry.id),
+        entry.action,
+        entry.actor,
+        entry.resource,
+        entry.detail,
+        entry.timestamp.isoformat(),
+        entry.previous_hash,
     )
     return str(hash("|".join(parts)))
 
 
 @dataclass
-class AuditService:
+class AuditService(AuditPort):
     _entries: list[AuditEntry] = field(default_factory=list)
 
     def record(
@@ -54,10 +49,8 @@ class AuditService:
         self._entries.append(entry)
         return entry
 
-    def get_entries(
-        self, limit: int = 100, offset: int = 0
-    ) -> list[AuditEntry]:
-        return self._entries[offset:offset + limit]
+    def get_entries(self, limit: int = 100, offset: int = 0) -> list[AuditEntry]:
+        return self._entries[offset : offset + limit]
 
     def verify_chain(self) -> bool:
         for i in range(1, len(self._entries)):

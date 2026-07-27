@@ -4,19 +4,13 @@ from dataclasses import dataclass
 from dataclasses import field
 from datetime import UTC
 from datetime import datetime
-from typing import NamedTuple
 
-
-class HealthStatus(NamedTuple):
-    service: str
-    healthy: bool
-    message: str
-    latency_ms: float
-    last_check: datetime
+from traderos.domain.ports import HealthPort
+from traderos.domain.ports import HealthStatus
 
 
 @dataclass
-class HealthService:
+class HealthService(HealthPort):
     services: dict[str, bool] = field(default_factory=dict)
     _history: list[HealthStatus] = field(default_factory=list)
 
@@ -35,9 +29,7 @@ class HealthService:
         self._history.append(status)
         return status
 
-    def report_unhealthy(
-        self, name: str, message: str = "unhealthy"
-    ) -> HealthStatus:
+    def report_unhealthy(self, name: str, message: str = "unhealthy") -> HealthStatus:
         self.services[name] = False
         status = HealthStatus(
             service=name,

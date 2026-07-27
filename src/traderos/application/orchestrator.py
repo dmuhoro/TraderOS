@@ -13,6 +13,12 @@ from typing import Any
 
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.entities.trade import TradeSide
+from traderos.domain.ports import AuditPort
+from traderos.domain.ports import Event
+from traderos.domain.ports import EventBusPort
+from traderos.domain.ports import HealthPort
+from traderos.domain.ports import ManifestPort
+from traderos.domain.ports import MetricsPort
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.data_ingestion_service import DataIngestionService
@@ -24,12 +30,6 @@ from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import MarketState
 from traderos.domain.services.strategy_framework import registry as strategy_registry
-from traderos.infrastructure.audit import AuditService
-from traderos.infrastructure.events import Event
-from traderos.infrastructure.events import EventBus
-from traderos.infrastructure.health import HealthService
-from traderos.infrastructure.metrics import MetricsService
-from traderos.infrastructure.run_manifest import RunManifestService
 
 
 class TradingMode(Enum):
@@ -59,12 +59,12 @@ class TradingOrchestrator:
     broker: BrokerAdapter
     backtest: BacktestingService
     paper: PaperTradingService | None
-    event_bus: EventBus
-    health: HealthService
-    audit: AuditService
-    metrics: MetricsService
+    event_bus: EventBusPort
+    health: HealthPort
+    audit: AuditPort
+    metrics: MetricsPort
     notifications: NotificationService
-    run_manifest: RunManifestService
+    run_manifest: ManifestPort
     data_ingestion: DataIngestionService | None = None
 
     default_cash: float = float(os.getenv("DEFAULT_CASH", "10000.0"))

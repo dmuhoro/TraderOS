@@ -1,5 +1,21 @@
 # Changelog - TraderOS
 
+## [0.8.0] - v1 Readiness: Architecture Hardening
+
+### Added
+- **Domain port protocols:** `EventBusPort`, `HealthPort`, `AuditPort`, `MetricsPort`, `ManifestPort` defined in `domain/ports.py` with structural typing. Application layer now depends on protocols instead of concrete infrastructure.
+- **SPRINT_6.md** documents the v1 readiness sprint plan.
+
+### Changed
+- **`Event` dataclass moved to `domain/ports.py`:** Shared value object used by both domain protocols and infrastructure implementations.
+- **`InMemoryEventBus` implements `EventBusPort`** protocol (was separate ABC in infrastructure).
+- **`HealthService` implements `HealthPort`** protocol, uses `HealthStatus` port type.
+- **`AuditService` implements `AuditPort`** protocol, uses `AuditEntry` port type.
+- **`MetricsService` implements `MetricsPort`** protocol, uses `MetricSample` port type.
+- **`RunManifestService` implements `ManifestPort`** protocol, uses `ManifestEntry` port type.
+- **`TradingOrchestrator` depends on port protocols** instead of concrete infrastructure classes.
+- **Factory imports concrete implementations** as composition root; wire via protocol types.
+
 ## [0.7.0] - Sprint Finale: 15 Quick Wins
 ### Added
 - **`--json` output flag on CLI:** `strategies`, `health`, `audit`, `signal` commands output structured JSON when `--json` is passed (GAP-19).

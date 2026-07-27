@@ -5,21 +5,13 @@ from dataclasses import dataclass
 from dataclasses import field
 from datetime import UTC
 from datetime import datetime
-from typing import NamedTuple
 
-
-class ManifestEntry(NamedTuple):
-    run_id: uuid.UUID
-    service: str
-    action: str
-    status: str
-    duration_ms: float
-    timestamp: datetime
-    metadata: dict[str, str | float | int | None]
+from traderos.domain.ports import ManifestEntry
+from traderos.domain.ports import ManifestPort
 
 
 @dataclass
-class RunManifestService:
+class RunManifestService(ManifestPort):
     _entries: list[ManifestEntry] = field(default_factory=list)
 
     def record(
