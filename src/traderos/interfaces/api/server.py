@@ -62,18 +62,24 @@ class PaperSessionResponse(BaseModel):  # type: ignore[valid-type,misc]
     capital: float
 
 
-_orchestrator: TradingOrchestrator | None = None
+_orch_cache: dict[str, TradingOrchestrator] = {}
 
 
 def create_orchestrator(mode: str = "paper") -> TradingOrchestrator:
-    global _orchestrator
-    if _orchestrator is not None:
-        return _orchestrator
+    if mode in _orch_cache:
+        return _orch_cache[mode]
 
     cfg = Config.load()
     orch = build_orchestrator(mode=mode, config=cfg)
-    _orchestrator = orch
+    _orch_cache[mode] = orch
     return orch
+
+
+def reset_orchestrator(mode: str | None = None) -> None:
+    if mode:
+        _orch_cache.pop(mode, None)
+    else:
+        _orch_cache.clear()
 
 
 def ensure_fastapi() -> None:

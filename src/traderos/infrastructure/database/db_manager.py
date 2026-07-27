@@ -3,13 +3,13 @@ import sqlite3
 
 import pandas as pd
 
-from traderos.infrastructure.config.config_loader import config
+from traderos.infrastructure.config.config_loader import Config
 from traderos.infrastructure.database.migration_manager import migrate
 
 
 class DatabaseManager:
     def __init__(self):
-        self.db_path = os.environ.get("DB_PATH") or config.db_path
+        self.db_path = os.environ.get("DB_PATH") or Config.load().db_path
         self._ensure_db_dir()
         self.conn = sqlite3.connect(self.db_path, timeout=10)
         self.conn.execute("PRAGMA journal_mode=WAL")

@@ -9,8 +9,6 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-load_dotenv()
-
 
 @dataclass(frozen=True)
 class Config:
@@ -29,6 +27,7 @@ class Config:
 
     @classmethod
     def load(cls, config_path: str = "configs/settings.yaml") -> Config:
+        load_dotenv()
         settings: dict[str, Any] = {}
         yaml_path = Path(config_path)
         if yaml_path.exists():
@@ -102,6 +101,3 @@ class Config:
 
         if errors:
             raise ValueError(f"Config validation failed: {', '.join(errors)}")
-
-
-config = Config.load()
