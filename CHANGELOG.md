@@ -5,6 +5,12 @@
 ### Added
 - **Domain port protocols:** `EventBusPort`, `HealthPort`, `AuditPort`, `MetricsPort`, `ManifestPort` defined in `domain/ports.py` with structural typing. Application layer now depends on protocols instead of concrete infrastructure.
 - **SPRINT_6.md** documents the v1 readiness sprint plan.
+- **Layer 10 — Production Hardening:**
+  - **Retry with backoff:** `infrastructure/retry.py` — exponential backoff with jitter, max 3 attempts, applied to Alpaca broker order submission and notification webhook.
+  - **Data archival:** `infrastructure/archiver.py` — `purge_old_entries()` deletes rows older than 90 days from 5 SQLite tables (audit_log, metrics_history, health_history, trades, strategy_registry).
+  - **Strategy registry persistence:** `v003_strategies.py` migration creates `strategy_registry` table with 3 built-in seed strategies; `_sync_strategy_registry()` syncs in-memory registry to SQLite on startup.
+  - **Config validation improvements:** Validates db_path directory exists, MAX_DRAWDOWN is 0-100 (not just >100), data_collection.forex_symbols is a list.
+  - **Auto-purge on startup:** `_get_db()` calls `purge_old_entries()` after migrations.
 
 ### Changed
 - **`Event` dataclass moved to `domain/ports.py`:** Shared value object used by both domain protocols and infrastructure implementations.

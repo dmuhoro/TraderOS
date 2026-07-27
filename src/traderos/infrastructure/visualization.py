@@ -37,8 +37,12 @@ class VisualizationService:
 
     def returns_distribution(self, returns: list[float]) -> BarChart:
         buckets: dict[str, int] = {
-            "< -5%": 0, "-5% to -2%": 0, "-2% to 0%": 0,
-            "0% to 2%": 0, "2% to 5%": 0, "> 5%": 0,
+            "< -5%": 0,
+            "-5% to -2%": 0,
+            "-2% to 0%": 0,
+            "0% to 2%": 0,
+            "2% to 5%": 0,
+            "> 5%": 0,
         }
         for r in returns:
             pct = r * 100
@@ -74,12 +78,9 @@ class VisualizationService:
             y_label="Drawdown %",
         )
 
-    def performance_summary(
-        self, metrics: dict[str, float]
-    ) -> BarChart:
+    def performance_summary(self, metrics: dict[str, float]) -> BarChart:
         points = [
-            ChartPoint(label=k.replace("_", " ").title(), value=v)
-            for k, v in metrics.items()
+            ChartPoint(label=k.replace("_", " ").title(), value=v) for k, v in metrics.items()
         ]
         return BarChart(
             title="Performance Summary",

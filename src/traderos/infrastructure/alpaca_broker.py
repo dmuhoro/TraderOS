@@ -5,6 +5,7 @@ from typing import Any
 
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.adapters.broker_adapter import FillResult
+from traderos.infrastructure.retry import retry_with_backoff
 
 _has_alpaca: bool
 try:
@@ -48,14 +49,22 @@ class AlpacaBrokerAdapter(BrokerAdapter):
             if MarketOrderRequest is None:
                 raise ImportError("alpaca-py not available")
             symbol = self._symbol_map.get(market_id, str(market_id))
-            order = self._client.submit_order(
-                order_data=MarketOrderRequest(
-                    symbol=symbol,
-                    qty=quantity,
-                    side=_OrderSide_BUY if side == "buy" else _OrderSide_SELL,
-                    time_in_force=_TimeInForce_DAY,
+
+            def _submit() -> Any:
+                client = self._client
+                req_cls = MarketOrderRequest
+                assert client is not None
+                assert req_cls is not None
+                return client.submit_order(
+                    order_data=req_cls(
+                        symbol=symbol,
+                        qty=quantity,
+                        side=_OrderSide_BUY if side == "buy" else _OrderSide_SELL,
+                        time_in_force=_TimeInForce_DAY,
+                    )
                 )
-            )
+
+            order = retry_with_backoff(_submit, max_retries=2)
             return FillResult(
                 filled=True,
                 fill_quantity=float(order.filled_qty or quantity),
@@ -81,15 +90,21 @@ class AlpacaBrokerAdapter(BrokerAdapter):
             from alpaca.trading.requests import LimitOrderRequest
 
             symbol = self._symbol_map.get(market_id, str(market_id))
-            order = self._client.submit_order(
-                order_data=LimitOrderRequest(
-                    symbol=symbol,
-                    qty=quantity,
-                    side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
-                    time_in_force=TimeInForce.DAY,
-                    limit_price=round(price, 2),
+
+            def _submit() -> Any:
+                client = self._client
+                assert client is not None
+                return client.submit_order(
+                    order_data=LimitOrderRequest(
+                        symbol=symbol,
+                        qty=quantity,
+                        side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
+                        time_in_force=TimeInForce.DAY,
+                        limit_price=round(price, 2),
+                    )
                 )
-            )
+
+            order = retry_with_backoff(_submit, max_retries=2)
             return FillResult(
                 filled=bool(order.filled_qty),
                 fill_quantity=float(order.filled_qty or 0),

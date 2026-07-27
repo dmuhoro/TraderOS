@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import UTC
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -59,11 +60,11 @@ class TestBacktestingServiceEdgeCases:
             Candle(
                 market_id=mid,
                 ohlcv=OHLCV(
-                    open=Decimal("100"),
-                    high=Decimal("101"),
-                    low=Decimal("99"),
-                    close=Decimal("100"),
-                    volume=Decimal("1000"),
+                    open=Decimal(100),
+                    high=Decimal(101),
+                    low=Decimal(99),
+                    close=Decimal(100),
+                    volume=Decimal(1000),
                 ),
                 timestamp=datetime(2024, 1, 1, tzinfo=UTC),
                 timeframe=Timeframe.DAY_1,
@@ -76,11 +77,13 @@ class TestBacktestingServiceEdgeCases:
 
 class TestConfigEdgeCases:
     def test_config_with_secret_fields_in_yaml(self):
-        with patch("traderos.infrastructure.config.config_loader.Path.exists", return_value=True):
-            with patch("traderos.infrastructure.config.config_loader.Path.read_text") as mock_read:
-                mock_read.return_value = "alpaca_api_key: fake_key\n"
-                cfg = Config.load()
-                assert cfg.alpaca_api_key == ""
+        with (
+            patch("traderos.infrastructure.config.config_loader.Path.exists", return_value=True),
+            patch("traderos.infrastructure.config.config_loader.Path.read_text") as mock_read,
+        ):
+            mock_read.return_value = "alpaca_api_key: fake_key\n"
+            cfg = Config.load()
+            assert cfg.alpaca_api_key == ""
 
     def test_config_validate_live_mode_missing_keys(self):
         with patch.dict(os.environ, {"TRADING_MODE": "live"}, clear=True):
@@ -128,7 +131,7 @@ class TestDataIngestionServiceEdgeCases:
         from datetime import datetime
 
         mock_candle = MagicMock()
-        mock_candle.timestamp = datetime(2024, 1, 1)
+        mock_candle.timestamp = datetime(2024, 1, 1, tzinfo=UTC)
         mock_candle.open = 100.0
         mock_candle.high = 101.0
         mock_candle.low = 99.0
@@ -186,18 +189,18 @@ class TestBacktestingServiceSell:
             Candle(
                 market_id=mid,
                 ohlcv=OHLCV(
-                    open=Decimal("100"),
-                    high=Decimal("101"),
-                    low=Decimal("99"),
-                    close=Decimal("100"),
-                    volume=Decimal("1000"),
+                    open=Decimal(100),
+                    high=Decimal(101),
+                    low=Decimal(99),
+                    close=Decimal(100),
+                    volume=Decimal(1000),
                 ),
                 timestamp=datetime(2024, 1, 1, tzinfo=UTC),
                 timeframe=Timeframe.DAY_1,
             )
             for _ in range(20)
         ]
-        result, steps = svc.run(strategy, candles, mid)
+        _, steps = svc.run(strategy, candles, mid)
         assert steps is not None
 
 

@@ -19,6 +19,7 @@ from traderos.domain.services.paper_trading_service import PaperTradingService
 from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
+from traderos.domain.services.strategy_framework import registry as strategy_registry
 from traderos.infrastructure.audit import AuditService as InMemoryAuditService
 from traderos.infrastructure.collectors.mock_collector import MockDataCollector
 from traderos.infrastructure.config.config_loader import Config
@@ -72,6 +73,8 @@ def build_orchestrator(
         metrics = InMemoryMetricsService()
         run_manifest = InMemoryManifestService()
     notifications = NotificationService()
+
+    _sync_strategy_registry(db)
 
     trading_mode = TradingMode(mode)
 
@@ -163,7 +166,22 @@ def build_orchestrator(
     return orch
 
 
-def _get_db(db_path: str) -> sqlite3.Connection:
+def _sync_strategy_registry(db: sqlite3.Connection | None) -> None:
+    if db is None:
+        return
+    cur = db.execute("SELECT name FROM strategy_registry WHERE status = 'active'")
+    persisted = {row["name"] for row in cur.fetchall()}
+    for name in strategy_registry.list():
+        if name not in persisted:
+            db.execute(
+                "INSERT OR IGNORE INTO strategy_registry (name, params, version, status) "
+                "VALUES (?, ?, ?, ?)",
+                (name, "{}", "1.0.0", "active"),
+            )
+    db.commit()
+
+
+def _get_db(db_path: str, retention_days: int = 90) -> sqlite3.Connection:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
@@ -171,4 +189,7 @@ def _get_db(db_path: str) -> sqlite3.Connection:
     from traderos.infrastructure.database.migration_manager import migrate
 
     migrate(conn)
+    from traderos.infrastructure.archiver import purge_old_entries
+
+    purge_old_entries(conn, retention_days)
     return conn

@@ -42,15 +42,15 @@ class TestNotificationService:
     def test_send_with_metadata(self) -> None:
         svc = NotificationService()
         event = svc.send(
-            NotificationLevel.WARNING, "Alert", "Something happened",
+            NotificationLevel.WARNING,
+            "Alert",
+            "Something happened",
             metadata={"cpu": 0.95, "retries": 3},
         )
         assert event.metadata["cpu"] == 0.95
         assert event.metadata["retries"] == 3
 
     def test_multiple_channels_uses_first(self) -> None:
-        svc = NotificationService(
-            channels={NotificationChannel.CONSOLE, NotificationChannel.FILE}
-        )
+        svc = NotificationService(channels={NotificationChannel.CONSOLE, NotificationChannel.FILE})
         event = svc.info("Multi")
         assert event.channel in {NotificationChannel.CONSOLE, NotificationChannel.FILE}

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
-from datetime import UTC
 
 from traderos.domain.entities import Signal
 from traderos.domain.entities import SignalDirection

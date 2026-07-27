@@ -101,13 +101,21 @@ class Config:
         errors: list[str] = []
         if not self.db_path:
             errors.append("db_path must not be empty")
+        if self.db_path != ":memory:":
+            db_dir = os.path.dirname(self.db_path)
+            if db_dir and not os.path.isdir(db_dir):
+                errors.append(f"db_path directory does not exist: {db_dir}")
         if self.log_level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
             errors.append(f"Invalid log_level: {self.log_level}")
-        if int(os.getenv("MAX_DRAWDOWN", "0")) > 100:
+        max_dd = int(os.getenv("MAX_DRAWDOWN", "0"))
+        if max_dd < 0 or max_dd > 100:
             errors.append("MAX_DRAWDOWN must be 0-100")
         mode = os.getenv("TRADING_MODE", "paper").lower()
         if mode == "live" and (not self.alpaca_api_key or not self.alpaca_secret_key):
             errors.append("LIVE mode requires ALPACA_API_KEY and ALPACA_SECRET_KEY env vars")
+        symbols = self.get("data_collection.forex_symbols", [])
+        if not isinstance(symbols, list):
+            errors.append("data_collection.forex_symbols must be a list")
 
         if errors:
             raise ValueError(f"Config validation failed: {', '.join(errors)}")

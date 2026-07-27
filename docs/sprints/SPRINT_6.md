@@ -2,7 +2,7 @@
 
 **Period:** 27 July 2026
 **Branch:** `sprint-2-paper-trading`
-**Status:** IN PROGRESS
+**Status:** COMPLETED
 **Version Target:** v0.8.0
 
 ---
@@ -26,7 +26,7 @@ Close the remaining architectural gaps between TraderOS and a production-grade v
 | 7 | **Order Management** — Order lifecycle state machine, order persistence, position management (close_position, realized PnL). Fix paper limit orders. | `domain/entities/trade.py`, `domain/entities/position.py`, `domain/services/portfolio_service.py` |
 | 8 | **Orchestrator Decomposition** — Extract PipelineRunner (cycle logic), DaemonController (lifecycle), CycleExecutor (per-market cycle). | `application/orchestrator.py`, `application/cycle_executor.py`, `application/daemon_controller.py` |
 | 9 | **Testing** — Alpaca broker mock tests, API integration tests, CLI tests, push coverage to ≥85%. | `tests/`, `infrastructure/alpaca_broker.py` |
-| 10 | **Production Hardening** — Rate limiting/backoff, strategy registry persistence, config validation improvements, data archival. | Multiple files |
+| 10 | **Production Hardening** — Rate limiting/backoff, strategy registry persistence, config validation improvements, data archival. | Multiple files | ✅ |
 
 ---
 

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import time
 import uuid
-from datetime import datetime
 from datetime import UTC
+from datetime import datetime
 from decimal import Decimal
 
-from traderos.domain.entities import Candle
 from traderos.domain.entities import OHLCV
+from traderos.domain.entities import Candle
 from traderos.domain.entities import Timeframe
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.execution_service import ExecutionService

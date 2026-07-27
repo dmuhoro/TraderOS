@@ -99,9 +99,11 @@ class TestAlpacaBrokerAdapter:
         return AlpacaBrokerAdapter(api_key="test", secret_key="test", paper=True)
 
     def test_import_error_when_no_alpaca(self):
-        with patch("traderos.infrastructure.alpaca_broker._has_alpaca", False):
-            with pytest.raises(ImportError, match="alpaca-py is required"):
-                AlpacaBrokerAdapter(api_key="x", secret_key="y")
+        with (
+            patch("traderos.infrastructure.alpaca_broker._has_alpaca", False),
+            pytest.raises(ImportError, match="alpaca-py is required"),
+        ):
+            AlpacaBrokerAdapter(api_key="x", secret_key="y")
 
     def test_place_market_order_filled(self, _patch_alpaca):
         adapter = self._make(_patch_alpaca)

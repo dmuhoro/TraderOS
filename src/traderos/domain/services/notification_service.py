@@ -10,6 +10,8 @@ from datetime import datetime
 from enum import Enum
 from typing import NamedTuple
 
+from traderos.infrastructure.retry import retry_with_backoff
+
 try:
     from urllib.error import URLError as _URLError
     from urllib.request import Request
@@ -157,6 +159,11 @@ class NotificationService:
                 self.log.info("NOTIFICATION_WEBHOOK (no URL configured): %s", payload.decode())
                 return
             req = Request(webhook_url, data=payload, headers={"Content-Type": "application/json"})
-            urlopen(req, timeout=5)
+
+            def _do_webhook():
+                assert urlopen is not None
+                return urlopen(req, timeout=5)
+
+            retry_with_backoff(_do_webhook, max_retries=2)
         except (_URLError, OSError):
             self.log.warning("Webhook POST failed")
