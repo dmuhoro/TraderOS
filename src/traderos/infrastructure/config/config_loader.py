@@ -20,6 +20,7 @@ SECRET_FIELDS = {"alpaca_api_key", "alpaca_secret_key"}
 @dataclass(frozen=True)
 class Config:
     db_path: str = "data/trader.db"
+    database_url: str = ""
     log_level: str = "INFO"
     log_file: str | None = None
     data_dir: str = "data"
@@ -45,6 +46,7 @@ class Config:
         default_cash = float(raw_default_cash) if raw_default_cash is not None else None
         env_overrides = {
             "db_path": os.getenv("DB_PATH"),
+            "database_url": os.getenv("DATABASE_URL"),
             "log_level": os.getenv("LOG_LEVEL"),
             "log_file": os.getenv("LOG_FILE"),
             "default_cash": default_cash,
@@ -101,6 +103,8 @@ class Config:
 
     def validate(self) -> None:
         errors: list[str] = []
+        if self.database_url:
+            return
         if not self.db_path:
             errors.append("db_path must not be empty")
         if self.db_path != ":memory:":

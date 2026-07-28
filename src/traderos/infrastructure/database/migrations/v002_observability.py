@@ -1,8 +1,15 @@
 VERSION = 2
 DESCRIPTION = "Observability persistence: audit_log, metrics_history, health_history, run_manifest"
 
+PG = "postgres"
 
-def up(conn):
+
+def _serial(backend: str) -> str:
+    return "SERIAL PRIMARY KEY" if backend == PG else "INTEGER PRIMARY KEY AUTOINCREMENT"
+
+
+def up(conn, backend: str = "sqlite"):
+    s = _serial(backend)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS audit_log (
             id TEXT PRIMARY KEY,
@@ -15,18 +22,18 @@ def up(conn):
             hash TEXT NOT NULL
         )
     """)
-    conn.execute("""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS metrics_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {s},
             name TEXT NOT NULL,
             value REAL NOT NULL,
             timestamp TEXT NOT NULL,
-            tags TEXT DEFAULT '{}'
+            tags TEXT DEFAULT '{{}}'
         )
     """)
-    conn.execute("""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS health_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {s},
             service TEXT NOT NULL,
             healthy INTEGER NOT NULL,
             message TEXT DEFAULT '',
@@ -34,16 +41,16 @@ def up(conn):
             timestamp TEXT NOT NULL
         )
     """)
-    conn.execute("""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS run_manifest (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {s},
             run_id TEXT NOT NULL,
             service TEXT NOT NULL,
             action TEXT NOT NULL,
             status TEXT NOT NULL,
             duration_ms REAL DEFAULT 0.0,
             timestamp TEXT NOT NULL,
-            metadata TEXT DEFAULT '{}'
+            metadata TEXT DEFAULT '{{}}'
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)")
@@ -53,7 +60,7 @@ def up(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_manifest_service ON run_manifest(service)")
 
 
-def down(conn):
+def down(conn, backend: str = "sqlite"):
     conn.execute("DROP TABLE IF EXISTS run_manifest")
     conn.execute("DROP TABLE IF EXISTS health_history")
     conn.execute("DROP TABLE IF EXISTS metrics_history")

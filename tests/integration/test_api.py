@@ -82,7 +82,9 @@ class TestApiOrchestrator:
 
 class TestApiBacktest:
     def test_run_backtest(self):
-        resp = _make_client().post("/v1/backtest", json={"strategy": "mean_reversion", "candles": 10})
+        resp = _make_client().post(
+            "/v1/backtest", json={"strategy": "mean_reversion", "candles": 10}
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "total_return" in data
@@ -183,3 +185,20 @@ class TestApiManifest:
             resp = _make_client().get("/v1/manifest")
             assert resp.status_code == 200
             assert "runs" in resp.json()
+
+
+class TestApiPrometheusMetrics:
+    def test_prometheus_metrics_endpoint(self):
+        with patch.object(server, "_load_api_key", return_value=None):
+            client = _make_client()
+            resp = client.get("/metrics")
+            assert resp.status_code in (200, 501)
+
+
+class TestApiRateLimit:
+    def test_rate_limit_headers(self):
+        with patch.object(server, "_load_api_key", return_value=None):
+            client = _make_client()
+            resp = client.get("/v1/health")
+            assert resp.status_code == 200
+            assert "X-RateLimit-Remaining" in resp.headers

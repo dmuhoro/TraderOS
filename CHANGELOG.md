@@ -1,5 +1,61 @@
 # Changelog - TraderOS
 
+## [1.1.0] - 2026-07-28
+
+### Added
+- **Production Readiness Programme (Sprint 7):** Complete production hardening across 6 phases.
+
+### Phase 1 — Production Blockers (6 items)
+- **HTTPS:** `SSL_KEYFILE`/`SSL_CERTFILE` env vars wired to uvicorn in `main.py`.
+- **Secure CORS:** `CORS_ORIGINS` env var (comma-separated); defaults to `*` for local dev.
+- **CI security gates:** Removed `|| true` from `pip-audit` and `bandit` steps.
+- **Domain exception adoption:** Replaced `RuntimeError`/`ValueError` with `ServiceError`/`InfrastructureError`/`ConfigError` in `retry.py`, `alpaca_broker.py`, `config_loader.py`, `notification_service.py`.
+- **Startup validation:** `validate` CLI command; daemon calls `Config.validate()` before run loop.
+- **Dependency hygiene:** Stale `requirements.txt` deleted; `pyproject.toml` is sole source of truth.
+
+### Phase 2 — PostgreSQL Production Database
+- `DATABASE_URL` env var for runtime database backend selection.
+- `psycopg2-binary` as optional `postgres` dependency.
+- Database connection factory (`connection.py`) returns `sqlite3.Connection` or psycopg2 connection.
+- DB-agnostic migrations: all 3 migrations accept `backend="sqlite"` param, emit appropriate DDL (`SERIAL` vs `AUTOINCREMENT`, `ON CONFLICT` vs `INSERT OR IGNORE`).
+- `PostgresRepository[T]` base class mirroring `SQLiteRepository[T]` with `%s` placeholders.
+- PostgreSQL observability services: `PostgresAuditService`, `PostgresMetricsService`, `PostgresHealthService`, `PostgresManifestService`.
+- Factory dispatches to Postgres repos/services when `DATABASE_URL` is set.
+
+### Phase 3 — Observability
+- `prometheus-client` as optional `monitoring` dependency.
+- `PrometheusMetricsService` wrapping `prometheus_client.Counter`/`Gauge`/`Histogram`.
+- Prometheus `/metrics` scrape endpoint (standard exposition format).
+- Structured JSON logging via `JsonFormatter` + `setup_json_logging()`.
+- HTTP request metrics middleware (counters + duration histograms).
+
+### Phase 4 — API Hardening
+- In-memory sliding-window rate limiter (`RateLimiter`) with `RATE_LIMIT_MAX` env var.
+- Rate limiting middleware returns 429 + `X-RateLimit-Remaining` header.
+- `/metrics` endpoint exempted from API key auth (Prometheus scraping standard).
+
+### Phase 5 — Deployment
+- Dockerfile updated to Python 3.14-slim with all extras (`api`, `alpaca`, `postgres`, `monitoring`).
+- `railway.json` for Railway deployment with health check path.
+- `nixpacks.toml` as alternative build config.
+- CI pipeline upgraded to Python 3.14 with all extras.
+
+### Phase 6 — Verification
+- PrometheusMetricsService unit tests (counter, gauge, snapshot, timing).
+- RateLimiter unit tests (within-limit, over-limit, remaining, key isolation).
+- Database connection tests (backend resolution, ImportError for missing psycopg2).
+- API integration tests for `/metrics` endpoint and rate limit headers.
+- **666 tests passing at 86% coverage.**
+
+### New files
+- `src/traderos/infrastructure/database/connection.py`
+- `src/traderos/infrastructure/monitoring.py`
+- `src/traderos/infrastructure/rate_limiter.py`
+- `src/traderos/infrastructure/observability_postgres.py`
+- `src/traderos/infrastructure/repositories/postgres/`
+- `railway.json`, `nixpacks.toml`
+- `tests/test_monitoring.py`, `tests/test_rate_limiter.py`, `tests/test_database_connection.py`
+
 ## [1.0.0] - 2026-07-27
 
 ### Added

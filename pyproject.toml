@@ -1,6 +1,6 @@
 [project]
 name = "traderos"
-version = "1.0.0"
+version = "1.1.0"
 description = "Research-first operating system for systematic traders"
 requires-python = ">=3.11"
 dependencies = [
@@ -20,8 +20,10 @@ traderos-api = "traderos.interfaces.api.main:main"
 [project.optional-dependencies]
 api = ["fastapi==0.110.0", "uvicorn==0.29.0", "pydantic==2.11.1"]
 alpaca = ["alpaca-py==0.30.0"]
+postgres = ["psycopg2-binary==2.9.10"]
+monitoring = ["prometheus-client==0.21.1"]
 dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.0", "pyright==1.1.411", "black==26.5.1", "isort==8.0.1"]
-all = ["traderos[api]", "traderos[alpaca]"]
+all = ["traderos[api]", "traderos[alpaca]", "traderos[postgres]", "traderos[monitoring]"]
 
 [tool.black]
 line-length = 100
