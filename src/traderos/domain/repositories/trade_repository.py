@@ -15,6 +15,9 @@ class TradeRepository(Repository[Trade]):
     @abstractmethod
     def get_by_market(self, market_id: uuid.UUID) -> list[Trade]: ...
 
+    @abstractmethod
+    def get_open(self) -> list[Trade]: ...
+
 
 class PositionRepository(Repository[Position]):
     @abstractmethod

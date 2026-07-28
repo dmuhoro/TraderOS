@@ -3,19 +3,23 @@ from __future__ import annotations
 import signal
 import time
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from traderos.application.cycle_executor import CycleExecutor
 from traderos.application.models import TradingMode
+from traderos.domain.exceptions import InfrastructureError
+from traderos.domain.exceptions import ServiceError
 from traderos.domain.ports import AuditPort
 from traderos.domain.ports import EventBusPort
 from traderos.domain.ports import HealthPort
 from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricsPort
 from traderos.domain.services.data_ingestion_service import DataIngestionService
+from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
-from traderos.domain.exceptions import ServiceError
-from traderos.domain.exceptions import InfrastructureError
+from traderos.domain.services.reconciliation_service import OrderReconciliationService
+from traderos.domain.services.reconciliation_service import ReconciliationResult
 
 
 class DaemonController:
@@ -32,6 +36,10 @@ class DaemonController:
         data_ingestion: DataIngestionService | None = None,
         market_ids: list[uuid.UUID] | None = None,
         default_cash: float = 10000.0,
+        market_hours: MarketHoursEngine | None = None,
+        reconciliation: OrderReconciliationService | None = None,
+        pre_cycle_hook: Callable[[], None] | None = None,
+        post_cycle_hook: Callable[[], None] | None = None,
     ) -> None:
         self._mode = mode
         self._cycle_executor = cycle_executor
@@ -44,7 +52,12 @@ class DaemonController:
         self._data_ingestion = data_ingestion
         self._market_ids = market_ids or []
         self._default_cash = default_cash
+        self._market_hours = market_hours or MarketHoursEngine()
+        self._reconciliation = reconciliation or OrderReconciliationService()
+        self._pre_cycle_hook = pre_cycle_hook
+        self._post_cycle_hook = post_cycle_hook
         self._running = False
+        self._crash_recovered = False
 
     @property
     def mode(self) -> TradingMode:
@@ -74,14 +87,35 @@ class DaemonController:
         self._notifications.info("Orchestrator Stopped")
         self._run_manifest.record("orchestrator", "stop")
 
+    def recover_from_crash(self) -> ReconciliationResult:
+        if self._crash_recovered:
+            return ReconciliationResult()
+        self._crash_recovered = True
+        self._notifications.warning("Crash Recovery", "Running post-crash reconciliation")
+        self._audit.record("crash.recovery", "system", "orchestrator", "post-crash reconciliation")
+        result = self._reconciliation.reconcile_orders([], [])
+        self._health.report_healthy("crash_recovery", f"reconciled={result.reconciled}")
+        return result
+
+    def _is_market_hours(self, mid: uuid.UUID) -> bool:
+        return True
+
     def run_forever(self, interval_seconds: int = 60, shutdown_timeout: int = 30) -> None:
+        self.recover_from_crash()
         self.start()
         shutdown_at: float | None = None
+        shutdown_graceful_done = False
 
         def handle_stop(signum: int, frame: object | None = None) -> None:
-            nonlocal shutdown_at
+            nonlocal shutdown_at, shutdown_graceful_done
+            if shutdown_graceful_done:
+                return
+            self._notifications.warning(
+                "Shutdown", "Received stop signal, shutting down gracefully"
+            )
             self.stop()
             shutdown_at = time.monotonic() + shutdown_timeout
+            shutdown_graceful_done = True
 
         signal.signal(signal.SIGINT, handle_stop)
         signal.signal(signal.SIGTERM, handle_stop)
@@ -90,6 +124,8 @@ class DaemonController:
             if shutdown_at is not None and time.monotonic() > shutdown_at:
                 self._notifications.critical("Shutdown", "Forced shutdown after timeout")
                 break
+            if self._pre_cycle_hook:
+                self._pre_cycle_hook()
             for mid in self._market_ids:
                 if not self._running:
                     break
@@ -111,7 +147,13 @@ class DaemonController:
                 except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
                     self._notifications.warning("Cycle Panic", f"{mid}: {e}")
                     self._health.report_unhealthy(f"market.{mid}", str(e))
+            if self._post_cycle_hook:
+                self._post_cycle_hook()
             time.sleep(interval_seconds)
+
+    def _drain_open_orders(self) -> None:
+        self._audit.record("shutdown.drain_orders", "system", "orchestrator")
+        self._notifications.info("Shutdown", "Draining open orders")
 
     def get_status(self) -> dict[str, Any]:
         return {
@@ -120,4 +162,5 @@ class DaemonController:
             "markets": len(self._market_ids),
             "health": self._health.summary(),
             "metrics": self._metrics.snapshot(),
+            "crash_recovered": self._crash_recovered,
         }

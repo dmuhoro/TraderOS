@@ -7,12 +7,19 @@ from datetime import UTC
 from importlib.metadata import version
 
 from traderos.application.factory import build_orchestrator
+from traderos.domain.exceptions import ConfigError
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
 from traderos.infrastructure.audit import AuditService
 from traderos.infrastructure.config.config_loader import Config
-from traderos.domain.exceptions import ConfigError
+from traderos.infrastructure.database.backup import create_backup
+from traderos.infrastructure.database.backup import list_backups
+from traderos.infrastructure.database.backup import restore_backup
+from traderos.infrastructure.database.connection import close_all_pools
+from traderos.infrastructure.database.connection import get_connection
+from traderos.infrastructure.database.migration_manager import get_current_version
+from traderos.infrastructure.database.migration_manager import migrate
 from traderos.infrastructure.health import HealthService
 
 
@@ -54,6 +61,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_validate = sub.add_parser("validate", help="Validate configuration and environment")
     p_validate.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
+
+    p_db = sub.add_parser("db", help="Database management commands")
+    p_db_sub = p_db.add_subparsers(dest="db_cmd")
+
+    p_db_sub.add_parser("migrate", help="Run pending migrations")
+    p_db_sub.add_parser("check", help="Check database integrity")
+
+    p_db_rollback = p_db_sub.add_parser("rollback", help="Rollback migrations")
+    p_db_rollback.add_argument("--target", type=int, required=True, help="Target schema version")
+
+    p_db_sub.add_parser("backup", help="Create a database backup")
+    p_db_restore = p_db_sub.add_parser("restore", help="Restore from a backup")
+    p_db_restore.add_argument("--backup", required=True, help="Path to backup file")
+
+    p_db_sub.add_parser("list-backups", help="List available backups")
 
     return parser
 
@@ -228,7 +250,7 @@ def cmd_daemon(args: argparse.Namespace) -> None:
     orch.run_forever(interval_seconds=args.interval)
 
 
-def cmd_validate(args: argparse.Namespace) -> None:
+def cmd_validate(args: argparse.Namespace) -> int:
     try:
         cfg = Config.load()
         cfg.validate()
@@ -237,6 +259,48 @@ def cmd_validate(args: argparse.Namespace) -> None:
     except ConfigError as e:
         print(f"Configuration FAILED: {e}")
         return 1
+
+
+def cmd_db(args: argparse.Namespace) -> None:
+    cfg = Config.load()
+    conn = get_connection(cfg)
+    try:
+        if args.db_cmd == "migrate":
+            migrate(conn)
+            ver = get_current_version(conn)
+            print(f"Migrations up to date. Schema version: {ver}")
+        elif args.db_cmd == "rollback":
+            migrate(conn, target_version=args.target)
+            ver = get_current_version(conn)
+            print(f"Rolled back to version {ver}")
+        elif args.db_cmd == "check":
+            try:
+                cur = conn.execute("SELECT 1")
+                cur.fetchone()
+                ver = get_current_version(conn)
+                print(f"Database OK. Schema version: {ver}")
+            except Exception as e:
+                print(f"Database check FAILED: {e}")
+        elif args.db_cmd == "backup":
+            path = create_backup(cfg)
+            print(f"Backup created: {path}")
+        elif args.db_cmd == "restore":
+            result = restore_backup(args.backup, cfg)
+            if result:
+                print(f"Database restored: {result}")
+            else:
+                print("Database restored.")
+        elif args.db_cmd == "list-backups":
+            backups = list_backups()
+            if not backups:
+                print("No backups found.")
+                return
+            for b in backups:
+                print(f"  {b['path']}  ({b['size_bytes']} bytes, {b['modified']})")
+    finally:
+        if conn is not None:
+            conn.close()
+        close_all_pools()
 
 
 def main() -> None:
@@ -259,6 +323,8 @@ def main() -> None:
         cmd_signal(args)
     elif args.command == "daemon":
         cmd_daemon(args)
+    elif args.command == "db":
+        cmd_db(args)
     elif args.command == "validate":
         exit(cmd_validate(args))
     else:

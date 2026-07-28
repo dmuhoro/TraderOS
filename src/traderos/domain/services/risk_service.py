@@ -10,6 +10,9 @@ from datetime import datetime
 from typing import NamedTuple
 
 from traderos.domain.entities import Position
+from traderos.domain.ports import AuditPort
+from traderos.domain.ports import MetricsPort
+from traderos.domain.services.reconciliation_service import PersistentKillSwitch
 
 
 class RiskAssessment(NamedTuple):
@@ -40,13 +43,11 @@ class KillSwitch:
     daily_realized_pnl: float = 0.0
     _current_day: date = field(default_factory=lambda: datetime.now(UTC).date())
     circuit_open: bool = False
-    circuit_open_until: datetime | None = None
 
     def record_failure(self) -> None:
         self.consecutive_failures += 1
         if self.consecutive_failures >= self.max_consecutive_failures:
             self.circuit_open = True
-            self.circuit_open_until = datetime.now(UTC)
 
     def record_success(self) -> None:
         self.consecutive_failures = 0
@@ -71,7 +72,6 @@ class KillSwitch:
         self.consecutive_failures = 0
         self.daily_realized_pnl = 0.0
         self.circuit_open = False
-        self.circuit_open_until = None
 
 
 @dataclass
@@ -81,14 +81,31 @@ class RiskService:
     max_drawdown_limit: float = 0.20
     var_confidence: float = 1.645
     kill_switch: KillSwitch = field(default_factory=KillSwitch)
+    persistent_kill_switch: PersistentKillSwitch | None = None
     max_positions_total: int = 10
+    audit: AuditPort | None = None
+    metrics: MetricsPort | None = None
 
     def can_trade(self, positions: list[Position]) -> TradeVerdict:
         verdict = self.kill_switch.can_trade()
         if not verdict.allowed:
+            if self.audit:
+                self.audit.record("risk.kill_switch", "system", "trading", verdict.reason)
+            if self.metrics:
+                self.metrics.counter("kill_switch_trips", 1.0)
             return verdict
+        if self.persistent_kill_switch is not None and not self.persistent_kill_switch.can_trade():
+            reason = "Persistent kill switch engaged"
+            if self.audit:
+                self.audit.record("risk.kill_switch", "system", "trading", reason)
+            if self.metrics:
+                self.metrics.counter("kill_switch_trips", 1.0)
+            return TradeVerdict(False, reason)
         if len(positions) >= self.max_positions_total:
-            return TradeVerdict(False, f"Max positions ({self.max_positions_total}) reached")
+            reason = f"Max positions ({self.max_positions_total}) reached"
+            if self.audit:
+                self.audit.record("risk.position_limit", "system", "trading", reason)
+            return TradeVerdict(False, reason)
         return TradeVerdict(True, "")
 
     def assess_trade(

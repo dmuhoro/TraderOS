@@ -8,6 +8,7 @@ from traderos.domain.entities import Position
 from traderos.domain.entities import Trade
 from traderos.domain.entities import TradeSide
 from traderos.domain.entities import TradeStatus
+from traderos.domain.ports import AuditPort
 from traderos.domain.repositories import TradeRepository
 from traderos.domain.repositories.trade_repository import PositionRepository
 
@@ -25,6 +26,7 @@ class PortfolioSummary(NamedTuple):
 class PortfolioService:
     trade_repo: TradeRepository
     position_repo: PositionRepository
+    audit: AuditPort | None = None
 
     def get_summary(self, cash: float) -> PortfolioSummary:
         positions = self.position_repo.list_open()
@@ -77,7 +79,18 @@ class PortfolioService:
             price=price,
             status=TradeStatus.PENDING,
         )
-        return self.trade_repo.add(trade)
+        result = self.trade_repo.add(trade)
+        if self.audit:
+            self.audit.record(
+                "trade.open",
+                "system",
+                str(market_id),
+                f"side={side.value} qty={quantity} price={price} trade_id={result.id}",
+            )
+        return result
+
+    def update_trade(self, trade: Trade) -> Trade:
+        return self.trade_repo.update(trade)
 
     def fill_trade(
         self,
@@ -85,10 +98,19 @@ class PortfolioService:
         fill_price: float | None = None,
     ) -> Trade:
         price = fill_price or trade.price
+        if trade.status == TradeStatus.PENDING and not trade.external_order_id:
+            trade.submit(f"auto-{trade.id}")
         trade.fill(trade.quantity, price)
         self.trade_repo.update(trade)
         existing = self.position_repo.get_by_market(trade.market_id)
         direction = 1 if trade.side == TradeSide.BUY else -1
+        if self.audit:
+            self.audit.record(
+                "trade.fill",
+                "system",
+                str(trade.market_id),
+                f"trade_id={trade.id} side={trade.side.value} qty={trade.quantity} price={price}",
+            )
         if existing:
             new_qty = existing.quantity + direction * trade.quantity
             avg_price = (
@@ -120,6 +142,13 @@ class PortfolioService:
     ) -> float:
         realized = position.close(close_price)
         self.position_repo.update(position)
+        if self.audit:
+            self.audit.record(
+                "position.close",
+                "system",
+                str(position.market_id),
+                f"pnl={realized:.2f} close_price={close_price} qty={position.quantity}",
+            )
         return realized
 
     def rebalance(

@@ -36,6 +36,7 @@ class PostgresTradeRepository(PostgresRepository[Trade], TradeRepository):
                     filled_quantity REAL DEFAULT 0.0,
                     filled_price REAL DEFAULT 0.0,
                     filled_at TEXT,
+                    external_order_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
@@ -54,6 +55,7 @@ class PostgresTradeRepository(PostgresRepository[Trade], TradeRepository):
             "filled_quantity": entity.filled_quantity,
             "filled_price": entity.filled_price,
             "filled_at": entity.filled_at.isoformat() if entity.filled_at else None,
+            "external_order_id": entity.external_order_id,
             "created_at": entity.created_at.isoformat(),
             "updated_at": entity.updated_at.isoformat(),
         }
@@ -67,13 +69,14 @@ class PostgresTradeRepository(PostgresRepository[Trade], TradeRepository):
             quantity=row[4],
             price=row[5],
             status=TradeStatus(row[6]),
-            created_at=to_dt(row[10]),
+            created_at=to_dt(row[11]),
         )
         trade.filled_quantity = row[7] or 0.0
         trade.filled_price = row[8] or 0.0
         if row[9]:
             trade.filled_at = to_dt(row[9])
-        trade.updated_at = to_dt(row[11])
+        trade.external_order_id = row[10] if len(row) > 10 else None
+        trade.updated_at = to_dt(row[12])
         return trade
 
     def get_by_signal(self, signal_id: uuid.UUID) -> list[Trade]:
@@ -90,6 +93,20 @@ class PostgresTradeRepository(PostgresRepository[Trade], TradeRepository):
             cur.execute(
                 "SELECT * FROM trades WHERE market_id = %s ORDER BY created_at",
                 (str(market_id),),
+            )
+            rows = cur.fetchall()
+        return [self._from_row(row) for row in rows]
+
+    def get_open(self) -> list[Trade]:
+        open_values = (
+            TradeStatus.PENDING.value,
+            TradeStatus.SUBMITTED.value,
+            TradeStatus.PARTIALLY_FILLED.value,
+        )
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM trades WHERE status IN (%s, %s, %s) ORDER BY created_at",
+                open_values,
             )
             rows = cur.fetchall()
         return [self._from_row(row) for row in rows]

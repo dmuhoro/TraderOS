@@ -25,9 +25,44 @@ class Event:
     payload: dict[str, Any]
     event_id: uuid.UUID = field(default_factory=uuid.uuid4)
     timestamp: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
+    correlation_id: str = ""
+    trace_id: str = ""
+    market: str = ""
+    strategy: str = ""
+    execution_context: dict[str, Any] = field(default_factory=dict)
 
 
 EventHandler = Callable[["Event"], None]
+
+
+@runtime_checkable
+class MarketDataPort(Protocol):
+    """Application-facing streaming market data contract."""
+
+    def subscribe(self, symbols: list[str], handler: Callable[[Any], None]) -> None: ...
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def health(self) -> HealthStatus: ...
+
+
+@runtime_checkable
+class BrokerPort(Protocol):
+    """Common contract for paper and live brokers."""
+
+    def place_market_order(
+        self, market_id: uuid.UUID, side: str, quantity: float, close_price: float | None = None
+    ) -> Any: ...
+    def place_limit_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        price: float,
+        close_price: float | None = None,
+    ) -> Any: ...
+    def cancel_order(self, order_id: str) -> Any: ...
+    def get_account_balance(self) -> float: ...
+    def get_positions(self) -> list[dict]: ...
 
 
 @runtime_checkable
@@ -93,6 +128,19 @@ class MetricsPort(Protocol):
     def snapshot(self) -> dict[str, float]: ...
     def query(self, name: str, limit: int = 100) -> list[MetricSample]: ...
     def clear(self) -> None: ...
+
+
+@runtime_checkable
+class NotifierPort(Protocol):
+    """Port for delivering out-of-band notifications (webhook, Slack, etc.)."""
+
+    def send_notification(
+        self,
+        title: str,
+        message: str,
+        level: str,
+        metadata: dict[str, str | float | int | None],
+    ) -> None: ...
 
 
 class ManifestEntry(NamedTuple):

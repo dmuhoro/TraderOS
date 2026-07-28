@@ -35,6 +35,7 @@ class SQLiteTradeRepository(SQLiteRepository[Trade], TradeRepository):
                 filled_quantity REAL DEFAULT 0.0,
                 filled_price REAL DEFAULT 0.0,
                 filled_at TEXT,
+                external_order_id TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
@@ -52,6 +53,7 @@ class SQLiteTradeRepository(SQLiteRepository[Trade], TradeRepository):
             "filled_quantity": entity.filled_quantity,
             "filled_price": entity.filled_price,
             "filled_at": entity.filled_at.isoformat() if entity.filled_at else None,
+            "external_order_id": entity.external_order_id,
             "created_at": entity.created_at.isoformat(),
             "updated_at": entity.updated_at.isoformat(),
         }
@@ -72,6 +74,10 @@ class SQLiteTradeRepository(SQLiteRepository[Trade], TradeRepository):
         trade.filled_price = row["filled_price"] or 0.0
         if filled_at_str:
             trade.filled_at = to_dt(filled_at_str)
+        try:
+            trade.external_order_id = row["external_order_id"]
+        except (KeyError, IndexError):
+            trade.external_order_id = None
         trade.updated_at = to_dt(row["updated_at"])
         return trade
 
@@ -86,6 +92,17 @@ class SQLiteTradeRepository(SQLiteRepository[Trade], TradeRepository):
         cursor = self.conn.execute(
             "SELECT * FROM trades WHERE market_id = ? ORDER BY created_at",
             (str(market_id),),
+        )
+        return [self._from_row(row) for row in cursor.fetchall()]
+
+    def get_open(self) -> list[Trade]:
+        cursor = self.conn.execute(
+            "SELECT * FROM trades WHERE status IN (?, ?, ?) ORDER BY created_at",
+            (
+                TradeStatus.PENDING.value,
+                TradeStatus.SUBMITTED.value,
+                TradeStatus.PARTIALLY_FILLED.value,
+            ),
         )
         return [self._from_row(row) for row in cursor.fetchall()]
 

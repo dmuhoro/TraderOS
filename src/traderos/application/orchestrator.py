@@ -21,9 +21,11 @@ from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
+from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.paper_trading_service import PaperTradingService
 from traderos.domain.services.portfolio_service import PortfolioService
+from traderos.domain.services.reconciliation_service import OrderReconciliationService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 
@@ -46,6 +48,9 @@ class TradingOrchestrator:
     notifications: NotificationService
     run_manifest: ManifestPort
     data_ingestion: DataIngestionService | None = None
+
+    market_hours: MarketHoursEngine | None = None
+    reconciliation: OrderReconciliationService | None = None
 
     default_cash: float = float(os.getenv("DEFAULT_CASH", "10000.0"))
     market_ids: list[uuid.UUID] = field(default_factory=list)
@@ -81,6 +86,8 @@ class TradingOrchestrator:
             data_ingestion=self.data_ingestion,
             market_ids=self.market_ids,
             default_cash=self.default_cash,
+            market_hours=self.market_hours,
+            reconciliation=self.reconciliation,
         )
 
     @property

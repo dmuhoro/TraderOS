@@ -200,6 +200,7 @@ class TestTrade:
             price=50000.0,
         )
         assert trade.status == TradeStatus.PENDING
+        trade.submit("ext-1")
         trade.fill(1.0, 50100.0)
         assert trade.status == TradeStatus.FILLED
         assert trade.filled_price == 50100.0
