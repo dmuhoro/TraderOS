@@ -13,10 +13,13 @@ from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
+from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.paper_trading_service import PaperBrokerAdapter
 from traderos.domain.services.paper_trading_service import PaperTradingService
 from traderos.domain.services.portfolio_service import PortfolioService
+from traderos.domain.services.reconciliation_service import OrderReconciliationService
+from traderos.domain.services.reconciliation_service import PersistentKillSwitch
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
@@ -29,6 +32,7 @@ from traderos.infrastructure.database.migration_manager import migrate
 from traderos.infrastructure.events import InMemoryEventBus
 from traderos.infrastructure.health import HealthService as InMemoryHealthService
 from traderos.infrastructure.metrics import MetricsService as InMemoryMetricsService
+from traderos.infrastructure.notifiers.webhook_notifier import WebhookNotifier
 from traderos.infrastructure.observability import SQLiteAuditService
 from traderos.infrastructure.observability import SQLiteHealthService
 from traderos.infrastructure.observability import SQLiteManifestService
@@ -75,7 +79,7 @@ def build_orchestrator(
         pos_repo = InMemoryPositionRepository()
 
     signal_service = SignalService(repo=signal_repo)
-    risk_service = RiskService()
+    persistent_kill_switch = PersistentKillSwitch()
     portfolio_service = PortfolioService(trade_repo=trade_repo, position_repo=pos_repo)
     execution = ExecutionService()
     analysis = AnalysisService()
@@ -96,7 +100,9 @@ def build_orchestrator(
         audit = InMemoryAuditService()
         metrics = InMemoryMetricsService()
         run_manifest = InMemoryManifestService()
-    notifications = NotificationService()
+    risk_service = RiskService(persistent_kill_switch=persistent_kill_switch, metrics=metrics)
+    webhook_notifier = WebhookNotifier()
+    notifications = NotificationService(notifier=webhook_notifier)
 
     _sync_strategy_registry(db, backend)
 
@@ -113,6 +119,8 @@ def build_orchestrator(
         pass
 
     data_ingestion = DataIngestionService(registry=collector_registry)
+    market_hours = MarketHoursEngine()
+    reconciliation = OrderReconciliationService()
 
     symbols: list[str] = []
     forex = cfg.get("data_collection.forex_symbols", [])
@@ -179,6 +187,8 @@ def build_orchestrator(
         backtest=backtest,
         paper=paper,
         data_ingestion=data_ingestion,
+        market_hours=market_hours,
+        reconciliation=reconciliation,
         event_bus=event_bus,
         health=health,
         audit=audit,

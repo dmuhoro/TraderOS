@@ -1,5 +1,24 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 9
+
+### Added
+- Provider-neutral streaming market data pipeline with bounded backpressure, heartbeat, latency, clock-drift observation, reconnect handling, candle aggregation and replay recording.
+- Enriched event context and deterministic idempotent order-event engine.
+- Alpaca health/error classification, account synchronization, buying-power verification and order modification support.
+- Sprint 9 tests, benchmark, architecture documentation and live market infrastructure report.
+
+### WP-7.1 — Architecture Fitness & Risk-Path Integrity
+- **ADR-007 ratified**: Manual-reset-only circuit breaker replaces cooldown-based auto-reset. `can_trade()` returns `False` unconditionally while circuit is open; only explicit `reset()` clears the breaker. Preserves failure evidence for post-mortem per Constitution §2 Principle 2.
+- **Dependency direction enforcement**: `tests/architecture/test_dependency_direction.py` uses AST walk to verify domain/ never imports from infrastructure/. Catches violations at CI time. Includes a deliberately-broken fixture to prove the check can fail.
+- **NotifierPort protocol** (`domain/ports.py`): Port for out-of-band notification delivery (webhook, Slack, etc.). Domain services now depend only on the protocol.
+- **WebhookNotifier adapter** (`infrastructure/notifiers/webhook_notifier.py`): Extracts webhook POST logic (with retry) from notification_service.py into the infrastructure layer where it belongs.
+- **Dependency rule restored**: `notification_service.py` no longer imports `retry_with_backoff` from `infrastructure.retry`. Webhook delivery delegates to injected `NotifierPort`.
+- **KillSwitch metrics**: `RiskService` accepts optional `MetricsPort`; kill-switch trips increment the `kill_switch_trips` counter for operational visibility.
+- **Manual-reset-only circuit breaker**: `KillSwitch` and `PersistentKillSwitch` both enforce manual-reset semantics. Removed dead `circuit_open_until` field and cooldown-based auto-reset logic from `PersistentKillSwitch`.
+- **Coverage threshold**: `pyproject.toml` `fail_under = 70` documented as MEP §17 interim gate with path to 90%.
+- **736 tests passing.**
+
 ## [1.1.0] - 2026-07-28
 
 ### Added

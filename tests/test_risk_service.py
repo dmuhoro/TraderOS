@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from traderos.domain.entities import Position
+from traderos.domain.services.risk_service import KillSwitch
 from traderos.domain.services.risk_service import RiskService
 
 
@@ -98,6 +99,62 @@ class TestRiskService:
         ]
         risk = svc.check_concentration(positions)
         assert svc.enforce_limits(positions[0], risk)
+
+    def test_kill_switch_allows_trade_by_default(self) -> None:
+        svc = RiskService()
+        verdict = svc.kill_switch.can_trade()
+        assert verdict.allowed
+
+    def test_kill_switch_opens_after_max_failures(self) -> None:
+        ks = KillSwitch(max_consecutive_failures=3)
+        for _ in range(3):
+            ks.record_failure()
+        verdict = ks.can_trade()
+        assert not verdict.allowed
+        assert "Circuit breaker open" in verdict.reason
+
+    def test_kill_switch_manual_reset_only_no_auto_recovery(self) -> None:
+        ks = KillSwitch(max_consecutive_failures=3)
+        for _ in range(3):
+            ks.record_failure()
+        assert not ks.can_trade().allowed
+
+        ks.reset()
+        verdict = ks.can_trade()
+        assert verdict.allowed
+
+    def test_kill_switch_record_success_does_not_close_circuit(self) -> None:
+        ks = KillSwitch(max_consecutive_failures=3)
+        for _ in range(3):
+            ks.record_failure()
+        assert ks.circuit_open
+
+        ks.record_success()
+        assert ks.circuit_open
+        assert not ks.can_trade().allowed
+
+    def test_kill_switch_daily_loss_limit(self) -> None:
+        ks = KillSwitch(daily_loss_limit=100.0)
+        ks.daily_realized_pnl = -150.0
+        verdict = ks.can_trade()
+        assert not verdict.allowed
+        assert "loss limit" in verdict.reason
+
+    def test_kill_switch_threshold_not_reached_allows_trade(self) -> None:
+        ks = KillSwitch(max_consecutive_failures=5)
+        ks.record_failure()
+        ks.record_failure()
+        verdict = ks.can_trade()
+        assert verdict.allowed
+
+    def test_kill_switch_failure_count_resets_on_success(self) -> None:
+        ks = KillSwitch(max_consecutive_failures=5)
+        ks.record_failure()
+        ks.record_failure()
+        ks.record_success()
+        verdict = ks.can_trade()
+        assert verdict.allowed
+        assert ks.consecutive_failures == 0
 
     def test_enforce_limits_violation(self) -> None:
         svc = RiskService()

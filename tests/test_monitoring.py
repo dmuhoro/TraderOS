@@ -1,6 +1,55 @@
 from __future__ import annotations
 
+import sqlite3
+from unittest.mock import MagicMock
+
+from traderos.infrastructure.monitoring import DatabaseHealthMonitor
 from traderos.infrastructure.monitoring import PrometheusMetricsService
+
+
+class TestDatabaseHealthMonitor:
+    def test_check_returns_connected_with_healthy_db(self):
+        conn = sqlite3.connect(":memory:")
+        conn.execute("SELECT 1")
+        monitor = DatabaseHealthMonitor()
+        report = monitor.check(conn)
+        assert report.connected is True
+        assert report.query_latency_ms >= 0
+        conn.close()
+
+    def test_check_returns_not_connected_with_none(self):
+        monitor = DatabaseHealthMonitor()
+        report = monitor.check(None)
+        assert report.connected is False
+
+    def test_check_with_pool_stats(self):
+        conn = sqlite3.connect(":memory:")
+        conn.execute("SELECT 1")
+        mock_pool = MagicMock()
+        mock_pool.stats = {"available": 5, "in_use": 2, "max": 10}
+        monitor = DatabaseHealthMonitor()
+        report = monitor.check(conn, pool=mock_pool)
+        assert report.pool_available == 5
+        assert report.pool_in_use == 2
+        assert report.pool_max == 10
+        conn.close()
+
+    def test_check_reports_schema_version(self):
+        conn = sqlite3.connect(":memory:")
+        conn.execute("SELECT 1")
+        monitor = DatabaseHealthMonitor()
+        report = monitor.check(conn)
+        assert report.schema_version >= 0
+        conn.close()
+
+    def test_check_records_metrics(self):
+        conn = sqlite3.connect(":memory:")
+        conn.execute("SELECT 1")
+        metrics = MagicMock()
+        monitor = DatabaseHealthMonitor(metrics=metrics)
+        monitor.check(conn)
+        assert metrics.gauge.called
+        conn.close()
 
 
 class TestPrometheusMetricsService:

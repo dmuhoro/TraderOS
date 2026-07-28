@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Any
 from typing import Self
 
@@ -122,3 +123,51 @@ class TimingContext:
                 self.metrics.observe(self.name, elapsed)
             return elapsed
         return 0.0
+
+
+@dataclass
+class DbHealthReport:
+    connected: bool
+    pool_available: int = 0
+    pool_in_use: int = 0
+    pool_max: int = 0
+    schema_version: int = 0
+    query_latency_ms: float = 0.0
+
+
+class DatabaseHealthMonitor:
+    def __init__(self, metrics: MetricsPort | None = None) -> None:
+        self._metrics = metrics
+
+    def check(self, conn: Any, pool: Any | None = None) -> DbHealthReport:
+        report = DbHealthReport(connected=False)
+        if conn is None:
+            return report
+        try:
+            start = time.perf_counter()
+            cur = conn.execute("SELECT 1")
+            cur.fetchone()
+            report.query_latency_ms = (time.perf_counter() - start) * 1000
+            report.connected = True
+            if pool is not None:
+                stats = pool.stats
+                report.pool_available = stats["available"]
+                report.pool_in_use = stats["in_use"]
+                report.pool_max = stats["max"]
+                if self._metrics:
+                    self._metrics.gauge("db.pool.available", float(report.pool_available))
+                    self._metrics.gauge("db.pool.in_use", float(report.pool_in_use))
+                    self._metrics.gauge("db.pool.max", float(report.pool_max))
+                    self._metrics.gauge("db.query_latency_ms", report.query_latency_ms)
+        except Exception:
+            report.connected = False
+        try:
+            from traderos.infrastructure.database.migration_manager import get_current_version
+
+            report.schema_version = get_current_version(conn)
+        except Exception:
+            report.schema_version = -1
+        if self._metrics:
+            self._metrics.gauge("db.connected", 1.0 if report.connected else 0.0)
+            self._metrics.gauge("db.schema_version", float(report.schema_version))
+        return report

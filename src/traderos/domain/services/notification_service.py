@@ -10,20 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import NamedTuple
 
-from traderos.domain.exceptions import ServiceError
-from traderos.infrastructure.retry import retry_with_backoff
-
-try:
-    from urllib.error import URLError as _URLError
-    from urllib.request import Request
-    from urllib.request import urlopen
-
-    _has_urlopen = True
-except ImportError:
-    _has_urlopen = False
-    _URLError = OSError
-    Request = None  # type: ignore[assignment]
-    urlopen = None  # type: ignore[assignment]
+from traderos.domain.ports import NotifierPort
 
 
 class NotificationChannel(Enum):
@@ -54,6 +41,7 @@ class NotificationService:
         default_factory=lambda: {NotificationChannel.CONSOLE}
     )
     log: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
+    notifier: NotifierPort | None = None
 
     def send(
         self,
@@ -142,30 +130,12 @@ class NotificationService:
             f.write(line + "\n")
 
     def _send_webhook(self, event: NotificationEvent) -> None:
-        if not _has_urlopen or urlopen is None or Request is None:
-            self.log.warning("Webhook unavailable (urllib not available)")
+        if self.notifier is None:
+            self.log.info("No webhook notifier configured; skipping webhook delivery")
             return
-
-        payload = json.dumps(
-            {
-                "level": event.level.name,
-                "title": event.title,
-                "message": event.message,
-                "metadata": event.metadata,
-            }
-        ).encode()
-        try:
-            webhook_url = os.getenv("WEBHOOK_URL", "")
-            if not webhook_url:
-                self.log.info("NOTIFICATION_WEBHOOK (no URL configured): %s", payload.decode())
-                return
-            req = Request(webhook_url, data=payload, headers={"Content-Type": "application/json"})
-
-            def _do_webhook():
-                if urlopen is None:
-                    raise ServiceError("urllib.request.urlopen not available")
-                return urlopen(req, timeout=5)
-
-            retry_with_backoff(_do_webhook, max_retries=2)
-        except (_URLError, OSError):
-            self.log.warning("Webhook POST failed")
+        self.notifier.send_notification(
+            title=event.title,
+            message=event.message,
+            level=event.level.name,
+            metadata=event.metadata,
+        )

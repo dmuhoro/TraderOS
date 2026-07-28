@@ -9,6 +9,8 @@ from traderos.application.models import CycleResult
 from traderos.application.models import TradingMode
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.entities.trade import TradeSide
+from traderos.domain.exceptions import InfrastructureError
+from traderos.domain.exceptions import ServiceError
 from traderos.domain.ports import AuditPort
 from traderos.domain.ports import Event
 from traderos.domain.ports import EventBusPort
@@ -24,8 +26,6 @@ from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import MarketState
 from traderos.domain.services.strategy_framework import registry as strategy_registry
-from traderos.domain.exceptions import ServiceError
-from traderos.domain.exceptions import InfrastructureError
 
 
 class CycleExecutor:
@@ -174,7 +174,7 @@ class CycleExecutor:
                             market_id, side, qty, close_price=close_price
                         )
                         if fill.filled:
-                            self._portfolio_service.open_trade(
+                            trade = self._portfolio_service.open_trade(
                                 signal_id=signal.id,
                                 market_id=market_id,
                                 side=(
@@ -185,6 +185,11 @@ class CycleExecutor:
                                 quantity=fill.fill_quantity,
                                 price=fill.fill_price,
                             )
+                            if fill.order_id:
+                                trade.submit(str(fill.order_id))
+                                self._portfolio_service.update_trade(trade)
+                            trade.fill(fill.fill_quantity, fill.fill_price)
+                            self._portfolio_service.update_trade(trade)
                             trades_count += 1
                             self._event_bus.publish(
                                 Event(
@@ -194,6 +199,8 @@ class CycleExecutor:
                                         "side": side,
                                         "qty": fill.fill_quantity,
                                         "price": fill.fill_price,
+                                        "trade_id": str(trade.id),
+                                        "order_id": str(fill.order_id or ""),
                                     },
                                 )
                             )
