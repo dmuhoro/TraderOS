@@ -5,6 +5,8 @@ import time
 from collections.abc import Callable
 from typing import TypeVar
 
+from traderos.domain.exceptions import ServiceError
+
 T = TypeVar("T")
 
 
@@ -19,7 +21,7 @@ def retry_with_backoff(
     for attempt in range(max_retries + 1):
         try:
             return fn()
-        except (ValueError, RuntimeError, OSError, TimeoutError) as e:
+        except (ValueError, RuntimeError, OSError, TimeoutError, ServiceError) as e:
             last_exc = e
             if attempt < max_retries:
                 delay = min(base_delay * (2**attempt), max_delay)
@@ -27,4 +29,4 @@ def retry_with_backoff(
                     delay *= 0.5 + random.random() * 0.5
                 time.sleep(delay)
     msg = f"Operation failed after {max_retries + 1} attempts"
-    raise RuntimeError(msg) from last_exc
+    raise ServiceError(msg) from last_exc

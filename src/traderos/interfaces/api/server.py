@@ -121,9 +121,10 @@ def _error_response(status_code: int, message: str):
 def build_app() -> Any:
     ensure_fastapi()
     app = FastAPI(title="TraderOS API", version=version("traderos"))
+    cors_origins = os.getenv("CORS_ORIGINS", "*")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_origins.split(",") if cors_origins != "*" else ["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )

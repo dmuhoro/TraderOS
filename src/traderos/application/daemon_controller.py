@@ -14,6 +14,8 @@ from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricsPort
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.notification_service import NotificationService
+from traderos.domain.exceptions import ServiceError
+from traderos.domain.exceptions import InfrastructureError
 
 
 class DaemonController:
@@ -106,7 +108,7 @@ class DaemonController:
                     if result.errors:
                         for err in result.errors:
                             self._notifications.warning("Cycle Error", f"{mid}: {err}")
-                except (ValueError, RuntimeError, OSError) as e:
+                except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
                     self._notifications.warning("Cycle Panic", f"{mid}: {e}")
                     self._health.report_unhealthy(f"market.{mid}", str(e))
             time.sleep(interval_seconds)

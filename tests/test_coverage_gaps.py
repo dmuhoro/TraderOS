@@ -15,6 +15,7 @@ from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
+from traderos.domain.exceptions import ConfigError
 from traderos.infrastructure.config.config_loader import Config
 
 
@@ -88,13 +89,13 @@ class TestConfigEdgeCases:
     def test_config_validate_live_mode_missing_keys(self):
         with patch.dict(os.environ, {"TRADING_MODE": "live"}, clear=True):
             cfg = Config(alpaca_api_key="", alpaca_secret_key="")
-            with pytest.raises(ValueError, match="LIVE mode"):
+            with pytest.raises(ConfigError, match="LIVE mode"):
                 cfg.validate()
 
     def test_config_validate_drawdown_too_high(self):
         with patch.dict(os.environ, {"MAX_DRAWDOWN": "200"}, clear=True):
             cfg = Config()
-            with pytest.raises(ValueError, match="MAX_DRAWDOWN"):
+            with pytest.raises(ConfigError, match="MAX_DRAWDOWN"):
                 cfg.validate()
 
 

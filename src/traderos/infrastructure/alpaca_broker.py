@@ -5,6 +5,8 @@ from typing import Any
 
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.adapters.broker_adapter import FillResult
+from traderos.domain.exceptions import InfrastructureError
+from traderos.domain.exceptions import ServiceError
 from traderos.infrastructure.retry import retry_with_backoff
 
 _has_alpaca: bool
@@ -54,9 +56,9 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 client = self._client
                 req_cls = MarketOrderRequest
                 if client is None:
-                    raise RuntimeError("Alpaca client not initialized")
+                    raise InfrastructureError("Alpaca client not initialized")
                 if req_cls is None:
-                    raise RuntimeError("alpaca-py MarketOrderRequest not available")
+                    raise InfrastructureError("alpaca-py MarketOrderRequest not available")
                 return client.submit_order(
                     order_data=req_cls(
                         symbol=symbol,
@@ -75,7 +77,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 status="filled",
                 order_id=order.id,
             )
-        except (ValueError, RuntimeError, OSError) as e:
+        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
             return FillResult(False, 0.0, 0.0, quantity, "rejected", str(e))
 
     def place_limit_order(
@@ -96,7 +98,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
             def _submit() -> Any:
                 client = self._client
                 if client is None:
-                    raise RuntimeError("Alpaca client not initialized")
+                    raise InfrastructureError("Alpaca client not initialized")
                 return client.submit_order(
                     order_data=LimitOrderRequest(
                         symbol=symbol,
@@ -116,14 +118,14 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 status="filled" if order.filled_qty == order.qty else "pending",
                 order_id=order.id,
             )
-        except (ValueError, RuntimeError, OSError) as e:
+        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
             return FillResult(False, 0.0, 0.0, quantity, "rejected", str(e))
 
     def cancel_order(self, order_id: str) -> FillResult:
         try:
             self._client.cancel_order_by_id(order_id)
             return FillResult(True, 0.0, 0.0, 0.0, "cancelled", order_id)
-        except (ValueError, RuntimeError, OSError) as e:
+        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
             return FillResult(False, 0.0, 0.0, 0.0, "rejected", str(e))
 
     def get_account_balance(self) -> float:

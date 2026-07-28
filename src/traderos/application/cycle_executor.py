@@ -24,6 +24,8 @@ from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import MarketState
 from traderos.domain.services.strategy_framework import registry as strategy_registry
+from traderos.domain.exceptions import ServiceError
+from traderos.domain.exceptions import InfrastructureError
 
 
 class CycleExecutor:
@@ -199,7 +201,7 @@ class CycleExecutor:
                             self._metrics.counter("trades.executed")
                         else:
                             self._risk_service.kill_switch.record_failure()
-                except (ValueError, RuntimeError, OSError) as e:
+                except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
                     errors.append(f"{name}: {e}")
                     self._event_bus.publish(
                         Event(
@@ -215,7 +217,7 @@ class CycleExecutor:
                     self._metrics.counter("cycles.completed")
 
             self._health.report_healthy(f"market.{market_id}")
-        except (ValueError, RuntimeError, OSError) as e:
+        except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
             errors.append(str(e))
             self._health.report_unhealthy(f"market.{market_id}", str(e))
 

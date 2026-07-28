@@ -20,6 +20,7 @@ from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
+from traderos.domain.exceptions import InfrastructureError
 from traderos.infrastructure.audit import AuditService as InMemoryAuditService
 from traderos.infrastructure.collectors.mock_collector import MockDataCollector
 from traderos.infrastructure.config.config_loader import Config
@@ -120,7 +121,7 @@ def build_orchestrator(
             )
         except ImportError:
             broker = PaperBrokerAdapter(fill_probability=1.0)
-        except (ValueError, RuntimeError, OSError):
+        except (ValueError, RuntimeError, OSError, InfrastructureError):
             broker = PaperBrokerAdapter(fill_probability=1.0)
     else:
         broker = PaperBrokerAdapter(fill_probability=1.0)
