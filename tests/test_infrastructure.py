@@ -37,11 +37,11 @@ class TestConfigV2:
         config.validate()
 
     def test_validate_empty_db_path(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ConfigError):
             Config(db_path="").validate()
 
     def test_validate_invalid_log_level(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ConfigError):
             Config(log_level="TRACE").validate()
 
     def test_load_from_file(self, monkeypatch, tmp_path) -> None:

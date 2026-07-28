@@ -12,6 +12,7 @@ from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
 from traderos.infrastructure.audit import AuditService
 from traderos.infrastructure.config.config_loader import Config
+from traderos.domain.exceptions import ConfigError
 from traderos.infrastructure.health import HealthService
 
 
@@ -50,6 +51,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_daemon = sub.add_parser("daemon", help="Run the trading daemon")
     p_daemon.add_argument("--interval", type=int, default=60, help="Cycle interval in seconds")
     p_daemon.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
+
+    p_validate = sub.add_parser("validate", help="Validate configuration and environment")
+    p_validate.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
 
     return parser
 
@@ -219,8 +223,20 @@ def cmd_signal(args: argparse.Namespace) -> None:
 
 def cmd_daemon(args: argparse.Namespace) -> None:
     cfg = Config.load()
+    cfg.validate()
     orch = build_orchestrator(mode=args.mode, config=cfg)
     orch.run_forever(interval_seconds=args.interval)
+
+
+def cmd_validate(args: argparse.Namespace) -> None:
+    try:
+        cfg = Config.load()
+        cfg.validate()
+        print(f"Configuration OK (mode={args.mode})")
+        return 0
+    except ConfigError as e:
+        print(f"Configuration FAILED: {e}")
+        return 1
 
 
 def main() -> None:
@@ -243,6 +259,8 @@ def main() -> None:
         cmd_signal(args)
     elif args.command == "daemon":
         cmd_daemon(args)
+    elif args.command == "validate":
+        exit(cmd_validate(args))
     else:
         parser.print_help()
 

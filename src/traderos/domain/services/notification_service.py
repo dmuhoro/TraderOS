@@ -10,6 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import NamedTuple
 
+from traderos.domain.exceptions import ServiceError
 from traderos.infrastructure.retry import retry_with_backoff
 
 try:
@@ -162,7 +163,7 @@ class NotificationService:
 
             def _do_webhook():
                 if urlopen is None:
-                    raise RuntimeError("urllib.request.urlopen not available")
+                    raise ServiceError("urllib.request.urlopen not available")
                 return urlopen(req, timeout=5)
 
             retry_with_backoff(_do_webhook, max_retries=2)

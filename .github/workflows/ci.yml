@@ -70,9 +70,9 @@ jobs:
       - run: pip install pip-audit bandit
       - run: pip install -e ".[api,alpaca]"
       - name: Check dependency vulnerabilities
-        run: pip-audit || true
+        run: pip-audit
       - name: Check for hardcoded secrets and security issues
-        run: bandit -r src/traderos/ -ll || true
+        run: bandit -r src/traderos/ -ll
 
   docker:
     runs-on: ubuntu-latest

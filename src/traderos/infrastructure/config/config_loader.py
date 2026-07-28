@@ -10,6 +10,8 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
+from traderos.domain.exceptions import ConfigError
+
 _log = logging.getLogger(__name__)
 
 SECRET_FIELDS = {"alpaca_api_key", "alpaca_secret_key"}
@@ -118,4 +120,4 @@ class Config:
             errors.append("data_collection.forex_symbols must be a list")
 
         if errors:
-            raise ValueError(f"Config validation failed: {', '.join(errors)}")
+            raise ConfigError(f"Config validation failed: {', '.join(errors)}")
