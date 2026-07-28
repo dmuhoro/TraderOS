@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 import uuid
@@ -16,6 +17,8 @@ from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
 from traderos.infrastructure.config.config_loader import Config
+from traderos.infrastructure.logging import setup_json_logging
+from traderos.infrastructure.rate_limiter import RateLimiter
 
 if TYPE_CHECKING:
     from fastapi import APIRouter
@@ -24,6 +27,7 @@ if TYPE_CHECKING:
     from fastapi import Query
     from fastapi import Request
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import Response
     from pydantic import BaseModel
 
     _has_fastapi = True
@@ -35,6 +39,7 @@ else:
         from fastapi import Query
         from fastapi import Request
         from fastapi.middleware.cors import CORSMiddleware
+        from fastapi.responses import Response
         from pydantic import BaseModel  # type: ignore[assignment]
 
         _has_fastapi = True
@@ -47,6 +52,7 @@ else:
         Query = None  # type: ignore[assignment]
         Request = None  # type: ignore[assignment]
         CORSMiddleware = None  # type: ignore[assignment]
+        Response = type("Response", (), {})  # type: ignore[assignment]
 
 
 class TradeRequest(BaseModel):  # type: ignore[valid-type,misc]
@@ -72,6 +78,9 @@ class PaperSessionResponse(BaseModel):  # type: ignore[valid-type,misc]
 
 _orch_cache: dict[str, TradingOrchestrator] = {}
 _api_key: str | None = None
+_rate_limiter = RateLimiter(
+    max_requests=int(os.getenv("RATE_LIMIT_MAX", "100")), window_seconds=60.0
+)
 
 
 def _load_api_key() -> str | None:
@@ -115,11 +124,29 @@ def ensure_fastapi() -> None:
 def _error_response(status_code: int, message: str):
     from starlette.responses import JSONResponse
 
-    return JSONResponse(status_code=status_code, content={"error": {"code": status_code, "message": message}})
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": {"code": status_code, "message": message}},
+    )
+
+
+def _prometheus_metrics() -> Response | None:
+    try:
+        from prometheus_client import REGISTRY
+        from prometheus_client import generate_latest
+
+        return Response(
+            content=generate_latest(REGISTRY),
+            media_type="text/plain; version=0.0.4",
+        )
+    except ImportError:
+        return None
 
 
 def build_app() -> Any:
     ensure_fastapi()
+    setup_json_logging()
+    _logger = logging.getLogger("traderos.api")
     app = FastAPI(title="TraderOS API", version=version("traderos"))
     cors_origins = os.getenv("CORS_ORIGINS", "*")
     app.add_middleware(
@@ -135,17 +162,52 @@ def build_app() -> Any:
 
     @app.middleware("http")
     async def _request_logger(request: Request, call_next):
-        import logging
-
-        _logger = logging.getLogger("traderos.api")
         start = time.perf_counter()
         response = await call_next(request)
         elapsed = (time.perf_counter() - start) * 1000
-        _logger.info("%s %s %s %.0fms", request.method, request.url.path, response.status_code, elapsed)
+        _logger.info(
+            "request",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status": response.status_code,
+                "duration_ms": round(elapsed, 1),
+            },
+        )
+        return response
+
+    @app.middleware("http")
+    async def _request_metrics(request: Request, call_next):
+        if request.url.path in ("/metrics", "/v1/metrics"):
+            return await call_next(request)
+        start = time.perf_counter()
+        response = await call_next(request)
+        elapsed = (time.perf_counter() - start) * 1000
+        try:
+            from traderos.infrastructure.monitoring import PrometheusMetricsService
+
+            svc = PrometheusMetricsService()
+            svc.counter("http_requests_total", 1)
+            svc.observe("http_request_duration_ms", elapsed)
+        except ImportError:
+            pass
+        return response
+
+    @app.middleware("http")
+    async def _rate_limit_middleware(request: Request, call_next):
+        if request.url.path == "/metrics":
+            return await call_next(request)
+        client_ip = request.client.host if request.client else "unknown"
+        if not _rate_limiter.check(client_ip):
+            return _error_response(429, "Rate limit exceeded")
+        response = await call_next(request)
+        response.headers["X-RateLimit-Remaining"] = str(_rate_limiter.remaining(client_ip))
         return response
 
     @app.middleware("http")
     async def _auth_middleware(request: Request, call_next):
+        if request.url.path == "/metrics":
+            return await call_next(request)
         try:
             _verify_api_key(request)
         except HTTPException as exc:
@@ -153,6 +215,14 @@ def build_app() -> Any:
         return await call_next(request)
 
     router = APIRouter(prefix="/v1")
+
+    @app.get("/metrics")
+    def get_prometheus_metrics():
+        result = _prometheus_metrics()
+        if result is not None:
+            return result
+        msg = "Prometheus client not installed; pip install traderos[monitoring]"
+        return _error_response(501, msg)
 
     @router.get("/health")
     def get_health():

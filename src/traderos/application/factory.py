@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import sqlite3
 import uuid
-from pathlib import Path
+from typing import Any
 
 from traderos.application.orchestrator import TradingMode
 from traderos.application.orchestrator import TradingOrchestrator
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.collectors.base import CollectorRegistry
 from traderos.domain.collectors.base import CollectorType
+from traderos.domain.exceptions import InfrastructureError
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.data_ingestion_service import DataIngestionService
@@ -20,10 +20,12 @@ from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
-from traderos.domain.exceptions import InfrastructureError
 from traderos.infrastructure.audit import AuditService as InMemoryAuditService
 from traderos.infrastructure.collectors.mock_collector import MockDataCollector
 from traderos.infrastructure.config.config_loader import Config
+from traderos.infrastructure.database.connection import get_connection
+from traderos.infrastructure.database.connection import resolve_backend
+from traderos.infrastructure.database.migration_manager import migrate
 from traderos.infrastructure.events import InMemoryEventBus
 from traderos.infrastructure.health import HealthService as InMemoryHealthService
 from traderos.infrastructure.metrics import MetricsService as InMemoryMetricsService
@@ -31,13 +33,22 @@ from traderos.infrastructure.observability import SQLiteAuditService
 from traderos.infrastructure.observability import SQLiteHealthService
 from traderos.infrastructure.observability import SQLiteManifestService
 from traderos.infrastructure.observability import SQLiteMetricsService
+from traderos.infrastructure.observability_postgres import PostgresAuditService
+from traderos.infrastructure.observability_postgres import PostgresHealthService
+from traderos.infrastructure.observability_postgres import PostgresManifestService
+from traderos.infrastructure.observability_postgres import PostgresMetricsService
 from traderos.infrastructure.repositories.in_memory import InMemoryPositionRepository
 from traderos.infrastructure.repositories.in_memory import InMemorySignalRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryTradeRepository
+from traderos.infrastructure.repositories.postgres import PostgresPositionRepository
+from traderos.infrastructure.repositories.postgres import PostgresSignalRepository
+from traderos.infrastructure.repositories.postgres import PostgresTradeRepository
 from traderos.infrastructure.repositories.sqlite import SQLitePositionRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteSignalRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteTradeRepository
 from traderos.infrastructure.run_manifest import RunManifestService as InMemoryManifestService
+
+PG_BACKEND = "postgres"
 
 
 def build_orchestrator(
@@ -46,12 +57,18 @@ def build_orchestrator(
     config: Config | None = None,
 ) -> TradingOrchestrator:
     cfg = config or Config.load()
-    db = _get_db(cfg.db_path) if cfg.db_path and cfg.db_path != ":memory:" else None
+    backend = resolve_backend(cfg.database_url)
+    db = _get_db(cfg, backend)
 
     if db is not None:
-        signal_repo = SQLiteSignalRepository(db)
-        trade_repo = SQLiteTradeRepository(db)
-        pos_repo = SQLitePositionRepository(db)
+        if backend == PG_BACKEND:
+            signal_repo = PostgresSignalRepository(db)
+            trade_repo = PostgresTradeRepository(db)
+            pos_repo = PostgresPositionRepository(db)
+        else:
+            signal_repo = SQLiteSignalRepository(db)
+            trade_repo = SQLiteTradeRepository(db)
+            pos_repo = SQLitePositionRepository(db)
     else:
         signal_repo = InMemorySignalRepository()
         trade_repo = InMemoryTradeRepository()
@@ -64,10 +81,16 @@ def build_orchestrator(
     analysis = AnalysisService()
     event_bus = InMemoryEventBus()
     if db is not None:
-        health = SQLiteHealthService(db)
-        audit = SQLiteAuditService(db)
-        metrics = SQLiteMetricsService(db)
-        run_manifest = SQLiteManifestService(db)
+        if backend == PG_BACKEND:
+            health = PostgresHealthService(db)
+            audit = PostgresAuditService(db)
+            metrics = PostgresMetricsService(db)
+            run_manifest = PostgresManifestService(db)
+        else:
+            health = SQLiteHealthService(db)
+            audit = SQLiteAuditService(db)
+            metrics = SQLiteMetricsService(db)
+            run_manifest = SQLiteManifestService(db)
     else:
         health = InMemoryHealthService()
         audit = InMemoryAuditService()
@@ -75,7 +98,7 @@ def build_orchestrator(
         run_manifest = InMemoryManifestService()
     notifications = NotificationService()
 
-    _sync_strategy_registry(db)
+    _sync_strategy_registry(db, backend)
 
     trading_mode = TradingMode(mode)
 
@@ -167,28 +190,40 @@ def build_orchestrator(
     return orch
 
 
-def _sync_strategy_registry(db: sqlite3.Connection | None) -> None:
+def _sync_strategy_registry(db: Any | None, backend: str = "sqlite") -> None:
     if db is None:
         return
-    cur = db.execute("SELECT name FROM strategy_registry WHERE status = 'active'")
-    persisted = {row["name"] for row in cur.fetchall()}
-    for name in strategy_registry.list():
-        if name not in persisted:
-            db.execute(
-                "INSERT OR IGNORE INTO strategy_registry (name, params, version, status) "
-                "VALUES (?, ?, ?, ?)",
-                (name, "{}", "1.0.0", "active"),
-            )
-    db.commit()
+    if backend == PG_BACKEND:
+        with db.cursor() as cur:
+            cur.execute("SELECT name FROM strategy_registry WHERE status = 'active'")
+            persisted = {row[0] for row in cur.fetchall()}
+        for name in strategy_registry.list():
+            if name not in persisted:
+                with db.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO strategy_registry (name, params, version, status) "
+                        "VALUES (%s, %s, %s, %s) ON CONFLICT (name) DO NOTHING",
+                        (name, "{}", "1.0.0", "active"),
+                    )
+        db.commit()
+    else:
+        cur = db.execute("SELECT name FROM strategy_registry WHERE status = 'active'")
+        persisted = {row["name"] for row in cur.fetchall()}
+        for name in strategy_registry.list():
+            if name not in persisted:
+                db.execute(
+                    "INSERT OR IGNORE INTO strategy_registry (name, params, version, status) "
+                    "VALUES (?, ?, ?, ?)",
+                    (name, "{}", "1.0.0", "active"),
+                )
+        db.commit()
 
 
-def _get_db(db_path: str, retention_days: int = 90) -> sqlite3.Connection:
-    path = Path(db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
-    conn.row_factory = sqlite3.Row
-    from traderos.infrastructure.database.migration_manager import migrate
-
+def _get_db(config: Config, backend: str, retention_days: int = 90) -> Any | None:
+    use_in_memory = not config.database_url and (not config.db_path or config.db_path == ":memory:")
+    if use_in_memory:
+        return None
+    conn = get_connection(config)
     migrate(conn)
     from traderos.infrastructure.archiver import purge_old_entries
 

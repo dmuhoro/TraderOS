@@ -1,11 +1,11 @@
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /app
 COPY pyproject.toml .
 COPY src/ src/
-RUN pip install --user --no-cache-dir -e ".[api,alpaca]"
+RUN pip install --user --no-cache-dir -e ".[api,alpaca,postgres,monitoring]"
 
-FROM python:3.11-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     sqlite3 \
@@ -25,8 +25,9 @@ USER traderos
 
 VOLUME ["/app/data", "/app/exports"]
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD traderos health || exit 1
 
-ENTRYPOINT ["traderos"]
-CMD ["daemon", "--mode", "paper"]
+EXPOSE 8000
+
+ENTRYPOINT ["traderos-api"]
