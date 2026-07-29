@@ -1,5 +1,14 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 11
+
+### Added
+- **Rate-limited broker adapter** (`infrastructure/broker_rate_limiter.py`): Flagged `BrokerAdapter` proxy wrapping all 6 broker methods with per-method sliding-window rate limits. Disabled by default (`BROKER_RATE_LIMIT_ENABLED`). Configurable via `BROKER_RATE_LIMIT_MAX` and `BROKER_RATE_LIMIT_WINDOW`. 6 tests.
+- **Operations runbook** (`docs/runbooks/OPERATIONS.md`): Backup/restore procedures, incident response lifecycle (SEV-1/2/3), kill-switch activation, recovery steps, monitoring metrics, health endpoints.
+- **Controlled-pilot parameters** (`docs/runbooks/CONTROLLED_PILOT.md`): Preflight gate checks, risk parameters (max position size, drawdown, daily loss), rate-limit config, reconciliation requirements, pilot exit criteria.
+- **Cold incident drill** (`docs/runbooks/COLD_INCIDENT_DRILL.md`): 4-phase drill (teardown → restore → startup → verification), 35-minute SLO.
+- **Deployment rollback drill** (`docs/runbooks/DEPLOYMENT_ROLLBACK_DRILL.md`): 4-phase rollback (contain → code rollback → verify → resume), 15-minute SEV-1 SLO.
+
 ## [Unreleased] - Sprint 9
 
 ### Added
