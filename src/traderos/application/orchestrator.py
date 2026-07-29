@@ -19,6 +19,9 @@ from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricsPort
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
+from traderos.domain.services.broker_state_reconciliation_service import (
+    BrokerStateReconciliationService,
+)
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
@@ -51,6 +54,7 @@ class TradingOrchestrator:
 
     market_hours: MarketHoursEngine | None = None
     reconciliation: OrderReconciliationService | None = None
+    broker_reconciliation: BrokerStateReconciliationService | None = None
 
     default_cash: float = float(os.getenv("DEFAULT_CASH", "10000.0"))
     market_ids: list[uuid.UUID] = field(default_factory=list)
@@ -88,6 +92,8 @@ class TradingOrchestrator:
             default_cash=self.default_cash,
             market_hours=self.market_hours,
             reconciliation=self.reconciliation,
+            broker_reconciliation=self.broker_reconciliation,
+            kill_switch=self.risk_service.kill_switch,
         )
 
     @property

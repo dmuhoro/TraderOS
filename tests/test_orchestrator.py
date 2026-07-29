@@ -36,6 +36,9 @@ class MockBroker(BrokerAdapter):
     def get_positions(self):
         return []
 
+    def get_open_orders(self):
+        return []
+
 
 class TestTradingOrchestrator:
     def _make(self, mode: TradingMode = TradingMode.PAPER) -> TradingOrchestrator:

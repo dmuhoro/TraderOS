@@ -14,10 +14,26 @@
 - **NotifierPort protocol** (`domain/ports.py`): Port for out-of-band notification delivery (webhook, Slack, etc.). Domain services now depend only on the protocol.
 - **WebhookNotifier adapter** (`infrastructure/notifiers/webhook_notifier.py`): Extracts webhook POST logic (with retry) from notification_service.py into the infrastructure layer where it belongs.
 - **Dependency rule restored**: `notification_service.py` no longer imports `retry_with_backoff` from `infrastructure.retry`. Webhook delivery delegates to injected `NotifierPort`.
-- **KillSwitch metrics**: `RiskService` accepts optional `MetricsPort`; kill-switch trips increment the `kill_switch_trips` counter for operational visibility.
+- **KillSwitch metrics**: `RiskService` accepts optional `MetricsPort`; kill-switch trips increment the `circuit_breaker.tripped` counter for operational visibility.
 - **Manual-reset-only circuit breaker**: `KillSwitch` and `PersistentKillSwitch` both enforce manual-reset semantics. Removed dead `circuit_open_until` field and cooldown-based auto-reset logic from `PersistentKillSwitch`.
 - **Coverage threshold**: `pyproject.toml` `fail_under = 70` documented as MEP §17 interim gate with path to 90%.
-- **736 tests passing.**
+
+### WP-10.1 — Audit Chain: SHA256 over Canonical Serialization
+- **ADR-008 ratified**: Replaced non-deterministic `hash()` with `hashlib.sha256()` over canonical JSON serialization. Fixes pipe-delimiter ambiguity bug. Pre-fix chain boundary documented — old entries not retroactively rehashed.
+- **Shared `compute_audit_hash()`** in `infrastructure/audit.py` used by all three backends (InMemory, SQLite, PostgreSQL).
+
+### WP-10.2 — Broker State Reconciliation
+- **`BrokerStateReconciliationService`** (`domain/services/broker_state_reconciliation_service.py`): Periodically reconciles broker positions and open orders against local state. Blocks order acceptance until first successful startup reconciliation.
+- **Reconciliation failures trip KillSwitch**: `record_failure()` called on each error, NOT just logged.
+- **`get_open_orders()`** added to `BrokerPort` protocol and all adapters (`PaperBrokerAdapter`, `AlpacaBrokerAdapter`).
+- **DaemonController** runs startup + periodic reconciliation; skips trading cycles when `can_accept_orders` is False.
+
+### WP-10.3 — Preflight Go/No-Go Gate
+- **`PreflightService`** (`domain/services/preflight_service.py`): Composes audit-chain verification + reconciliation freshness + kill-switch state + live-mode confirmation into a single `PreflightVerdict`.
+- **`PreflightVerdict`**: Named tuple with `passed`, `checks` dict, `failures` list, and `timestamp`. Truthy on pass, falsy on fail.
+- **Live mode gate**: Requires `LIVE_TRADING_CONFIRMED=true` environment variable as explicit confirmation beyond basic env-var presence.
+
+- **750 tests passing at 81%+ coverage.**
 
 ## [1.1.0] - 2026-07-28
 

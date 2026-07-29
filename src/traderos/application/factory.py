@@ -11,6 +11,9 @@ from traderos.domain.collectors.base import CollectorType
 from traderos.domain.exceptions import InfrastructureError
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
+from traderos.domain.services.broker_state_reconciliation_service import (
+    BrokerStateReconciliationService,
+)
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
@@ -157,6 +160,8 @@ def build_orchestrator(
     else:
         broker = PaperBrokerAdapter(fill_probability=1.0)
 
+    broker_reconciliation = BrokerStateReconciliationService(broker=broker)
+
     paper: PaperTradingService | None = None
     if trading_mode == TradingMode.PAPER:
         paper = PaperTradingService(
@@ -189,6 +194,7 @@ def build_orchestrator(
         data_ingestion=data_ingestion,
         market_hours=market_hours,
         reconciliation=reconciliation,
+        broker_reconciliation=broker_reconciliation,
         event_bus=event_bus,
         health=health,
         audit=audit,

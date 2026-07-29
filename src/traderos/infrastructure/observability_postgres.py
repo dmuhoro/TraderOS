@@ -17,8 +17,7 @@ from traderos.domain.ports import MetricSample
 from traderos.domain.ports import MetricsPort
 
 
-def _hash(val: str) -> str:
-    return str(hash(val))
+from traderos.infrastructure.audit import compute_audit_hash
 
 
 class PostgresAuditService(AuditPort):
@@ -45,18 +44,14 @@ class PostgresAuditService(AuditPort):
             previous_hash=prev_hash,
             hash="",
         )
-        h = _hash(
-            "|".join(
-                [
-                    str(raw.id),
-                    raw.action,
-                    raw.actor,
-                    raw.resource,
-                    raw.detail,
-                    raw.timestamp.isoformat(),
-                    raw.previous_hash,
-                ]
-            )
+        h = compute_audit_hash(
+            entry_id=str(raw.id),
+            action=raw.action,
+            actor=raw.actor,
+            resource=raw.resource,
+            detail=raw.detail,
+            timestamp_iso=raw.timestamp.isoformat(),
+            previous_hash=raw.previous_hash,
         )
         entry = raw._replace(hash=h)
         with self.conn.cursor() as cur:

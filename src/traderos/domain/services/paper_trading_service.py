@@ -134,6 +134,9 @@ class PaperBrokerAdapter(BrokerAdapter):
     def get_positions(self) -> list[dict]:
         return []
 
+    def get_open_orders(self) -> list[dict]:
+        return []
+
 
 @dataclass
 class PaperTradingService:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from dataclasses import dataclass
 from dataclasses import field
@@ -10,17 +12,35 @@ from traderos.domain.ports import AuditEntry
 from traderos.domain.ports import AuditPort
 
 
-def _compute_hash(entry: AuditEntry) -> str:
-    parts = (
-        str(entry.id),
-        entry.action,
-        entry.actor,
-        entry.resource,
-        entry.detail,
-        entry.timestamp.isoformat(),
-        entry.previous_hash,
+def _canonical_json(*fields: object) -> str:
+    return json.dumps(fields, separators=(",", ":"), sort_keys=False, ensure_ascii=True)
+
+
+def compute_audit_hash(
+    entry_id: str,
+    action: str,
+    actor: str,
+    resource: str,
+    detail: str,
+    timestamp_iso: str,
+    previous_hash: str,
+) -> str:
+    canonical = _canonical_json(
+        entry_id, action, actor, resource, detail, timestamp_iso, previous_hash,
     )
-    return str(hash("|".join(parts)))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _compute_hash(entry: AuditEntry) -> str:
+    return compute_audit_hash(
+        entry_id=str(entry.id),
+        action=entry.action,
+        actor=entry.actor,
+        resource=entry.resource,
+        detail=entry.detail,
+        timestamp_iso=entry.timestamp.isoformat(),
+        previous_hash=entry.previous_hash,
+    )
 
 
 @dataclass
