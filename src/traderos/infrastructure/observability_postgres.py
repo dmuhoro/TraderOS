@@ -15,8 +15,6 @@ from traderos.domain.ports import ManifestEntry
 from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricSample
 from traderos.domain.ports import MetricsPort
-
-
 from traderos.infrastructure.audit import compute_audit_hash
 
 
@@ -99,8 +97,21 @@ class PostgresAuditService(AuditPort):
         with self.conn.cursor() as cur:
             cur.execute("SELECT * FROM audit_log ORDER BY id")
             rows = cur.fetchall()
-        for i in range(1, len(rows)):
-            if rows[i][6] != rows[i - 1][7]:
+        cols = ["id", "action", "actor", "resource", "detail", "timestamp", "previous_hash", "hash"]
+        for i, row in enumerate(rows):
+            d = dict(zip(cols, row, strict=False))
+            expected_hash = compute_audit_hash(
+                entry_id=d["id"],
+                action=d["action"],
+                actor=d["actor"],
+                resource=d["resource"],
+                detail=d["detail"],
+                timestamp_iso=d["timestamp"],
+                previous_hash=d["previous_hash"],
+            )
+            if d["hash"] != expected_hash:
+                return False
+            if i > 0 and d["previous_hash"] != dict(zip(cols, rows[i - 1], strict=False))["hash"]:
                 return False
         return True
 

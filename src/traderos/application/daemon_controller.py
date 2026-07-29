@@ -15,8 +15,8 @@ from traderos.domain.ports import EventBusPort
 from traderos.domain.ports import HealthPort
 from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricsPort
+from traderos.domain.services.broker_state_reconciliation_service import BrokerReconciliationResult
 from traderos.domain.services.broker_state_reconciliation_service import (
-    BrokerReconciliationResult,
     BrokerStateReconciliationService,
 )
 from traderos.domain.services.data_ingestion_service import DataIngestionService
@@ -95,22 +95,34 @@ class DaemonController:
         self._notifications.info("Orchestrator Stopped")
         self._run_manifest.record("orchestrator", "stop")
 
-    def _run_startup_reconciliation(self) -> bool:
+    def _run_startup_reconciliation(
+        self,
+        local_positions: list[dict] | None = None,
+        local_orders: list[dict] | None = None,
+    ) -> bool:
         if self._broker_reconciliation is None:
             return True
         self._notifications.info("Startup Reconciliation", "Reconciling broker state")
-        result = self._broker_reconciliation.reconcile()
+        result = self._broker_reconciliation.reconcile(
+            local_positions=local_positions,
+            local_orders=local_orders,
+        )
         return self._handle_reconciliation_result(result)
 
-    def _run_periodic_reconciliation(self) -> None:
+    def _run_periodic_reconciliation(
+        self,
+        local_positions: list[dict] | None = None,
+        local_orders: list[dict] | None = None,
+    ) -> None:
         if self._broker_reconciliation is None:
             return
-        result = self._broker_reconciliation.reconcile()
+        result = self._broker_reconciliation.reconcile(
+            local_positions=local_positions,
+            local_orders=local_orders,
+        )
         self._handle_reconciliation_result(result)
 
-    def _handle_reconciliation_result(
-        self, result: BrokerReconciliationResult
-    ) -> bool:
+    def _handle_reconciliation_result(self, result: BrokerReconciliationResult) -> bool:
         if result.errors:
             for err in result.errors:
                 self._notifications.warning("Reconciliation", err)
@@ -118,21 +130,65 @@ class DaemonController:
             if self._kill_switch is not None:
                 for _ in result.errors:
                     self._kill_switch.record_failure()
+            self._audit.record(
+                "reconciliation.error",
+                "system",
+                "broker_reconciliation",
+                "; ".join(result.errors),
+            )
+            if self._metrics:
+                self._metrics.counter("reconciliation.errors", len(result.errors))
             return False
+
+        if result.has_mismatches:
+            for m in result.mismatches:
+                msg = f"{m.mismatch_type.value}: {m.description}"
+                self._notifications.warning("Reconciliation Mismatch", msg)
+                self._health.report_unhealthy("broker_reconciliation", msg)
+                if self._kill_switch is not None and m.severity >= 2:
+                    self._kill_switch.record_failure()
+                if m.severity >= 2:
+                    self._metrics.counter(f"reconciliation.{m.mismatch_type.value}")
+            self._audit.record(
+                "reconciliation.mismatch",
+                "system",
+                "broker_reconciliation",
+                "; ".join(f"{m.mismatch_type.value}: {m.description}" for m in result.mismatches),
+            )
+            if self._metrics:
+                self._metrics.counter("reconciliation.mismatches", len(result.mismatches))
+            self._health.report_healthy(
+                "broker_reconciliation",
+                f"matched={result.matched_positions} reconciled={result.reconciled_positions} "
+                f"mismatches={len(result.mismatches)}",
+            )
+            return False
+
+        self._metrics.gauge("reconciliation.matched_positions", result.matched_positions)
+        self._metrics.gauge("reconciliation.reconciled_positions", result.reconciled_positions)
         self._health.report_healthy(
             "broker_reconciliation",
             f"matched={result.matched_positions} reconciled={result.reconciled_positions}",
         )
         return True
 
-    def recover_from_crash(self) -> ReconciliationResult:
+    def recover_from_crash(
+        self,
+        local_trades: list | None = None,
+        broker_orders_state: list | None = None,
+    ) -> ReconciliationResult:
         if self._crash_recovered:
             return ReconciliationResult()
         self._crash_recovered = True
         self._notifications.warning("Crash Recovery", "Running post-crash reconciliation")
         self._audit.record("crash.recovery", "system", "orchestrator", "post-crash reconciliation")
-        result = self._reconciliation.reconcile_orders([], [])
+        result = self._reconciliation.reconcile_orders(
+            local_trades or [],
+            broker_orders_state or [],
+        )
         self._health.report_healthy("crash_recovery", f"reconciled={result.reconciled}")
+        if self._metrics:
+            self._metrics.counter("crash.recovered", 1.0)
         return result
 
     def _is_market_hours(self, mid: uuid.UUID) -> bool:
@@ -167,9 +223,13 @@ class DaemonController:
             if shutdown_at is not None and time.monotonic() > shutdown_at:
                 self._notifications.critical("Shutdown", "Forced shutdown after timeout")
                 break
-            if self._broker_reconciliation is not None and not self._broker_reconciliation.can_accept_orders:
+            if (
+                self._broker_reconciliation is not None
+                and not self._broker_reconciliation.can_accept_orders
+            ):
                 self._health.report_unhealthy(
-                    "broker_reconciliation", "Startup reconciliation incomplete — order acceptance blocked"
+                    "broker_reconciliation",
+                    "Startup reconciliation incomplete — order acceptance blocked",
                 )
                 time.sleep(interval_seconds)
                 continue

@@ -21,6 +21,7 @@ from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.paper_trading_service import PaperBrokerAdapter
 from traderos.domain.services.paper_trading_service import PaperTradingService
 from traderos.domain.services.portfolio_service import PortfolioService
+from traderos.domain.services.preflight_service import PreflightService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
 from traderos.domain.services.reconciliation_service import PersistentKillSwitch
 from traderos.domain.services.risk_service import RiskService
@@ -162,6 +163,12 @@ def build_orchestrator(
 
     broker_reconciliation = BrokerStateReconciliationService(broker=broker)
 
+    preflight_service = PreflightService(
+        audit=audit,
+        broker_reconciliation=broker_reconciliation,
+        kill_switch=risk_service.kill_switch,
+    )
+
     paper: PaperTradingService | None = None
     if trading_mode == TradingMode.PAPER:
         paper = PaperTradingService(
@@ -195,6 +202,7 @@ def build_orchestrator(
         market_hours=market_hours,
         reconciliation=reconciliation,
         broker_reconciliation=broker_reconciliation,
+        preflight_service=preflight_service,
         event_bus=event_bus,
         health=health,
         audit=audit,

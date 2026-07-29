@@ -89,6 +89,61 @@ class TestSQLiteAuditService:
         conn.commit()
         assert svc.verify_chain() is False
 
+    def test_verify_chain_detects_mutated_action(self, conn) -> None:
+        svc = SQLiteAuditService(conn)
+        svc.record("a1", "tester", "r")
+        svc.record("a2", "tester", "r")
+        conn.execute("UPDATE audit_log SET action = 'tampered' WHERE rowid = 2")
+        conn.commit()
+        assert svc.verify_chain() is False
+
+    def test_verify_chain_detects_mutated_actor(self, conn) -> None:
+        svc = SQLiteAuditService(conn)
+        svc.record("a1", "tester", "r")
+        svc.record("a2", "tester", "r")
+        conn.execute("UPDATE audit_log SET actor = 'tampered' WHERE rowid = 2")
+        conn.commit()
+        assert svc.verify_chain() is False
+
+    def test_verify_chain_detects_mutated_resource(self, conn) -> None:
+        svc = SQLiteAuditService(conn)
+        svc.record("a1", "tester", "r")
+        svc.record("a2", "tester", "r")
+        conn.execute("UPDATE audit_log SET resource = 'tampered' WHERE rowid = 2")
+        conn.commit()
+        assert svc.verify_chain() is False
+
+    def test_verify_chain_detects_mutated_detail(self, conn) -> None:
+        svc = SQLiteAuditService(conn)
+        svc.record("a1", "tester", "r", "original")
+        svc.record("a2", "tester", "r")
+        conn.execute("UPDATE audit_log SET detail = 'tampered' WHERE rowid = 1")
+        conn.commit()
+        assert svc.verify_chain() is False
+
+    def test_verify_chain_detects_mutated_timestamp(self, conn) -> None:
+        svc = SQLiteAuditService(conn)
+        svc.record("a1", "tester", "r")
+        svc.record("a2", "tester", "r")
+        conn.execute("UPDATE audit_log SET timestamp = '2020-01-01T00:00:00+00:00' WHERE rowid = 2")
+        conn.commit()
+        assert svc.verify_chain() is False
+
+    def test_verify_chain_detects_mutated_previous_hash(self, conn) -> None:
+        svc = SQLiteAuditService(conn)
+        svc.record("a1", "tester", "r")
+        svc.record("a2", "tester", "r")
+        conn.execute("UPDATE audit_log SET previous_hash = 'tampered' WHERE rowid = 2")
+        conn.commit()
+        assert svc.verify_chain() is False
+
+    def test_verify_chain_single_entry_mutated_hash(self, conn) -> None:
+        svc = SQLiteAuditService(conn)
+        svc.record("a1", "tester", "r")
+        conn.execute("UPDATE audit_log SET hash = 'tampered' WHERE rowid = 1")
+        conn.commit()
+        assert svc.verify_chain() is False
+
 
 class TestSQLiteMetricsService:
     def test_counter_increments(self, conn) -> None:
