@@ -28,6 +28,7 @@ from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.paper_trading_service import PaperTradingService
 from traderos.domain.services.portfolio_service import PortfolioService
+from traderos.domain.services.preflight_service import PreflightService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
@@ -55,10 +56,18 @@ class TradingOrchestrator:
     market_hours: MarketHoursEngine | None = None
     reconciliation: OrderReconciliationService | None = None
     broker_reconciliation: BrokerStateReconciliationService | None = None
+    preflight_service: PreflightService | None = None
 
     default_cash: float = float(os.getenv("DEFAULT_CASH", "10000.0"))
     market_ids: list[uuid.UUID] = field(default_factory=list)
     _daemon_controller: DaemonController = field(init=False, repr=False)
+
+    def _pre_cycle_check(self) -> None:
+        if self.preflight_service is not None:
+            verdict = self.preflight_service.check(live_mode=self.mode == TradingMode.LIVE)
+            if not verdict.passed:
+                for f in verdict.failures:
+                    self.notifications.warning("Preflight", f)
 
     def __post_init__(self) -> None:
         self._cycle_executor = CycleExecutor(
@@ -77,6 +86,7 @@ class TradingOrchestrator:
             run_manifest=self.run_manifest,
             data_ingestion=self.data_ingestion,
             default_cash=self.default_cash,
+            preflight_service=self.preflight_service,
         )
         self._daemon_controller = DaemonController(
             mode=self.mode,
@@ -94,6 +104,7 @@ class TradingOrchestrator:
             reconciliation=self.reconciliation,
             broker_reconciliation=self.broker_reconciliation,
             kill_switch=self.risk_service.kill_switch,
+            pre_cycle_hook=self._pre_cycle_check,
         )
 
     @property

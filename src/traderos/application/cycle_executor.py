@@ -22,6 +22,7 @@ from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.portfolio_service import PortfolioService
+from traderos.domain.services.preflight_service import PreflightService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import MarketState
@@ -46,6 +47,7 @@ class CycleExecutor:
         run_manifest: ManifestPort,
         data_ingestion: DataIngestionService | None = None,
         default_cash: float = 10000.0,
+        preflight_service: PreflightService | None = None,
     ) -> None:
         self._mode = mode
         self._signal_service = signal_service
@@ -62,6 +64,7 @@ class CycleExecutor:
         self._run_manifest = run_manifest
         self._data_ingestion = data_ingestion
         self._default_cash = default_cash
+        self._preflight_service = preflight_service
 
     def run(
         self, market_id: uuid.UUID, close_price: float, candle_time: datetime | None = None
@@ -148,6 +151,14 @@ class CycleExecutor:
                     )
 
                     for signal in [provenance.signal]:
+                        if self._preflight_service is not None:
+                            pf = self._preflight_service.check(
+                                live_mode=self._mode == TradingMode.LIVE
+                            )
+                            if not pf.passed:
+                                for f in pf.failures:
+                                    errors.append(f"{name}: preflight: {f}")
+                                continue
                         positions = self._portfolio_service.get_summary(0).open_positions
                         verdict = self._risk_service.can_trade(positions)
                         if not verdict.allowed:

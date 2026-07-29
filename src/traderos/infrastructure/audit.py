@@ -26,7 +26,13 @@ def compute_audit_hash(
     previous_hash: str,
 ) -> str:
     canonical = _canonical_json(
-        entry_id, action, actor, resource, detail, timestamp_iso, previous_hash,
+        entry_id,
+        action,
+        actor,
+        resource,
+        detail,
+        timestamp_iso,
+        previous_hash,
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -73,9 +79,10 @@ class AuditService(AuditPort):
         return self._entries[offset : offset + limit]
 
     def verify_chain(self) -> bool:
-        for i in range(1, len(self._entries)):
-            expected_prev = self._entries[i - 1].hash
-            if self._entries[i].previous_hash != expected_prev:
+        for i, entry in enumerate(self._entries):
+            if entry.hash != _compute_hash(entry):
+                return False
+            if i > 0 and entry.previous_hash != self._entries[i - 1].hash:
                 return False
         return True
 

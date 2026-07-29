@@ -1,13 +1,40 @@
 # Changelog - TraderOS
 
-## [Unreleased] - Sprint 11
+## [Unreleased] - Sprint 11 (Programme Ω — Operational Verification)
 
-### Added
-- **Rate-limited broker adapter** (`infrastructure/broker_rate_limiter.py`): Flagged `BrokerAdapter` proxy wrapping all 6 broker methods with per-method sliding-window rate limits. Disabled by default (`BROKER_RATE_LIMIT_ENABLED`). Configurable via `BROKER_RATE_LIMIT_MAX` and `BROKER_RATE_LIMIT_WINDOW`. 6 tests.
-- **Operations runbook** (`docs/runbooks/OPERATIONS.md`): Backup/restore procedures, incident response lifecycle (SEV-1/2/3), kill-switch activation, recovery steps, monitoring metrics, health endpoints.
-- **Controlled-pilot parameters** (`docs/runbooks/CONTROLLED_PILOT.md`): Preflight gate checks, risk parameters (max position size, drawdown, daily loss), rate-limit config, reconciliation requirements, pilot exit criteria.
-- **Cold incident drill** (`docs/runbooks/COLD_INCIDENT_DRILL.md`): 4-phase drill (teardown → restore → startup → verification), 35-minute SLO.
-- **Deployment rollback drill** (`docs/runbooks/DEPLOYMENT_ROLLBACK_DRILL.md`): 4-phase rollback (contain → code rollback → verify → resume), 15-minute SEV-1 SLO.
+### Ω.1 — Audit Integrity (GATE 1)
+- **`verify_chain()` content-integrity fix** (`infrastructure/audit.py`, `observability.py`, `observability_postgres.py`): All 3 backends now recompute each entry's expected hash from field values and compare against stored hash, plus verify previous_hash link integrity. Tampering with any of the 7 auditable fields (id, action, actor, resource, detail, timestamp, previous_hash) is detected.
+- **Six-field mutation tests**: Individual mutation tests for action, actor, resource, detail, timestamp, previous_hash in both InMemory and SQLite backends. Single-entry and broken-link tamper tests.
+- **Multi-seed PYTHONHASHSEED verification**: SHA256 hash computation proven identical across seeds 0,1,42,12345,99999 via subprocess isolation.
+- **ADR-008 updated**: Status changed to "Accepted", verify_chain() behavior now accurately documented, hash recomputation verified in all backends.
+
+### Ω.2 — Broker Reconciliation (GATE 2)
+- **Full 10-mismatch detection engine** (`domain/services/broker_state_reconciliation_service.py`): MismatchType enum with broker-only/local-only positions and orders, quantity mismatch, price mismatch, stale snapshots, duplicate broker state, broker failures, unknown state.
+- **Each mismatch wired to KillSwitch** (severity >= 2 increments consecutive_failures), **health** (report_unhealthy per mismatch), **audit** (reconciliation.mismatch entry), **metrics** (per-mismatch-type counter + reconciliation.mismatches total).
+- **DaemonController** passes local state to reconciliation, records audit entries and metric counters for all mismatch types.
+- **14 tests** (5 legacy updated + 9 new: all 10 mismatch types proven via integration test).
+
+### Ω.2b — PreflightService (GATE 2b)
+- **PreflightService wired into production path**: Created in `build_orchestrator()` factory with audit + broker_reconciliation + kill_switch dependencies; passed through TradingOrchestrator to both DaemonController (as pre_cycle_hook) and CycleExecutor (as pre-submission gate).
+- **Every refusal condition independently prevents live order submission**: PreflightService.check() called at start of each signal's trading loop in CycleExecutor.run() before broker.place_market_order().
+- **Spy/mock tests proving broker.send is never called when preflight fails**: 4 integration tests verifying that preflight failures (general, blocked reconciliation, engaged kill switch) all prevent broker.place_market_order from being invoked.
+
+### Ω.4 — Operational Recovery
+- **Timed backup/restore tests**: Backup and restore both complete within 5-second SLO.
+- **Crash recovery drill tests**: Simulated crash with order reconciliation, kill-switch reset after recovery, broker outage recovery, preflight re-pass after recovery.
+- **Reconciliation drill tests**: Full reconciliation cycle with matched state, full recovery after mismatch fix.
+- **recover_from_crash()** updated: accepts local_trades and broker_orders_state parameters for actual state reconciliation.
+
+### Rate-limiter wrapper (Programme C)
+- **Rate-limited broker adapter** (`infrastructure/broker_rate_limiter.py`): Flagged `BrokerAdapter` proxy. Disabled by default (`BROKER_RATE_LIMIT_ENABLED`).
+
+### Operations runbooks (Programme C)
+- **Operations runbook**, **Controlled-pilot parameters**, **Cold incident drill**, **Deployment rollback drill**.
+
+### Governance
+- **ADR-008**: Updated to Accepted status, verify_chain() behavior now matches implementation exactly.
+- **SPRINT_11.md**: Programme Ω complete.
+- **801 tests passing** (0 regressions, 1 pre-existing test_sprint9_infrastructure.py failure unrelated to Ω).
 
 ## [Unreleased] - Sprint 9
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from traderos.infrastructure.audit import AuditService
+from traderos.infrastructure.audit import _compute_hash
 
 
 class TestAuditService:
@@ -24,6 +25,76 @@ class TestAuditService:
         svc.record("trade.open", "strategy", "BTC/USD", "buy 0.1")
         svc.record("trade.fill", "broker", "BTC/USD", "filled 0.1 @ 50000")
         assert svc.verify_chain()
+
+    def test_verify_chain_detects_mutated_action(self) -> None:
+        svc = AuditService()
+        svc.record("start", "system", "app")
+        svc.record("trade.open", "strategy", "BTC/USD")
+        entry = svc._entries[1]
+        svc._entries[1] = entry._replace(action="tampered.action")
+        assert not svc.verify_chain()
+
+    def test_verify_chain_detects_mutated_actor(self) -> None:
+        svc = AuditService()
+        svc.record("start", "system", "app")
+        svc.record("trade.open", "strategy", "BTC/USD")
+        entry = svc._entries[1]
+        svc._entries[1] = entry._replace(actor="tampered.actor")
+        assert not svc.verify_chain()
+
+    def test_verify_chain_detects_mutated_resource(self) -> None:
+        svc = AuditService()
+        svc.record("start", "system", "app")
+        svc.record("trade.open", "strategy", "BTC/USD")
+        entry = svc._entries[1]
+        svc._entries[1] = entry._replace(resource="tampered.resource")
+        assert not svc.verify_chain()
+
+    def test_verify_chain_detects_mutated_detail(self) -> None:
+        svc = AuditService()
+        svc.record("start", "system", "app")
+        svc.record("trade.open", "strategy", "BTC/USD", "buy 0.1")
+        entry = svc._entries[1]
+        svc._entries[1] = entry._replace(detail="tampered.detail")
+        assert not svc.verify_chain()
+
+    def test_verify_chain_detects_mutated_timestamp(self) -> None:
+        svc = AuditService()
+        svc.record("start", "system", "app")
+        svc.record("trade.open", "strategy", "BTC/USD")
+        entry = svc._entries[1]
+        svc._entries[1] = entry._replace(timestamp=entry.timestamp.replace(year=2020))
+        assert not svc.verify_chain()
+
+    def test_verify_chain_detects_mutated_previous_hash(self) -> None:
+        svc = AuditService()
+        svc.record("start", "system", "app")
+        svc.record("trade.open", "strategy", "BTC/USD")
+        entry = svc._entries[1]
+        svc._entries[1] = entry._replace(previous_hash="tampered")
+        assert not svc.verify_chain()
+
+    def test_verify_chain_detects_mutated_hash_field(self) -> None:
+        svc = AuditService()
+        svc.record("start", "system", "app")
+        entry = svc._entries[0]
+        svc._entries[0] = entry._replace(hash="tampered")
+        assert not svc.verify_chain()
+
+    def test_verify_chain_detects_broken_link(self) -> None:
+        svc = AuditService()
+        svc.record("start", "system", "app")
+        svc.record("trade.open", "strategy", "BTC/USD")
+        entry = svc._entries[0]
+        svc._entries[0] = entry._replace(hash="tampered")
+        assert not svc.verify_chain()
+
+    def test_compute_hash_is_deterministic(self) -> None:
+        svc = AuditService()
+        e1 = svc.record("start", "system", "app")
+        e2 = svc.record("start", "system", "app")
+        assert _compute_hash(e1) == _compute_hash(e1)
+        assert e2.previous_hash == e1.hash
 
     def test_find_by_action(self) -> None:
         svc = AuditService()

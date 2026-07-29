@@ -16,8 +16,6 @@ from traderos.domain.ports import ManifestEntry
 from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricSample
 from traderos.domain.ports import MetricsPort
-
-
 from traderos.infrastructure.audit import compute_audit_hash
 
 
@@ -91,8 +89,19 @@ class SQLiteAuditService(AuditPort):
 
     def verify_chain(self) -> bool:
         rows = self.conn.execute("SELECT * FROM audit_log ORDER BY rowid").fetchall()
-        for i in range(1, len(rows)):
-            if rows[i]["previous_hash"] != rows[i - 1]["hash"]:
+        for i, row in enumerate(rows):
+            expected_hash = compute_audit_hash(
+                entry_id=row["id"],
+                action=row["action"],
+                actor=row["actor"],
+                resource=row["resource"],
+                detail=row["detail"],
+                timestamp_iso=row["timestamp"],
+                previous_hash=row["previous_hash"],
+            )
+            if row["hash"] != expected_hash:
+                return False
+            if i > 0 and row["previous_hash"] != rows[i - 1]["hash"]:
                 return False
         return True
 
