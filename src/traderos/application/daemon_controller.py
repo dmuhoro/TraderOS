@@ -15,6 +15,10 @@ from traderos.domain.ports import EventBusPort
 from traderos.domain.ports import HealthPort
 from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricsPort
+from traderos.domain.services.broker_state_reconciliation_service import (
+    BrokerReconciliationResult,
+    BrokerStateReconciliationService,
+)
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
@@ -38,6 +42,8 @@ class DaemonController:
         default_cash: float = 10000.0,
         market_hours: MarketHoursEngine | None = None,
         reconciliation: OrderReconciliationService | None = None,
+        broker_reconciliation: BrokerStateReconciliationService | None = None,
+        kill_switch: Any | None = None,
         pre_cycle_hook: Callable[[], None] | None = None,
         post_cycle_hook: Callable[[], None] | None = None,
     ) -> None:
@@ -54,6 +60,8 @@ class DaemonController:
         self._default_cash = default_cash
         self._market_hours = market_hours or MarketHoursEngine()
         self._reconciliation = reconciliation or OrderReconciliationService()
+        self._broker_reconciliation = broker_reconciliation
+        self._kill_switch = kill_switch
         self._pre_cycle_hook = pre_cycle_hook
         self._post_cycle_hook = post_cycle_hook
         self._running = False
@@ -87,6 +95,36 @@ class DaemonController:
         self._notifications.info("Orchestrator Stopped")
         self._run_manifest.record("orchestrator", "stop")
 
+    def _run_startup_reconciliation(self) -> bool:
+        if self._broker_reconciliation is None:
+            return True
+        self._notifications.info("Startup Reconciliation", "Reconciling broker state")
+        result = self._broker_reconciliation.reconcile()
+        return self._handle_reconciliation_result(result)
+
+    def _run_periodic_reconciliation(self) -> None:
+        if self._broker_reconciliation is None:
+            return
+        result = self._broker_reconciliation.reconcile()
+        self._handle_reconciliation_result(result)
+
+    def _handle_reconciliation_result(
+        self, result: BrokerReconciliationResult
+    ) -> bool:
+        if result.errors:
+            for err in result.errors:
+                self._notifications.warning("Reconciliation", err)
+                self._health.report_unhealthy("broker_reconciliation", err)
+            if self._kill_switch is not None:
+                for _ in result.errors:
+                    self._kill_switch.record_failure()
+            return False
+        self._health.report_healthy(
+            "broker_reconciliation",
+            f"matched={result.matched_positions} reconciled={result.reconciled_positions}",
+        )
+        return True
+
     def recover_from_crash(self) -> ReconciliationResult:
         if self._crash_recovered:
             return ReconciliationResult()
@@ -102,6 +140,11 @@ class DaemonController:
 
     def run_forever(self, interval_seconds: int = 60, shutdown_timeout: int = 30) -> None:
         self.recover_from_crash()
+        if not self._run_startup_reconciliation():
+            self._notifications.critical(
+                "Startup Reconciliation Failed",
+                "Broker state reconciliation failed at startup. Trading blocked.",
+            )
         self.start()
         shutdown_at: float | None = None
         shutdown_graceful_done = False
@@ -124,6 +167,12 @@ class DaemonController:
             if shutdown_at is not None and time.monotonic() > shutdown_at:
                 self._notifications.critical("Shutdown", "Forced shutdown after timeout")
                 break
+            if self._broker_reconciliation is not None and not self._broker_reconciliation.can_accept_orders:
+                self._health.report_unhealthy(
+                    "broker_reconciliation", "Startup reconciliation incomplete — order acceptance blocked"
+                )
+                time.sleep(interval_seconds)
+                continue
             if self._pre_cycle_hook:
                 self._pre_cycle_hook()
             for mid in self._market_ids:
@@ -147,6 +196,7 @@ class DaemonController:
                 except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
                     self._notifications.warning("Cycle Panic", f"{mid}: {e}")
                     self._health.report_unhealthy(f"market.{mid}", str(e))
+            self._run_periodic_reconciliation()
             if self._post_cycle_hook:
                 self._post_cycle_hook()
             time.sleep(interval_seconds)

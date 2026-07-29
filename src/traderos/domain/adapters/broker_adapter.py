@@ -43,3 +43,6 @@ class BrokerAdapter(ABC):
 
     @abstractmethod
     def get_positions(self) -> list[dict]: ...
+
+    @abstractmethod
+    def get_open_orders(self) -> list[dict]: ...

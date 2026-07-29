@@ -138,3 +138,10 @@ class AlpacaBrokerAdapter(BrokerAdapter):
             {"symbol": p.symbol, "qty": float(p.qty), "market_value": float(p.market_value)}
             for p in positions
         ]
+
+    def get_open_orders(self) -> list[dict]:
+        orders = self._client.get_orders(status="open")
+        return [
+            {"id": str(o.id), "symbol": o.symbol, "qty": float(o.qty), "side": o.side, "type": o.type}
+            for o in orders
+        ]

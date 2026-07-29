@@ -92,14 +92,14 @@ class RiskService:
             if self.audit:
                 self.audit.record("risk.kill_switch", "system", "trading", verdict.reason)
             if self.metrics:
-                self.metrics.counter("kill_switch_trips", 1.0)
+                self.metrics.counter("circuit_breaker.tripped", 1.0)
             return verdict
         if self.persistent_kill_switch is not None and not self.persistent_kill_switch.can_trade():
             reason = "Persistent kill switch engaged"
             if self.audit:
                 self.audit.record("risk.kill_switch", "system", "trading", reason)
             if self.metrics:
-                self.metrics.counter("kill_switch_trips", 1.0)
+                self.metrics.counter("circuit_breaker.tripped", 1.0)
             return TradeVerdict(False, reason)
         if len(positions) >= self.max_positions_total:
             reason = f"Max positions ({self.max_positions_total}) reached"
