@@ -63,6 +63,8 @@ ignore = ["I001"]
 "src/traderos/infrastructure/monitoring.py" = ["BLE001"]
 "src/traderos/infrastructure/alpaca_broker.py" = ["E501"]
 "src/traderos/interfaces/cli/main.py" = ["BLE001", "PLR1722"]
+"tests/test_sprint9_infrastructure.py" = ["E501", "E702", "FURB157"]
+"tests/performance/test_sprint9_benchmarks.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 force-single-line = true
