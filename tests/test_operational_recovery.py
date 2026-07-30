@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from unittest.mock import MagicMock
 
@@ -255,3 +256,154 @@ class TestReconciliationDrill:
         assert not r2.errors
         assert not r2.has_mismatches
         assert svc.can_accept_orders
+
+
+class TestRunbookExecution:
+    """Tests that execute runbook procedures and capture timestamped logs."""
+
+    def test_backup_produces_timestamped_log(self, tmp_path, monkeypatch) -> None:
+        import sqlite3
+
+        from traderos.infrastructure.config.config_loader import Config
+        from traderos.infrastructure.database.backup import create_backup
+
+        db_path = tmp_path / "test_log.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, val TEXT)")
+        conn.execute("INSERT INTO test VALUES (1, 'hello')")
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setenv("DB_PATH", str(db_path))
+        monkeypatch.setenv("DB_BACKUP_DIR", str(tmp_path / "backups"))
+
+        records: list[logging.LogRecord] = []
+
+        class _LogCapture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                records.append(record)
+
+        handler = _LogCapture()
+        logger = logging.getLogger("traderos.infrastructure.database.backup")
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        try:
+            result_path = create_backup(Config())
+            assert result_path.exists()
+
+            backup_logs = [r for r in records if "BACKUP:" in r.getMessage()]
+            assert backup_logs, "No BACKUP log record found"
+            log_msg = backup_logs[0].getMessage()
+
+            assert "source=" in log_msg, f"BACKUP log missing source: {log_msg}"
+            assert "target=" in log_msg, f"BACKUP log missing target: {log_msg}"
+            assert "size=" in log_msg, f"BACKUP log missing size: {log_msg}"
+            assert "ts=" in log_msg, f"BACKUP log missing timestamp: {log_msg}"
+
+            assert hasattr(backup_logs[0], "created"), "Log record missing timestamp"
+            assert backup_logs[0].created > 0, "Log record has invalid timestamp"
+        finally:
+            logger.removeHandler(handler)
+
+    def test_restore_produces_timestamped_log(self, tmp_path, monkeypatch) -> None:
+        import os
+        import sqlite3
+
+        from traderos.infrastructure.config.config_loader import Config
+        from traderos.infrastructure.database.backup import create_backup
+        from traderos.infrastructure.database.backup import restore_backup
+
+        db_path = tmp_path / "test_restore_log.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, val TEXT)")
+        conn.execute("INSERT INTO test VALUES (1, 'original')")
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setenv("DB_PATH", str(db_path))
+        monkeypatch.setenv("DB_BACKUP_DIR", str(tmp_path / "backups"))
+
+        backup_path = create_backup(Config())
+        assert backup_path.exists()
+        os.remove(db_path)
+
+        records: list[logging.LogRecord] = []
+
+        class _LogCapture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                records.append(record)
+
+        handler = _LogCapture()
+        logger = logging.getLogger("traderos.infrastructure.database.backup")
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        try:
+            restored_path = restore_backup(backup_path, Config())
+            assert restored_path is not None
+            assert restored_path.exists()
+
+            restore_logs = [r for r in records if "RESTORE:" in r.getMessage()]
+            assert restore_logs, "No RESTORE log record found"
+            log_msg = restore_logs[0].getMessage()
+
+            assert "source=" in log_msg, f"RESTORE log missing source: {log_msg}"
+            assert "target=" in log_msg, f"RESTORE log missing target: {log_msg}"
+            assert "ts=" in log_msg, f"RESTORE log missing timestamp: {log_msg}"
+
+            assert restore_logs[0].created > 0, "Log record has invalid timestamp"
+        finally:
+            logger.removeHandler(handler)
+
+    def test_full_backup_restore_workflow_with_logs(self, tmp_path, monkeypatch) -> None:
+        """End-to-end runbook execution: backup → delete DB → restore → verify data."""
+        import os
+        import sqlite3
+        from pathlib import Path
+
+        from traderos.infrastructure.config.config_loader import Config
+        from traderos.infrastructure.database.backup import create_backup
+        from traderos.infrastructure.database.backup import restore_backup
+
+        db_path = tmp_path / "test_workflow.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE trades (id INTEGER PRIMARY KEY, symbol TEXT, qty REAL)")
+        conn.execute("INSERT INTO trades VALUES (1, 'BTC/USD', 0.5)")
+        conn.execute("INSERT INTO trades VALUES (2, 'ETH/USD', 2.0)")
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setenv("DB_PATH", str(db_path))
+        monkeypatch.setenv("DB_BACKUP_DIR", str(tmp_path / "backups"))
+
+        records: list[logging.LogRecord] = []
+
+        class _LogCapture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                records.append(record)
+
+        handler = _LogCapture()
+        logger = logging.getLogger("traderos.infrastructure.database.backup")
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        try:
+            backup_path = create_backup(Config())
+            assert backup_path.exists()
+            assert any("BACKUP:" in r.getMessage() for r in records), "No BACKUP log"
+
+            os.remove(db_path)
+            assert not Path(db_path).exists(), "DB should be deleted before restore"
+
+            restored_path = restore_backup(backup_path, Config())
+            assert restored_path is not None
+            assert restored_path.exists()
+            assert any("RESTORE:" in r.getMessage() for r in records), "No RESTORE log"
+
+            conn = sqlite3.connect(str(restored_path))
+            rows = conn.execute("SELECT symbol, qty FROM trades ORDER BY id").fetchall()
+            conn.close()
+
+            assert len(rows) == 2, f"Expected 2 trades, got {len(rows)}"
+            assert rows[0] == ("BTC/USD", 0.5)
+            assert rows[1] == ("ETH/USD", 2.0)
+        finally:
+            logger.removeHandler(handler)

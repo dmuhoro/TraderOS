@@ -25,6 +25,18 @@ services:
       - traderos
     restart: unless-stopped
 
+  postgres-test:
+    profiles: ["test"]
+    image: postgres:16-alpine
+    container_name: traderos-pg-test
+    environment:
+      POSTGRES_USER: traderos
+      POSTGRES_PASSWORD: traderos
+      POSTGRES_DB: traderos_test
+    ports:
+      - "5433:5432"
+    restart: unless-stopped
+
 volumes:
   traderos_data:
   traderos_exports:

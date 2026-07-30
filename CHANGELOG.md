@@ -31,10 +31,39 @@
 ### Operations runbooks (Programme C)
 - **Operations runbook**, **Controlled-pilot parameters**, **Cold incident drill**, **Deployment rollback drill**.
 
+### L1 — Healthy-Overwrite Bug Fix
+- **`_handle_reconciliation_result` fix** (`daemon_controller.py`): Removed `report_healthy("broker_reconciliation")` from mismatch branch. When mismatches exist, only `report_unhealthy` is called. `report_healthy` only called from the no-mismatch path.
+
+### L2 — Stale-Snapshot Severity Raised
+- **`MismatchType.STALE_SNAPSHOT` severity 1→2** (`broker_state_reconciliation_service.py:217`): Now trips KillSwitch, increments metric counter, and blocks order acceptance.
+
+### L3 — PostgreSQL Audit Chain Ordering Fix
+- **`id_seq SERIAL` column added** to `audit_log` table (`v002_observability.py`): PostgreSQL `verify_chain()` was using `ORDER BY id` on UUID text column, which sorts alphabetically not by insertion order. Fixed all 4 ORDER BY clauses in `observability_postgres.py` to use `id_seq`.
+- **8 PostgreSQL mutation tests** (`test_observability_postgres.py`): All 6 field mutations (action, actor, resource, detail, timestamp, previous_hash) + broken link + untampered chain. Fresh-connection fixture eliminates cursor-visibility races. 8/8 pass.
+
+### L4 — Dependency Direction Fitness Test
+- **Committed fixture** (`_fixture_broken_domain.py`): Deliberate infrastructure import in domain proves AST checker catches violations. Tested in `test_dependency_direction.py`.
+
+### L5 — 60-Assertion Effect Matrix
+- **`test_reconciliation_effects.py`**: Parametrizes all 10 mismatch types × 6 effects (detection, health, kill-switch, audit, metrics, notifications) + 3 regression tests. ~63 assertions.
+
+### L6 — 10 Preflight Refusal Tests + TOCTOU
+- **Expanded 4→10 tests** (`test_preflight_execution_integration.py`): All refusal conditions + TOCTOU race test.
+- **TOCTOU protection** (`cycle_executor.py`): Re-checks preflight right before `broker.place_market_order()`.
+
+### L7 — Operational Recovery Logs
+- **Backup/restore logging** (`backup.py`): `logger.info()` with timestamps for `backup_sqlite()` and `restore_sqlite()`.
+- **3 log-capture tests** (`test_operational_recovery.py::TestRunbookExecution`): Backup log, restore log, full workflow with data verification.
+
+### L8 — Clean Ship
+- **Lint zero**: `ruff check src/traderos/` — 0 errors.
+- **All tests green**: 832 passing, 0 failures (was 801 + 1 pre-existing failure now fixed).
+- **`TradeStatus.ACKNOWLEDGED`** + `Trade.acknowledge()` added for Sprint 9 test compatibility.
+
 ### Governance
 - **ADR-008**: Updated to Accepted status, verify_chain() behavior now matches implementation exactly.
-- **SPRINT_11.md**: Programme Ω complete.
-- **801 tests passing** (0 regressions, 1 pre-existing test_sprint9_infrastructure.py failure unrelated to Ω).
+- **SPRINT_11.md**: Programme Ω complete — all 9 Codex rejection points resolved across 8 layers.
+- **832 tests passing, 0 failures, 0 lint errors.**
 
 ## [Unreleased] - Sprint 9
 

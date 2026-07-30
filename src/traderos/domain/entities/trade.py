@@ -18,6 +18,7 @@ class TradeSide(Enum):
 class TradeStatus(Enum):
     PENDING = "pending"
     SUBMITTED = "submitted"
+    ACKNOWLEDGED = "acknowledged"
     PARTIALLY_FILLED = "partially_filled"
     FILLED = "filled"
     CANCELLED = "cancelled"
@@ -28,6 +29,13 @@ class TradeStatus(Enum):
 _VALID_TRANSITIONS: dict[TradeStatus, set[TradeStatus]] = {
     TradeStatus.PENDING: {TradeStatus.SUBMITTED, TradeStatus.CANCELLED, TradeStatus.REJECTED},
     TradeStatus.SUBMITTED: {
+        TradeStatus.ACKNOWLEDGED,
+        TradeStatus.PARTIALLY_FILLED,
+        TradeStatus.FILLED,
+        TradeStatus.CANCELLED,
+        TradeStatus.REJECTED,
+    },
+    TradeStatus.ACKNOWLEDGED: {
         TradeStatus.PARTIALLY_FILLED,
         TradeStatus.FILLED,
         TradeStatus.CANCELLED,
@@ -86,6 +94,11 @@ class Trade:
         self.status = TradeStatus.PARTIALLY_FILLED
         self.filled_quantity = fill_qty
         self.filled_price = fill_price
+        self.updated_at = datetime.now(tz=UTC)
+
+    def acknowledge(self) -> None:
+        _guard_transition(self.status, TradeStatus.ACKNOWLEDGED)
+        self.status = TradeStatus.ACKNOWLEDGED
         self.updated_at = datetime.now(tz=UTC)
 
     def fill(self, fill_qty: float, fill_price: float) -> None:

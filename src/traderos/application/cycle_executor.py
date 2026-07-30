@@ -181,6 +181,16 @@ class CycleExecutor:
                         if qty <= 0:
                             continue
                         side = "buy" if signal.direction.value == "long" else "sell"
+
+                        if self._preflight_service is not None:
+                            pf = self._preflight_service.check(
+                                live_mode=self._mode == TradingMode.LIVE
+                            )
+                            if not pf.passed:
+                                for f in pf.failures:
+                                    errors.append(f"{name}: preflight (re-check): {f}")
+                                continue
+
                         fill = self._broker.place_market_order(
                             market_id, side, qty, close_price=close_price
                         )

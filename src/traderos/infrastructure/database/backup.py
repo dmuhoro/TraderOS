@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import gzip
+import logging
 import os
 import shutil
 import subprocess
+from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from traderos.infrastructure.config.config_loader import Config
+
+logger = logging.getLogger(__name__)
 
 BACKUP_DIR = Path(os.getenv("DB_BACKUP_DIR", "backups"))
 MAX_BACKUPS = int(os.getenv("DB_MAX_BACKUPS", "30"))
@@ -24,7 +28,7 @@ def _ensure_backup_dir() -> Path:
 
 
 def _timestamp() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    return datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
 
 def _rotate_backups(prefix: str, max_count: int = MAX_BACKUPS) -> None:
@@ -43,11 +47,17 @@ def backup_sqlite(db_path: str) -> Path:
     backup_path = BACKUP_DIR / f"sqlite_{ts}.sqlite"
     shutil.copy2(str(src), str(backup_path))
     compressed = BACKUP_DIR / f"sqlite_{ts}.sqlite.gz"
-    with open(backup_path, "rb") as f_in:
-        with gzip.open(compressed, "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
+    with open(backup_path, "rb") as f_in, gzip.open(compressed, "wb") as f_out:
+        shutil.copyfileobj(f_in, f_out)
     backup_path.unlink()
     _rotate_backups("sqlite")
+    logger.info(
+        "BACKUP: source=%s target=%s size=%d ts=%s",
+        db_path,
+        compressed,
+        compressed.stat().st_size,
+        ts,
+    )
     return compressed
 
 
@@ -56,12 +66,12 @@ def restore_sqlite(backup_path: Path, target_path: str) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     if backup_path.suffix == ".gz":
         decompressed = target.parent / "restore_temp.sqlite"
-        with gzip.open(backup_path, "rb") as f_in:
-            with open(decompressed, "wb") as f_out:
-                shutil.copyfileobj(f_in, f_out)
+        with gzip.open(backup_path, "rb") as f_in, open(decompressed, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
         shutil.move(str(decompressed), str(target))
     else:
         shutil.copy2(str(backup_path), str(target))
+    logger.info("RESTORE: source=%s target=%s ts=%s", backup_path, target, _timestamp())
     return target
 
 
@@ -132,7 +142,7 @@ def list_backups() -> list[dict[str, Any]]:
                 {
                     "path": str(f),
                     "size_bytes": stat.st_size,
-                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
                 }
             )
     return backups

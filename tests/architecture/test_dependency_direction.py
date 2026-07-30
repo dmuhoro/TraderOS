@@ -1,8 +1,8 @@
 import ast
-import tempfile
 from pathlib import Path
 
 DOMAIN_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "traderos" / "domain"
+FIXTURE_PATH = Path(__file__).resolve().parent / "_fixture_broken_domain.py"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -41,6 +41,8 @@ class TestDomainDoesNotImportInfrastructure:
     def test_no_infrastructure_imports_in_domain(self) -> None:
         all_violations: list[tuple[str, int, str]] = []
         for pyfile in _iter_domain_py_files():
+            if pyfile.name == "_fixture_broken_domain.py":
+                continue
             relative = pyfile.relative_to(PROJECT_ROOT)
             violations = _extract_infra_imports(pyfile)
             for line_no, imp in violations:
@@ -51,21 +53,18 @@ class TestDomainDoesNotImportInfrastructure:
             f"  {f}:{ln}  {stmt}" for f, ln, stmt in all_violations
         )
 
-    def test_fixture_proves_check_can_fail(self) -> None:
-        broken_code = (
-            "from traderos.infrastructure.retry import retry_with_backoff\n"
-            "class FakeDomainService:\n"
-            "    pass\n"
+    def test_committed_fixture_is_detected_as_violation(self) -> None:
+        """Regression fitness test: the committed fixture file contains a
+        deliberate infrastructure import. If this test ever passes (0 violations),
+        the fixture has been accidentally fixed and needs to be restored."""
+        assert FIXTURE_PATH.exists(), f"Missing fixture: {FIXTURE_PATH}"
+        violations = _extract_infra_imports(FIXTURE_PATH)
+        assert len(violations) >= 1, (
+            f"Fixture {FIXTURE_PATH} should have at least 1 infrastructure import violation, "
+            f"but got {len(violations)}: {violations}. "
+            "If you fixed the fixture, restore the deliberate violation!"
         )
-        with tempfile.TemporaryDirectory() as tmp:
-            fixture = Path(tmp) / "_fixture_broken_domain.py"
-            fixture.write_text(broken_code)
-            violations = _extract_infra_imports(fixture)
-            assert len(violations) == 1, (
-                "Fixture should have detected 1 infrastructure import violation,\n"
-                f"but got {len(violations)}: {violations}"
-            )
-            line_no, imp = violations[0]
-            assert (
-                "infrastructure" in imp
-            ), f"Expected violation to mention 'infrastructure', got: {imp}"
+        line_no, imp = violations[0]
+        assert (
+            "infrastructure" in imp
+        ), f"Expected violation to mention 'infrastructure', got: {imp}"
