@@ -46,3 +46,6 @@ exports/
 # Logs
 logs/
 *.log
+
+# Backups (runtime artifacts)
+backups/
