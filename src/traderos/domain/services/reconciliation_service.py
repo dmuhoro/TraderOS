@@ -63,18 +63,16 @@ class OrderReconciliationService:
                     result.reconciled += 1
                 continue
             result.matched += 1
-            if trade.status == TradeStatus.SUBMITTED and (
-                broker_order.filled_qty > 0 or broker_order.status == "filled"
-            ):
-                trade.fill(broker_order.filled_qty, broker_order.filled_price)
-                result.reconciled += 1
-            elif trade.status == TradeStatus.PARTIALLY_FILLED and (
-                abs(broker_order.filled_qty - trade.filled_quantity) > 0.0001
+            if (
+                trade.status == TradeStatus.SUBMITTED
+                and (broker_order.filled_qty > 0 or broker_order.status == "filled")
+                or trade.status == TradeStatus.PARTIALLY_FILLED
+                and (abs(broker_order.filled_qty - trade.filled_quantity) > 0.0001)
             ):
                 trade.fill(broker_order.filled_qty, broker_order.filled_price)
                 result.reconciled += 1
 
-        for ext_id, _broker_order in broker_by_id.items():
+        for ext_id in broker_by_id:
             if ext_id not in local_by_ext_id:
                 result.orphaned_broker += 1
 
@@ -139,9 +137,7 @@ class PersistentKillSwitch:
             return False
         if self._state.consecutive_failures >= self._max_failures:
             return False
-        if abs(self._state.daily_loss) >= self._daily_loss_limit:
-            return False
-        return True
+        return not abs(self._state.daily_loss) >= self._daily_loss_limit
 
     def reset(self) -> None:
         self._state = KillSwitchState(last_reset=datetime.now(UTC))

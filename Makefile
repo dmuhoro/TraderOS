@@ -3,7 +3,7 @@ PROJECT := traderos
 PYTHON := python3
 export PYTHONPATH := src:$(PYTHONPATH)
 
-.PHONY: help setup test test-fast test-coverage lint lint-fix format format-check typecheck clean pre-commit pre-commit-install docker-build docker-up docker-down ci
+.PHONY: help setup test test-fast test-coverage lint lint-fix format format-check typecheck clean pre-commit pre-commit-install docker-build docker-up docker-down ci test-postgres test-postgres-up test-postgres-down
 
 help:
 	@echo 'TraderOS Development Commands'
@@ -24,6 +24,9 @@ help:
 	@echo 'pre-commit       Run all pre-commit hooks on all files'
 	@echo 'pre-commit-install  Install pre-commit hooks'
 	@echo 'ci               Run full CI pipeline locally'
+	@echo 'test-postgres-up    Start PostgreSQL test container'
+	@echo 'test-postgres-down  Stop PostgreSQL test container'
+	@echo 'test-postgres       Run PostgreSQL backend tests (requires running postgres)'
 
 setup:
 	$(PYTHON) -m pip install --upgrade pip
@@ -84,6 +87,17 @@ docker-up:
 
 docker-down:
 	docker compose down
+
+test-postgres-up:
+	docker compose --profile test up -d postgres-test
+
+test-postgres-down:
+	docker compose --profile test down
+
+test-postgres: test-postgres-up
+	@echo "Waiting for PostgreSQL to be ready..."
+	@bash -c 'for i in $$(seq 1 10); do docker exec traderos-pg-test pg_isready -U traderos -q 2>/dev/null && break; sleep 1; done'
+	python3 -m pytest tests/test_observability_postgres.py -v --tb=short --no-cov
 
 ci: lint format-check typecheck test
 	@echo 'CI pipeline passed.'

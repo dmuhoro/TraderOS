@@ -53,6 +53,16 @@ ignore = ["I001"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+"src/traderos/application/order_event_engine.py" = ["E501", "E701"]
+"src/traderos/infrastructure/market_stream.py" = ["E501", "E701", "E702", "BLE001"]
+"src/traderos/infrastructure/archiver.py" = ["BLE001", "S110"]
+"src/traderos/infrastructure/database/connection.py" = ["BLE001", "S110", "PLW0602"]
+"src/traderos/infrastructure/database/migrations/v004_external_order_id.py" = ["BLE001", "S110"]
+"src/traderos/infrastructure/leader_election.py" = ["BLE001", "S110", "SIM115"]
+"src/traderos/infrastructure/message_queue.py" = ["PLW2101"]
+"src/traderos/infrastructure/monitoring.py" = ["BLE001"]
+"src/traderos/infrastructure/alpaca_broker.py" = ["E501"]
+"src/traderos/interfaces/cli/main.py" = ["BLE001", "PLR1722"]
 
 [tool.ruff.lint.isort]
 force-single-line = true

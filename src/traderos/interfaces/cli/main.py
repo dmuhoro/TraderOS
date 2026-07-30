@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import uuid
 from datetime import UTC
 from importlib.metadata import version
@@ -326,7 +327,7 @@ def main() -> None:
     elif args.command == "db":
         cmd_db(args)
     elif args.command == "validate":
-        exit(cmd_validate(args))
+        sys.exit(cmd_validate(args))
     else:
         parser.print_help()
 

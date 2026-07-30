@@ -10,7 +10,9 @@ def _serial(backend: str) -> str:
 
 def up(conn, backend: str = "sqlite"):
     s = _serial(backend)
-    conn.execute("""
+    seq_type = "SERIAL" if backend == PG else "INTEGER"
+    seq_null = "NOT NULL" if backend == PG else ""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS audit_log (
             id TEXT PRIMARY KEY,
             action TEXT NOT NULL,
@@ -19,7 +21,8 @@ def up(conn, backend: str = "sqlite"):
             detail TEXT DEFAULT '',
             timestamp TEXT NOT NULL,
             previous_hash TEXT NOT NULL,
-            hash TEXT NOT NULL
+            hash TEXT NOT NULL,
+            id_seq {seq_type} {seq_null}
         )
     """)
     conn.execute(f"""

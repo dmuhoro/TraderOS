@@ -24,7 +24,7 @@ class PostgresAuditService(AuditPort):
 
     def _get_previous_hash(self) -> str:
         with self.conn.cursor() as cur:
-            cur.execute("SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1")
+            cur.execute("SELECT hash FROM audit_log ORDER BY id_seq DESC LIMIT 1")
             row = cur.fetchone()
         return row[0] if row else "genesis"
 
@@ -73,7 +73,7 @@ class PostgresAuditService(AuditPort):
     def get_entries(self, limit: int = 100, offset: int = 0) -> list[AuditEntry]:
         with self.conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM audit_log ORDER BY id DESC LIMIT %s OFFSET %s",
+                "SELECT * FROM audit_log ORDER BY id_seq DESC LIMIT %s OFFSET %s",
                 (limit, offset),
             )
             rows = cur.fetchall()
@@ -95,7 +95,7 @@ class PostgresAuditService(AuditPort):
 
     def verify_chain(self) -> bool:
         with self.conn.cursor() as cur:
-            cur.execute("SELECT * FROM audit_log ORDER BY id")
+            cur.execute("SELECT * FROM audit_log ORDER BY id_seq")
             rows = cur.fetchall()
         cols = ["id", "action", "actor", "resource", "detail", "timestamp", "previous_hash", "hash"]
         for i, row in enumerate(rows):
@@ -126,7 +126,7 @@ class PostgresAuditService(AuditPort):
             params.append(actor)
         where = " AND ".join(clauses) if clauses else "true"
         with self.conn.cursor() as cur:
-            cur.execute(f"SELECT * FROM audit_log WHERE {where} ORDER BY id", params)
+            cur.execute(f"SELECT * FROM audit_log WHERE {where} ORDER BY id_seq", params)
             rows = cur.fetchall()
         cols = ["id", "action", "actor", "resource", "detail", "timestamp", "previous_hash", "hash"]
         return [self._row_to_entry(r, cols) for r in rows]

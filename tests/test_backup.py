@@ -66,7 +66,7 @@ class TestBackupSQLite:
         mod.MAX_BACKUPS = 2
         for _ in range(5):
             backup_sqlite(temp_db)
-        backups = list(BACKUP_DIR.glob("sqlite_*.sqlite.gz"))
+        backups = list(mod.BACKUP_DIR.glob("sqlite_*.sqlite.gz"))
         assert len(backups) <= 2
         mod.MAX_BACKUPS = original
 

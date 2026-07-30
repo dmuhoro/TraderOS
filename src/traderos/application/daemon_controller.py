@@ -157,11 +157,6 @@ class DaemonController:
             )
             if self._metrics:
                 self._metrics.counter("reconciliation.mismatches", len(result.mismatches))
-            self._health.report_healthy(
-                "broker_reconciliation",
-                f"matched={result.matched_positions} reconciled={result.reconciled_positions} "
-                f"mismatches={len(result.mismatches)}",
-            )
             return False
 
         self._metrics.gauge("reconciliation.matched_positions", result.matched_positions)

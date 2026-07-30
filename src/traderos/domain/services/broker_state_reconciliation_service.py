@@ -214,7 +214,7 @@ class BrokerStateReconciliationService:
                         MismatchType.STALE_SNAPSHOT,
                         f"Last reconciliation was {elapsed:.0f}s ago "
                         f"(threshold {_STALE_THRESHOLD_SECONDS}s)",
-                        severity=1,
+                        severity=2,
                     )
                 )
 
