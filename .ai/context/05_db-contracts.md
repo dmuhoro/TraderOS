@@ -29,8 +29,8 @@ AI agents implementing repositories, database engineers, migration authors.
 
 ## Database Architecture
 
-**Current**: SQLite (single file, file-based locking)  
-**Target**: PostgreSQL (connection pool, concurrent access)  
+**Current**: SQLite (single file, file-based locking)
+**Target**: PostgreSQL (connection pool, concurrent access)
 **Migration Path**: ADR-005 — incremental via repository pattern
 
 ## Schema Ownership

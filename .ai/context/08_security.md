@@ -49,12 +49,12 @@ AI agents, engineers, DevOps, security reviewers.
 
 ## Authentication
 
-**Current state**: No authentication (local-only CLI).  
+**Current state**: No authentication (local-only CLI).
 **Target state**: API keys for REST API, JWT for sessions (Post-MVP).
 
 ## Authorization
 
-**Current state**: CLI user has full access to local database.  
+**Current state**: CLI user has full access to local database.
 **Target state**: Role-based access (admin, researcher, trader, viewer) for multi-user.
 
 ## Validation

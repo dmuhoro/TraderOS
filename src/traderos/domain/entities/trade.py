@@ -54,6 +54,17 @@ _VALID_TRANSITIONS: dict[TradeStatus, set[TradeStatus]] = {
     TradeStatus.EXPIRED: set(),
 }
 
+# Single source of truth for "order still open" semantics shared by every
+# repository implementation (OT-005: ACKNOWLEDGED must not be treated as closed).
+OPEN_TRADE_STATUSES = frozenset(
+    {
+        TradeStatus.PENDING,
+        TradeStatus.SUBMITTED,
+        TradeStatus.ACKNOWLEDGED,
+        TradeStatus.PARTIALLY_FILLED,
+    }
+)
+
 
 class InvalidTradeTransitionError(DomainError):
     def __init__(self, current: TradeStatus, target: TradeStatus) -> None:

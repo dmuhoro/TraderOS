@@ -9,4 +9,3 @@ This directory stores:
 - Lessons
 
 Knowledge compounds here.
-

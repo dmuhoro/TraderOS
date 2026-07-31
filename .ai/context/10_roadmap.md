@@ -34,8 +34,8 @@ Phase 5: Release (Months 10-12)       ░░░░░░░░░░░░░░
 
 ## Current Milestone
 
-**Milestone**: Architecture Framework (Epic 1.2) — WP-009 to WP-017  
-**Current Work Package**: WP-009 — Domain Entity Dataclasses  
+**Milestone**: Architecture Framework (Epic 1.2) — WP-009 to WP-017
+**Current Work Package**: WP-009 — Domain Entity Dataclasses
 **Target Completion**: Next sprint
 
 ## Current Work Package Status
@@ -71,7 +71,7 @@ All WP-001 through WP-008 are complete. See CHANGELOG.md for details.
 ## Critical Path
 
 ```
-Now → WP-009 (Entities) → WP-010 (Repositories) → WP-011 (InMemory) 
+Now → WP-009 (Entities) → WP-010 (Repositories) → WP-011 (InMemory)
    → WP-012 (SQLite Repos) → WP-013 (Config v2) → WP-014 (Errors)
    → WP-016 (Event Bus) → WP-017 (Architecture Tests)
    ↓

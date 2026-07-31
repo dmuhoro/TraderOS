@@ -7,6 +7,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+from typing import Self
 
 from traderos.infrastructure.config.config_loader import Config
 
@@ -45,18 +46,125 @@ def _connect_postgres(database_url: str) -> Any:
     return conn
 
 
-def _connect_sqlite(config: Config) -> sqlite3.Connection:
-    db_path = os.getenv("DB_PATH") or config.db_path
+def _connect_sqlite(config: Config) -> Any:
+    db_path = config.db_path
+    # The Python sqlite3 module does NOT serialize concurrent use of a shared
+    # connection even with check_same_thread=False: load-sensitive API and
+    # orchestrator paths intermittently hit "SQLite objects created in a thread
+    # can only be used in that same thread" / "bad parameter or other API
+    # misuse". ThreadSafeSQLiteConnection serializes every statement, so one
+    # connection can be shared safely by all repos/services (OT-011).
     if db_path == ":memory:":
-        conn = sqlite3.connect(":memory:")
+        conn = sqlite3.connect(":memory:", check_same_thread=False)
     else:
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(path), timeout=10)
+        conn = sqlite3.connect(str(path), timeout=10, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
-    return conn
+    return ThreadSafeSQLiteConnection(conn)
+
+
+class _ThreadSafeSQLiteCursor:
+    """Cursor proxy that takes the connection lock for every call."""
+
+    def __init__(self, cursor: sqlite3.Cursor, lock: threading.RLock) -> None:
+        self._cursor = cursor
+        self._lock = lock
+
+    def execute(self, sql: str, params: Any = ()) -> _ThreadSafeSQLiteCursor:
+        with self._lock:
+            self._cursor.execute(sql, params)
+            return self
+
+    def executemany(self, sql: str, seq_of_params: Any) -> _ThreadSafeSQLiteCursor:
+        with self._lock:
+            self._cursor.executemany(sql, seq_of_params)
+            return self
+
+    def fetchone(self) -> Any:
+        with self._lock:
+            return self._cursor.fetchone()
+
+    def fetchall(self) -> Any:
+        with self._lock:
+            return self._cursor.fetchall()
+
+    def fetchmany(self, size: int = 1) -> Any:
+        with self._lock:
+            return self._cursor.fetchmany(size)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        with self._lock:
+            self._cursor.close()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._cursor, name)
+
+
+class ThreadSafeSQLiteConnection:
+    """A sqlite3.Connection that is safe to share across threads (OT-011).
+
+    Every statement runs under a process-wide reentrant lock so concurrent
+    readers/writers can never corrupt sqlite's internal statement state. The
+    wrapped connection keeps ``check_same_thread=False`` so sqlite itself does
+    not reject cross-thread access.
+    """
+
+    _backend = "sqlite"
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        self._lock = threading.RLock()
+
+    @property
+    def row_factory(self) -> Any:
+        return self._conn.row_factory
+
+    @row_factory.setter
+    def row_factory(self, factory: Any) -> None:
+        self._conn.row_factory = factory
+
+    def execute(self, sql: str, params: Any = ()) -> _ThreadSafeSQLiteCursor:
+        with self._lock:
+            return _ThreadSafeSQLiteCursor(self._conn.execute(sql, params), self._lock)
+
+    def executemany(self, sql: str, seq_of_params: Any) -> _ThreadSafeSQLiteCursor:
+        with self._lock:
+            return _ThreadSafeSQLiteCursor(self._conn.executemany(sql, seq_of_params), self._lock)
+
+    def executescript(self, sql: str) -> None:
+        with self._lock:
+            self._conn.executescript(sql)
+
+    def cursor(self) -> _ThreadSafeSQLiteCursor:
+        with self._lock:
+            return _ThreadSafeSQLiteCursor(self._conn.cursor(), self._lock)
+
+    def commit(self) -> None:
+        with self._lock:
+            self._conn.commit()
+
+    def rollback(self) -> None:
+        with self._lock:
+            self._conn.rollback()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._conn, name)
 
 
 def close_connection(conn: Any) -> None:

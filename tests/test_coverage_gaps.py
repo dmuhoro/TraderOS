@@ -10,12 +10,12 @@ import pytest
 
 from traderos.application.cycle_executor import CycleExecutor
 from traderos.application.models import TradingMode
+from traderos.domain.exceptions import ConfigError
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
-from traderos.domain.exceptions import ConfigError
 from traderos.infrastructure.config.config_loader import Config
 
 

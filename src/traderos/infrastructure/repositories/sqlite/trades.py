@@ -7,6 +7,7 @@ from traderos.domain.entities import Position
 from traderos.domain.entities import Trade
 from traderos.domain.entities import TradeSide
 from traderos.domain.entities import TradeStatus
+from traderos.domain.entities.trade import OPEN_TRADE_STATUSES
 from traderos.domain.repositories.trade_repository import PositionRepository
 from traderos.domain.repositories.trade_repository import TradeRepository
 from traderos.infrastructure.repositories.sqlite.base import SQLiteRepository
@@ -96,13 +97,11 @@ class SQLiteTradeRepository(SQLiteRepository[Trade], TradeRepository):
         return [self._from_row(row) for row in cursor.fetchall()]
 
     def get_open(self) -> list[Trade]:
+        open_values = tuple(v.value for v in OPEN_TRADE_STATUSES)
+        placeholders = ", ".join("?" for _ in open_values)
         cursor = self.conn.execute(
-            "SELECT * FROM trades WHERE status IN (?, ?, ?) ORDER BY created_at",
-            (
-                TradeStatus.PENDING.value,
-                TradeStatus.SUBMITTED.value,
-                TradeStatus.PARTIALLY_FILLED.value,
-            ),
+            f"SELECT * FROM trades WHERE status IN ({placeholders}) ORDER BY created_at",
+            open_values,
         )
         return [self._from_row(row) for row in cursor.fetchall()]
 

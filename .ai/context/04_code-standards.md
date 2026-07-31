@@ -27,11 +27,11 @@ AI agents, engineers, code reviewers, CI pipelines.
 
 ## Python Conventions
 
-**Version**: Python 3.11+  
-**Formatter**: Black (line-length 100)  
-**Import Sorter**: isort (Black-compatible profile, force-single-line)  
-**Linter**: ruff (extend-select: B, N, W, E, F, UP, LOG, G)  
-**Type Checker**: pyright (strict mode)  
+**Version**: Python 3.11+
+**Formatter**: Black (line-length 100)
+**Import Sorter**: isort (Black-compatible profile, force-single-line)
+**Linter**: ruff (extend-select: B, N, W, E, F, UP, LOG, G)
+**Type Checker**: pyright (strict mode)
 **Test Runner**: pytest + pytest-cov (threshold 30%)
 
 ## Architecture Conventions
