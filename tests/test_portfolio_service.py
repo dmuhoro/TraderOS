@@ -30,10 +30,15 @@ class TestPortfolioService:
         assert summary.total_pnl == 100.0
         assert summary.position_count == 1
 
-    def test_size_position(self) -> None:
+    def test_size_position_returns_shares(self) -> None:
         svc = PortfolioService(InMemoryTradeRepository(), InMemoryPositionRepository())
-        size = svc.size_position(cash=10000.0, confidence=0.8)
-        assert size == 10000.0 * min(0.02 * 0.8 * 10, 0.25)
+        cash = 10000.0
+        price = 100.0
+        allocation = min(0.02 * 0.8 * 10, 0.25)
+        size = svc.size_position(cash=cash, confidence=0.8, price=price)
+        assert size == round(cash * allocation / price, 8)
+        assert svc.size_position(cash=cash, confidence=0.8, price=0.0) == 0.0
+        assert svc.size_position(cash=cash, confidence=0.0, price=price) == 0.0
 
     def test_compute_pnl(self) -> None:
         svc = PortfolioService(InMemoryTradeRepository(), InMemoryPositionRepository())

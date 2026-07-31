@@ -213,29 +213,73 @@ class TestCycleExecutor:
         conn.close()
 
     def test_candles_processed_with_data_ingestion(self) -> None:
+        from datetime import timedelta
         from decimal import Decimal
 
         conn = _make_conn()
         data_ingestion = Mock()
         from traderos.domain.entities.candle import Candle
+        from traderos.domain.entities.signal import Signal
+        from traderos.domain.entities.signal import SignalDirection
         from traderos.domain.entities.value_objects import OHLCV
         from traderos.domain.entities.value_objects import Timeframe
+        from traderos.domain.services.analysis_service import AnalysisService
+        from traderos.domain.services.risk_service import KillSwitch
+        from traderos.domain.services.risk_service import RiskAssessment
+        from traderos.domain.services.risk_service import TradeVerdict
+        from traderos.domain.services.signal_service import SignalProvenance
 
         data_ingestion.fetch_candles.return_value = [
             Candle(
                 market_id=uuid.uuid4(),
-                ohlcv=OHLCV(Decimal("100.0"), Decimal("101.0"), Decimal("99.0"), Decimal("100.5"), Decimal("1000.0")),
+                ohlcv=OHLCV(
+                    Decimal("100.0"),
+                    Decimal("101.0"),
+                    Decimal("99.0"),
+                    Decimal("100.5"),
+                    Decimal("1000.0"),
+                ),
                 timestamp=datetime.now(UTC),
                 timeframe=Timeframe.MINUTE_1,
             )
         ] * 25
-        from traderos.domain.services.analysis_service import AnalysisService
+
+        now = datetime.now(UTC)
+        signal = Signal(
+            market_id=uuid.uuid4(),
+            strategy_id=uuid.uuid4(),
+            direction=SignalDirection.LONG,
+            confidence=0.8,
+            generated_at=now,
+            expires_at=now + timedelta(hours=1),
+        )
+        provenance = SignalProvenance(signal=signal, strategy_name="x", indicators_used={})
+        signal_service = Mock()
+        signal_service.process_evaluation.return_value = provenance
+
+        risk_service = Mock()
+        risk_service.can_trade.return_value = TradeVerdict(True, "")
+        risk_service.kill_switch = KillSwitch()
+        risk_service.assess_trade.return_value = RiskAssessment(
+            kelly_fraction=0.5,
+            suggested_stop_loss=99.0,
+            suggested_take_profit=102.0,
+            risk_per_unit=1.0,
+            max_risk_amount=200.0,
+        )
+
+        portfolio_service = Mock()
+        summary = Mock()
+        summary.open_positions = []
+        summary.total_equity = 10000.0
+        portfolio_service.get_summary.return_value = summary
+        portfolio_service.size_position.return_value = 1.0
 
         executor = CycleExecutor(
             mode=TradingMode.PAPER,
-            signal_service=Mock(),
-            risk_service=Mock(),
-            portfolio_service=Mock(),
+            signal_service=signal_service,
+            risk_service=risk_service,
+            portfolio_service=portfolio_service,
             execution=Mock(),
             analysis=AnalysisService(),
             broker=_MockBroker(),
@@ -249,4 +293,6 @@ class TestCycleExecutor:
         )
         result = executor.run(uuid.uuid4(), 100.0)
         assert result.errors == []
+        assert result.trades > 0
+        assert portfolio_service.fill_trade.called
         conn.close()

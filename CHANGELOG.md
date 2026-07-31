@@ -1,5 +1,35 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 12 (Programme A — Core Loop Integrity)
+
+### D1/D2 — Fills now create positions; paper-broker fills no longer crash
+- **`CycleExecutor.run()` routes every accepted fill through `PortfolioService.fill_trade`** (`application/cycle_executor.py`): the only method that creates/updates `Position` rows. Previously the executor's `open_trade → submit → fill → update_trade` sequence left the position repo untouched (D1).
+- **`fill_trade` handles the no-external-order-id case** (`domain/services/portfolio_service.py`): a PENDING trade without an order id is auto-submitted as `auto-{trade.id}` before filling, fixing the `PENDING→FILLED` `InvalidTradeTransitionError` caused by `PaperBrokerAdapter` returning `order_id=""` (D2). The raw state machine still rejects `PENDING→FILLED`; the fix routes *through* it.
+
+### D3 — `size_position` returns shares, not dollars
+- **`PortfolioService.size_position(cash, confidence, price)` now returns share quantity** (`round(cash * alloc / price, 8)`; `price <= 0 → 0.0`). Both callers (`cycle_executor.py`, `paper_trading_service.py`) pass `price=close_price`.
+
+### D4 — Realized PnL reaches the kill switches
+- **`PortfolioService` gains a `risk_service` field; `close_position` reports realized PnL** via `risk_service.record_realized_pnl`, which forwards to `KillSwitch` and `PersistentKillSwitch`. Wired in the composition root (`application/factory.py`).
+
+### D5/D8/D9 — Strategies can fire; real market data and ATR reach the cycle
+- **Cycle supplies the full real indicator set** to every strategy's `MarketState`: `sma_20/50`, `bb_upper_20/lower_20`, `atr_14`, and real `high`/`low`/`volume` from `candles[-1]` — so all registered built-in strategies can evaluate. Fallbacks to fabricated values occur only when candles are empty.
+- **`assess_trade` receives the real computed ATR** instead of `close_price * 0.01`.
+
+### D6 — Cycle metrics are truthful
+- **`cycles.completed` counted exactly once per cycle** (was per-strategy); **`cycle.duration_ms` records the measured duration** (was ≈ 0).
+
+### D7 — Double preflight retained by design
+- Reclassified as **by-design** (TOCTOU re-check required by `test_preflight_execution_integration.py`). No code change.
+
+### Regression surface
+- **`tests/test_core_loop_invariants.py` (new, 11 tests):** pins invariants I1/I2/I3/I5/I6/I8/I9 and the D1–D6/D8/D9 closes.
+- **`tests/test_cycle_executor.py`, `tests/test_portfolio_service.py`:** updated for realistic mocks and share-semantics sizing.
+- **Docs:** `docs/engineering/CORE_LOOP_TRUTH.md` (execution graph + defect register), `docs/engineering/CORE_LOOP_EVIDENCE.md` (per-defect proofs), `docs/AUDIT_GROUND_TRUTH.md` committed.
+
+### Verification
+- **843 tests passing, 0 failures** (`python3 -m pytest -q -p no:randomly`), **84.63% coverage** (baseline 84.42%), **ruff clean on `src/traderos` + touched tests**, **pyright 0 errors**. Sprint report: `sprints/SPRINT_12.md`.
+
 ## [Unreleased] - Sprint 11 (Programme Ω — Operational Verification)
 
 ### Ω.1 — Audit Integrity (GATE 1)

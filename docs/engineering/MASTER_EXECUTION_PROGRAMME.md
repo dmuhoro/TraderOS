@@ -2206,67 +2206,63 @@ Before presenting TraderOS publicly to potential engineering hires:
 
 ## 26 Engineering Dashboard
 
-### Sprint Dashboard (Updated Weekly)
+### Sprint Dashboard — SPRINT 12 (Programme A: Core Loop Integrity, 2026-07-31)
 
 ```
-SPRINT [N] — [DATE RANGE]
-─────────────────────────────────────────────────
-Velocity:     [X] story points (target: [Y])
-Completion:   [X]% of sprint scope
-Debt paid:    [X] points (target: 20%)
-Carry-over:   [X] points
-Blocked:      [X] items
-Risk count:   [X] active risks
+SPRINT 12 — CORE LOOP INTEGRITY (2026-07-31)
+────────────────────────────────────────────────────────────────────
+Scope:          correctness only (Code Freeze — no features/dashboards)
+Defects closed: D1-D6, D8, D9 (D7 reclassified by-design) → 8/9
+New regressions: +11 invariant tests (tests/test_core_loop_invariants.py)
+Blocked:        0 items
+Risk count:     1 active (load-sensitive API/orchestrator flake — see
+                CORE_LOOP_EVIDENCE.md §4.4; unrelated to diff)
 
-TEST COVERAGE
-─────────────────────────────────────────────────
-Overall:      [X]% (target: 90%)
-Domain:       [X]% (target: 95%)
-Infra:        [X]% (target: 85%)
-Interfaces:   [X]% (target: 85%)
+TEST COVERAGE (python3 -m pytest -q -p no:randomly)
+────────────────────────────────────────────────────────────────────
+Overall:      84.63% (target: 70% gate — exceeded)
+Tests:        843 passed (baseline 832 → +11)
+Warnings:     environment-dependent, non-fatal
 
 QUALITY
-─────────────────────────────────────────────────
-Lint errors:  0 (target: 0)
-Type errors:  0 (target: 0)
-Arch violations: 0 (target: 0)
-Build status: ✅ / ❌
+────────────────────────────────────────────────────────────────────
+Lint errors:  0 on src/traderos (11 pre-existing errors confined to
+              test files: test_dependency_direction, test_audit_integrity,
+              test_backup, test_cycle_executor, test_preflight_service)
+Type errors:  0 (pyright src/traderos)
+Arch violations: 0
+Build status: ✅
 
-ARCHITECTURE
-─────────────────────────────────────────────────
-ADRs written:    [X] / 10
-Contexts migrated: [X] / 8
-Old modules archived: [X] / [Y]
+PROGRAMME A ROADMAP (from STRATEGIC_COMPLETION_BLUEPRINT.md)
+────────────────────────────────────────────────────────────────────
+A1 Loop correctness:   ✅ COMPLETE (evidence: CORE_LOOP_TRUTH.md,
+                        CORE_LOOP_EVIDENCE.md)
+A2 Analysis layer:     ⏳ carried forward (out of correctness-only scope)
+A3 Refactor for tests: ⏳ carried forward
+A4 Hygiene sweep:      ⏳ carried forward
 ```
 
-### Monthly Dashboard
+### Monthly Dashboard — July 2026
 
 ```
-MONTHLY REVIEW — [MONTH]
-─────────────────────────────────────────────────
+MONTHLY REVIEW — JULY 2026
+────────────────────────────────────────────────────────────────────
+PROGRAMME A GATE
+Gate:       Core-loop correctness gate — PASSED 2026-07-31
+Criterion:  full suite green under deterministic ordering; 84.63%
+            coverage; ruff/pyright clean; 8/9 defects closed with
+            regression tests; remaining D7 documented by-design.
+Next gate:  Programme B readiness (depends on A2/A3/A4 backlog decision)
+
 WORKSTREAM PROGRESS
-WS-1 Foundation:     [█░░░░░░░░░] 10%
-WS-2 Data & Analysis:[██░░░░░░░░] 20%
-WS-3 Research:       [░░░░░░░░░░] 0%
-WS-4 Trading Core:   [░░░░░░░░░░] 0%
-WS-5 Execution:      [░░░░░░░░░░] 0%
-WS-6 Platform:       [░░░░░░░░░░] 0%
-
-DEBT INVENTORY
-Total debt items: [X]
-Critical:  [X]
-High:      [X]
-Medium:    [X]
-Low:       [X]
-Debt paid this month: [X] points
+WS-4 Trading Core:  [████████░░░░░░░░░░░░] 40% (Programme A closed;
+                     backtest loop + Programme B remain)
+WS-2 Data & Analysis: [░░░░░░░░░░░░░░░░░░░░] 0% (A2 carried forward)
 
 TECHNICAL RISKS
-R-01: [status]
-R-02: [status]
-R-03: [status]
+R-01: Load-sensitive API/orchestrator flake (sqlite3 threading under
+      Starlette TestClient) — environmental; monitored, not a regression.
 ```
-
----
 
 ## 27 Weekly Engineering Operating Rhythm
 

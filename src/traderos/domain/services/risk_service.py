@@ -108,6 +108,11 @@ class RiskService:
             return TradeVerdict(False, reason)
         return TradeVerdict(True, "")
 
+    def record_realized_pnl(self, pnl: float) -> None:
+        self.kill_switch.record_realized_pnl(pnl)
+        if self.persistent_kill_switch is not None:
+            self.persistent_kill_switch.record_realized_pnl(pnl)
+
     def assess_trade(
         self,
         price: float,

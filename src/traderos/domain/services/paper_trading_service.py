@@ -216,6 +216,7 @@ class PaperTradingService:
             qty = self.portfolio_service.size_position(
                 cash=session.current_capital,
                 confidence=signal.confidence,
+                price=close_price,
             )
             if qty <= 0:
                 continue
