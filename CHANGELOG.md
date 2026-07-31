@@ -1,5 +1,26 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 14 (Programme C — Commercial Surface)
+
+### C2 — Enforced operator workflow
+- **`OperatorWorkflow`** (`domain/services/operator_workflow.py`): 10-step canonical lifecycle (start → preflight → broker_check → market_data_check → paper_trading → performance_review → strategy_promotion → controlled_live → shutdown → session_report). Strict ordering: only the immediate next step or a re-run of the current one; out-of-order attempts raise `WorkflowError`.
+- **`OperatorSessionService`** (`domain/services/operator_session.py`): every step gated on a real check — preflight verdict, broker balance + state reconciliation, market-data feed count, running paper sessions, catalog comparison ranking, strategy promotion, live-mode preflight, paper shutdown. Failing gates return `ok=False` (no advance); successful transitions are persisted through `OperatorWorkflowRepository`.
+
+### C3 — Strategy catalog
+- **`StrategyCatalogService`** (`domain/services/strategy_management.py`): seeded built-in templates (moving_average_trend, volatility_breakout, mean_reversion), versioned strategies, lifecycle (draft → active → disabled/archived, single promoted), clone, backtest comparison ranking, review.
+- Execution loop consumes only enabled strategies via the `enabled_strategies` callable bound in the orchestrator.
+
+### C1 — Operator API
+- **`register_operator_endpoints`** (`interfaces/api/operator.py`), served under `/v1`: read panels (positions, orders, trades, portfolio, equity-curve, pnl, kill-switch, preflight, readiness, workflow, strategies, review) and write actions (kill-switch engage/disengage, workflow advance, strategy create/compare/enable/disable/promote/archive/clone). Error semantics: 400/404/409/501.
+
+### C4 — Session reports
+- **`SessionReportService`** (`domain/services/session_report.py`): immutable session snapshot (workflow state, transition log, portfolio, positions, trades, catalog + promoted strategy, risk, duration) with JSON and Markdown exports.
+- Endpoints: `GET /v1/reports/session` and `?fmt=markdown`.
+
+### C5/C6 — Documentation and productization
+- **`docs/engineering/FINISH_LINE_DASHBOARD.md`** (new): authoritative operator-surface design doc (workflow semantics, endpoint map, error semantics, catalog, report contract, DoD).
+- **`README.md`**: productized entry point — new features, operator curl examples, documentation table.
+
 ## [Unreleased] - Sprint 13 (Programme B — Operational Trust)
 
 ### OT-001 — Binance WebSocket transport (thin; live connectivity = declared risk)

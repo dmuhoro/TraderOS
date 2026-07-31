@@ -17,6 +17,8 @@ from traderos.domain.ports import EventBusPort
 from traderos.domain.ports import HealthPort
 from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricsPort
+from traderos.domain.repositories.strategy_repository import StrategyRepository
+from traderos.domain.repositories.workflow_repository import OperatorWorkflowRepository
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.broker_state_reconciliation_service import (
@@ -26,12 +28,15 @@ from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
+from traderos.domain.services.operator_session import OperatorSessionService
+from traderos.domain.services.operator_workflow import OperatorWorkflow
 from traderos.domain.services.paper_trading_service import PaperTradingService
 from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.preflight_service import PreflightService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
+from traderos.domain.services.strategy_management import StrategyCatalogService
 
 
 @dataclass
@@ -62,6 +67,12 @@ class TradingOrchestrator:
     market_ids: list[uuid.UUID] = field(default_factory=list)
     _daemon_controller: DaemonController = field(init=False, repr=False)
 
+    strategy_repository: StrategyRepository | None = None
+    workflow_repository: OperatorWorkflowRepository | None = None
+    operator_workflow: OperatorWorkflow | None = None
+    strategy_catalog: StrategyCatalogService | None = None
+    operator_session: OperatorSessionService | None = None
+
     def _pre_cycle_check(self) -> None:
         if self.preflight_service is not None:
             verdict = self.preflight_service.check(live_mode=self.mode == TradingMode.LIVE)
@@ -70,6 +81,12 @@ class TradingOrchestrator:
                     self.notifications.warning("Preflight", f)
 
     def __post_init__(self) -> None:
+        catalog = self.strategy_catalog
+        enabled_strategies = (
+            (lambda: [(s.name, s.template or s.name, s.params) for s in catalog.get_enabled()])
+            if catalog is not None
+            else None
+        )
         self._cycle_executor = CycleExecutor(
             mode=self.mode,
             signal_service=self.signal_service,
@@ -87,6 +104,7 @@ class TradingOrchestrator:
             data_ingestion=self.data_ingestion,
             default_cash=self.default_cash,
             preflight_service=self.preflight_service,
+            enabled_strategies=enabled_strategies,
         )
         self._daemon_controller = DaemonController(
             mode=self.mode,

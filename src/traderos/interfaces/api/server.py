@@ -254,17 +254,6 @@ def build_app() -> Any:
             "ready": True,
         }
 
-    @router.get("/strategies")
-    def list_strategies():
-        return {"strategies": strategy_registry.list()}
-
-    @router.get("/strategies/{name}")
-    def get_strategy(name: str):
-        strat = strategy_registry.get(name)
-        if strat is None:
-            raise HTTPException(404, f"Strategy '{name}' not found")
-        return {"name": name, "version": strat.version}
-
     @router.post("/backtest")
     def run_backtest(req: BacktestRequest):
         strat_cls = strategy_registry.get(req.strategy)
@@ -391,6 +380,10 @@ def build_app() -> Any:
                 for e in orch.run_manifest.get_runs(service=service)
             ]
         }
+
+    from traderos.interfaces.api.operator import register_operator_endpoints
+
+    register_operator_endpoints(router, lambda: create_orchestrator())
 
     app.include_router(router)
     return app

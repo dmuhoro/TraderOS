@@ -217,7 +217,10 @@ class TestPreflightRefusalMatrix:
         executor = _make_executor(broker, preflight)
         executor._signal_service.process_evaluation.return_value = _SignalProvenance()
         strategy_registry.register(_DummyStrategy)
-        result = executor.run(uuid.uuid4(), 50000.0)
+        try:
+            result = executor.run(uuid.uuid4(), 50000.0)
+        finally:
+            strategy_registry.unregister(_DummyStrategy.name)
         return broker.place_market_order_called, result.errors
 
     def test_preflight_failure_prevents_broker_call(self) -> None:
@@ -261,7 +264,10 @@ class TestPreflightRefusalMatrix:
         executor._mode = TradingMode.LIVE
         executor._signal_service.process_evaluation.return_value = _SignalProvenance()
         strategy_registry.register(_DummyStrategy)
-        result = executor.run(uuid.uuid4(), 50000.0)
+        try:
+            result = executor.run(uuid.uuid4(), 50000.0)
+        finally:
+            strategy_registry.unregister(_DummyStrategy.name)
         called = executor._broker.place_market_order_called
         errors = result.errors
         assert not called
@@ -276,7 +282,10 @@ class TestPreflightRefusalMatrix:
             executor._mode = TradingMode.LIVE
             executor._signal_service.process_evaluation.return_value = _SignalProvenance()
             strategy_registry.register(_DummyStrategy)
-            executor.run(uuid.uuid4(), 50000.0)
+            try:
+                executor.run(uuid.uuid4(), 50000.0)
+            finally:
+                strategy_registry.unregister(_DummyStrategy.name)
             called = executor._broker.place_market_order_called
             assert called, "Broker SHOULD be called when live confirmed"
         finally:

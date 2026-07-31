@@ -22,6 +22,9 @@ from traderos.infrastructure.repositories.in_memory.strategies import (
 from traderos.infrastructure.repositories.in_memory.strategies import InMemoryStrategyRepository
 from traderos.infrastructure.repositories.in_memory.trades import InMemoryPositionRepository
 from traderos.infrastructure.repositories.in_memory.trades import InMemoryTradeRepository
+from traderos.infrastructure.repositories.in_memory.workflows import (
+    InMemoryOperatorWorkflowRepository,
+)
 
 __all__ = [
     "InMemoryBacktestResultRepository",
@@ -37,6 +40,7 @@ __all__ = [
     "InMemoryMarketDataRepository",
     "InMemoryMarketRepository",
     "InMemoryObservationRepository",
+    "InMemoryOperatorWorkflowRepository",
     "InMemoryPositionRepository",
     "InMemoryRepository",
     "InMemorySignalRepository",

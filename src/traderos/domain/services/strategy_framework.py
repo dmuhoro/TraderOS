@@ -28,6 +28,14 @@ class StrategyBase(ABC):
     name: str
     version: str = "1.0.0"
 
+    def __init__(self, params: dict | None = None) -> None:
+        # Operator-supplied tuning knobs (Programme C: no Python editing).
+        self.params: dict = params or {}
+
+    def _param(self, key: str, default: float) -> float:
+        value = self.params.get(key, default)
+        return float(value)
+
     @abstractmethod
     def evaluate(self, state: MarketState) -> SignalResult | None: ...
 
@@ -39,6 +47,9 @@ class StrategyRegistry:
     def register(self, strategy_cls: type[StrategyBase]) -> type[StrategyBase]:
         self._strategies[strategy_cls.name] = strategy_cls
         return strategy_cls
+
+    def unregister(self, name: str) -> None:
+        self._strategies.pop(name, None)
 
     def get(self, name: str) -> type[StrategyBase] | None:
         return self._strategies.get(name)
@@ -61,10 +72,14 @@ class MovingAverageTrend(StrategyBase):
         if fast is None or slow is None or slow == 0:
             return None
         ratio = (fast - slow) / slow
-        if ratio > 0.02:
-            return SignalResult("long", min(ratio * 10, 1.0), {"fast": fast, "slow": slow})
-        if ratio < -0.02:
-            return SignalResult("short", min(abs(ratio) * 10, 1.0), {"fast": fast, "slow": slow})
+        threshold = self._param("trend_threshold", 0.02)
+        multiplier = self._param("confidence_multiplier", 10.0)
+        if ratio > threshold:
+            return SignalResult("long", min(ratio * multiplier, 1.0), {"fast": fast, "slow": slow})
+        if ratio < -threshold:
+            return SignalResult(
+                "short", min(abs(ratio) * multiplier, 1.0), {"fast": fast, "slow": slow}
+            )
         return None
 
 
@@ -78,9 +93,13 @@ class VolatilityBreakout(StrategyBase):
         close = state.indicators.get("close")
         if atr is None or close is None or close == 0:
             return None
-        if atr / close > 0.02:
+        threshold = self._param("volatility_threshold", 0.02)
+        multiplier = self._param("confidence_multiplier", 5.0)
+        if atr / close > threshold:
             direction = "long" if state.indicators.get("sma_20", 0) > close else "short"
-            return SignalResult(direction, min(atr / close * 5, 1.0), {"atr": atr, "close": close})
+            return SignalResult(
+                direction, min(atr / close * multiplier, 1.0), {"atr": atr, "close": close}
+            )
         return None
 
 
@@ -95,14 +114,17 @@ class MeanReversion(StrategyBase):
         close = state.indicators.get("close")
         if bb_upper is None or bb_lower is None or close is None:
             return None
+        multiplier = self._param("confidence_multiplier", 5.0)
         if close > bb_upper:
             distance = (close - bb_upper) / bb_upper
             return SignalResult(
-                "short", min(distance * 5, 1.0), {"close": close, "upper": bb_upper}
+                "short", min(distance * multiplier, 1.0), {"close": close, "upper": bb_upper}
             )
         if close < bb_lower:
             distance = (bb_lower - close) / bb_lower
-            return SignalResult("long", min(distance * 5, 1.0), {"close": close, "lower": bb_lower})
+            return SignalResult(
+                "long", min(distance * multiplier, 1.0), {"close": close, "lower": bb_lower}
+            )
         return None
 
 
@@ -115,10 +137,11 @@ class StrategyEvaluationService:
         strat = self.repo.get(strategy_id)
         if strat is None:
             return None
-        strat_cls = self.registry.get(strat.name)
+        template = strat.template or strat.name
+        strat_cls = self.registry.get(template)
         if strat_cls is None:
             return None
-        instance = strat_cls()
+        instance = strat_cls(params=strat.params)
         return instance.evaluate(state)
 
     def evaluate_all(self, state: MarketState) -> list[tuple[str, SignalResult]]:

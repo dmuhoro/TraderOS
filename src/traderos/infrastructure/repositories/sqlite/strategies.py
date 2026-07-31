@@ -38,6 +38,18 @@ class SQLiteStrategyRepository(SQLiteRepository[Strategy], StrategyRepository):
                 created_at TEXT NOT NULL
             )
             """)
+        self._ensure_column("template", "ALTER TABLE strategies ADD COLUMN template TEXT")
+
+    def _ensure_column(self, column: str, ddl: str) -> None:
+        rows = self.conn.execute("PRAGMA table_info(strategies)").fetchall()
+        columns = [row[1] for row in rows]
+        if column in columns:
+            return
+        try:
+            self.conn.execute(ddl)
+            self.conn.commit()
+        except Exception:  # noqa: BLE001, S110 — concurrent-safe best effort
+            pass
 
     def _to_row(self, entity: Strategy) -> dict:
         return {
@@ -46,17 +58,24 @@ class SQLiteStrategyRepository(SQLiteRepository[Strategy], StrategyRepository):
             "params": to_json(entity.params),
             "version": entity.version,
             "status": entity.status.value,
+            "template": entity.template,
             "created_at": entity.created_at.isoformat(),
         }
 
     def _from_row(self, row: sqlite3.Row) -> Strategy:
         params = cast(dict, from_json(row["params"]) or {})
+        template: str | None = None
+        try:
+            template = row["template"]
+        except IndexError:  # pragma: no cover — legacy schema without column
+            template = None
         return Strategy(
             id=to_uuid(row["id"]),
             name=row["name"],
             params=params,
             version=row["version"],
             status=StrategyStatus(row["status"]),
+            template=template,
             created_at=to_dt(row["created_at"]),
         )
 

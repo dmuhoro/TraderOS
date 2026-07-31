@@ -16,6 +16,7 @@ from traderos.infrastructure.repositories.sqlite.strategies import SQLiteBacktes
 from traderos.infrastructure.repositories.sqlite.strategies import SQLiteStrategyRepository
 from traderos.infrastructure.repositories.sqlite.trades import SQLitePositionRepository
 from traderos.infrastructure.repositories.sqlite.trades import SQLiteTradeRepository
+from traderos.infrastructure.repositories.sqlite.workflows import SQLiteOperatorWorkflowRepository
 
 __all__ = [
     "SQLiteBacktestResultRepository",
@@ -31,6 +32,7 @@ __all__ = [
     "SQLiteMarketDataRepository",
     "SQLiteMarketRepository",
     "SQLiteObservationRepository",
+    "SQLiteOperatorWorkflowRepository",
     "SQLitePositionRepository",
     "SQLiteRepository",
     "SQLiteSignalRepository",

@@ -17,6 +17,7 @@ from traderos.domain.entities.research import Lesson
 from traderos.domain.entities.research import Observation
 from traderos.domain.entities.signal import Signal
 from traderos.domain.entities.signal import SignalDirection
+from traderos.domain.entities.strategy import ENABLED_STRATEGY_STATUSES
 from traderos.domain.entities.strategy import Strategy
 from traderos.domain.entities.strategy import StrategyStatus
 from traderos.domain.entities.trade import Trade
@@ -29,6 +30,7 @@ from traderos.domain.entities.value_objects import SessionConfig
 from traderos.domain.entities.value_objects import Timeframe
 
 __all__ = [
+    "ENABLED_STRATEGY_STATUSES",
     "OHLCV",
     "AssetClass",
     "BacktestResult",

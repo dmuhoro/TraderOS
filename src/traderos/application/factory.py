@@ -18,6 +18,8 @@ from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
+from traderos.domain.services.operator_session import OperatorSessionService
+from traderos.domain.services.operator_workflow import OperatorWorkflow
 from traderos.domain.services.paper_trading_service import PaperBrokerAdapter
 from traderos.domain.services.paper_trading_service import PaperTradingService
 from traderos.domain.services.portfolio_service import PortfolioService
@@ -27,6 +29,7 @@ from traderos.domain.services.reconciliation_service import PersistentKillSwitch
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
+from traderos.domain.services.strategy_management import StrategyCatalogService
 from traderos.infrastructure.audit import AuditService as InMemoryAuditService
 from traderos.infrastructure.collectors.mock_collector import MockDataCollector
 from traderos.infrastructure.config.config_loader import Config
@@ -45,14 +48,19 @@ from traderos.infrastructure.observability_postgres import PostgresAuditService
 from traderos.infrastructure.observability_postgres import PostgresHealthService
 from traderos.infrastructure.observability_postgres import PostgresManifestService
 from traderos.infrastructure.observability_postgres import PostgresMetricsService
+from traderos.infrastructure.repositories.in_memory import InMemoryBacktestResultRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryOperatorWorkflowRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryPositionRepository
 from traderos.infrastructure.repositories.in_memory import InMemorySignalRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryStrategyRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryTradeRepository
 from traderos.infrastructure.repositories.postgres import PostgresPositionRepository
 from traderos.infrastructure.repositories.postgres import PostgresSignalRepository
 from traderos.infrastructure.repositories.postgres import PostgresTradeRepository
+from traderos.infrastructure.repositories.sqlite import SQLiteOperatorWorkflowRepository
 from traderos.infrastructure.repositories.sqlite import SQLitePositionRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteSignalRepository
+from traderos.infrastructure.repositories.sqlite import SQLiteStrategyRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteTradeRepository
 from traderos.infrastructure.run_manifest import RunManifestService as InMemoryManifestService
 
@@ -182,6 +190,43 @@ def build_orchestrator(
 
     backtest = BacktestingService(execution=execution)
 
+    if db is not None and backend != PG_BACKEND:
+        strategy_repo = SQLiteStrategyRepository(db)
+        workflow_repo = SQLiteOperatorWorkflowRepository(db)
+    else:
+        # PostgreSQL strategy/workflow repos do not exist yet (WP-C4 scope);
+        # the operator catalog degrades to in-memory on PG-backed builds.
+        strategy_repo = InMemoryStrategyRepository()
+        workflow_repo = InMemoryOperatorWorkflowRepository()
+
+    strategy_catalog = StrategyCatalogService(
+        repo=strategy_repo,
+        backtest=backtest,
+        backtest_results=(
+            InMemoryBacktestResultRepository()
+            if db is None
+            else None  # legacy v001 backtest_results schema diverges (SQLite)
+        ),
+    )
+    strategy_catalog.ensure_seeded()
+
+    operator_workflow = workflow_repo.load()
+    if operator_workflow is None:
+        operator_workflow = OperatorWorkflow()
+        workflow_repo.save(operator_workflow)
+
+    operator_session = OperatorSessionService(
+        workflow=operator_workflow,
+        repository=workflow_repo,
+        preflight=preflight_service,
+        broker=broker,
+        broker_reconciliation=broker_reconciliation,
+        data_ingestion=data_ingestion,
+        paper=paper,
+        strategy_catalog=strategy_catalog,
+        live_mode=trading_mode == TradingMode.LIVE,
+    )
+
     if market_ids is not None:
         mids = market_ids
     elif data_market_ids:
@@ -211,6 +256,11 @@ def build_orchestrator(
         notifications=notifications,
         run_manifest=run_manifest,
         market_ids=mids,
+        strategy_repository=strategy_repo,
+        workflow_repository=workflow_repo,
+        operator_workflow=operator_workflow,
+        strategy_catalog=strategy_catalog,
+        operator_session=operator_session,
     )
     return orch
 

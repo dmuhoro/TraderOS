@@ -5,13 +5,17 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import UTC
 from datetime import datetime
+from decimal import Decimal
 from typing import NamedTuple
 
+from traderos.domain.entities import OHLCV
 from traderos.domain.entities import BacktestResult
 from traderos.domain.entities import Candle
 from traderos.domain.entities import EquityCurve
 from traderos.domain.entities import Metrics
+from traderos.domain.entities import Timeframe
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.execution_service import Order
 from traderos.domain.services.strategy_framework import MarketState
@@ -23,6 +27,36 @@ class BacktestStep(NamedTuple):
     equity: float
     order: Order | None
     fill_price: float | None
+
+
+def synthetic_candles(
+    count: int = 50,
+    start_price: float = 100.0,
+    market_id: uuid.UUID | None = None,
+) -> list[Candle]:
+    """Deterministic upward-trend candles for operator compare/backtest runs.
+
+    Shared by the API, CLI and strategy management so a backtest has a stable,
+    reproducible market without live connectivity (synthetic-only, unchanged
+    from the pre-existing behaviour).
+    """
+    mid = market_id or uuid.uuid4()
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    return [
+        Candle(
+            market_id=mid,
+            ohlcv=OHLCV(
+                open=Decimal(str(round(start_price + i, 4))),
+                high=Decimal(str(round(start_price + i + 1, 4))),
+                low=Decimal(str(round(start_price + i - 1, 4))),
+                close=Decimal(str(round(start_price + i, 4))),
+                volume=Decimal(1000),
+            ),
+            timestamp=start,
+            timeframe=Timeframe.DAY_1,
+        )
+        for i in range(count)
+    ]
 
 
 @dataclass
