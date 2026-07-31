@@ -40,6 +40,20 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: traderos_test
+          POSTGRES_USER: traderos
+          POSTGRES_PASSWORD: traderos
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U traderos -d traderos_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
