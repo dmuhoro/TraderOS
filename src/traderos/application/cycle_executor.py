@@ -95,15 +95,34 @@ class CycleExecutor:
             candles: list = []
             if self._data_ingestion is not None:
                 candles = self._data_ingestion.fetch_candles(market_id, limit=100)
+
             sma_20 = close_price
+            sma_50 = close_price
             atr_14 = close_price * 0.01
+            bb_upper_20 = close_price
+            bb_lower_20 = close_price
+            high = close_price * 1.01
+            low = close_price * 0.99
+            volume = 1000.0
             if candles:
-                sma_results = self._analysis.compute_sma(candles, 20)
-                if sma_results:
-                    sma_20 = sma_results[-1].value
+                last_candle = candles[-1]
+                high = float(last_candle.ohlcv.high)
+                low = float(last_candle.ohlcv.low)
+                volume = float(last_candle.ohlcv.volume)
+                sma_20_results = self._analysis.compute_sma(candles, 20)
+                if sma_20_results:
+                    sma_20 = sma_20_results[-1].value
+                sma_50_results = self._analysis.compute_sma(candles, 50)
+                if sma_50_results:
+                    sma_50 = sma_50_results[-1].value
                 atr_results = self._analysis.compute_atr(candles, 14)
                 if atr_results:
                     atr_14 = atr_results[-1].value
+                bb = self._analysis.compute_bollinger_bands(candles, 20, 2.0)
+                if bb.upper:
+                    bb_upper_20 = bb.upper[-1].value
+                if bb.lower:
+                    bb_lower_20 = bb.lower[-1].value
 
             strategies = strategy_registry.list()
             for name in strategies:
@@ -116,11 +135,14 @@ class CycleExecutor:
                         candles=candles,
                         indicators={
                             "close": close_price,
-                            "high": close_price * 1.01,
-                            "low": close_price * 0.99,
-                            "volume": 1000.0,
+                            "high": high,
+                            "low": low,
+                            "volume": volume,
                             "sma_20": sma_20,
+                            "sma_50": sma_50,
                             "atr_14": atr_14,
+                            "bb_upper_20": bb_upper_20,
+                            "bb_lower_20": bb_lower_20,
                         },
                         timestamp=candle_time or datetime.now(UTC),
                     )
@@ -169,7 +191,7 @@ class CycleExecutor:
                         risk = self._risk_service.assess_trade(
                             price=close_price,
                             confidence=signal.confidence,
-                            atr=close_price * 0.01,
+                            atr=atr_14,
                             account_equity=eq,
                         )
                         if risk.kelly_fraction <= 0:
@@ -177,6 +199,7 @@ class CycleExecutor:
                         qty = self._portfolio_service.size_position(
                             cash=cash,
                             confidence=signal.confidence,
+                            price=close_price,
                         )
                         if qty <= 0:
                             continue
@@ -209,8 +232,7 @@ class CycleExecutor:
                             if fill.order_id:
                                 trade.submit(str(fill.order_id))
                                 self._portfolio_service.update_trade(trade)
-                            trade.fill(fill.fill_quantity, fill.fill_price)
-                            self._portfolio_service.update_trade(trade)
+                            self._portfolio_service.fill_trade(trade, fill_price=fill.fill_price)
                             trades_count += 1
                             self._event_bus.publish(
                                 Event(
@@ -221,7 +243,7 @@ class CycleExecutor:
                                         "qty": fill.fill_quantity,
                                         "price": fill.fill_price,
                                         "trade_id": str(trade.id),
-                                        "order_id": str(fill.order_id or ""),
+                                        "order_id": str(trade.external_order_id or ""),
                                     },
                                 )
                             )
@@ -241,16 +263,15 @@ class CycleExecutor:
                             },
                         )
                     )
-                finally:
-                    self._metrics.counter("cycles.completed")
 
             self._health.report_healthy(f"market.{market_id}")
         except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
             errors.append(str(e))
             self._health.report_unhealthy(f"market.{market_id}", str(e))
 
+        self._metrics.counter("cycles.completed")
         duration = (time.perf_counter() - start) * 1000
-        self._metrics.timing("cycle.duration_ms").stop()
+        self._metrics.gauge("cycle.duration_ms", duration)
 
         t = candle_time or datetime.now(UTC)
         self._event_bus.publish(

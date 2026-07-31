@@ -11,6 +11,7 @@ from traderos.domain.entities import TradeStatus
 from traderos.domain.ports import AuditPort
 from traderos.domain.repositories import TradeRepository
 from traderos.domain.repositories.trade_repository import PositionRepository
+from traderos.domain.services.risk_service import RiskService
 
 
 class PortfolioSummary(NamedTuple):
@@ -27,6 +28,7 @@ class PortfolioService:
     trade_repo: TradeRepository
     position_repo: PositionRepository
     audit: AuditPort | None = None
+    risk_service: RiskService | None = None
 
     def get_summary(self, cash: float) -> PortfolioSummary:
         positions = self.position_repo.list_open()
@@ -45,11 +47,14 @@ class PortfolioService:
         self,
         cash: float,
         confidence: float,
+        price: float,
         risk_per_trade: float = 0.02,
         max_allocation: float = 0.25,
     ) -> float:
         allocation = min(risk_per_trade * confidence * 10, max_allocation)
-        return cash * allocation
+        if price <= 0:
+            return 0.0
+        return round(cash * allocation / price, 8)
 
     def compute_pnl(self, position: Position, market_price: float) -> float:
         return position.quantity * (market_price - position.entry_price)
@@ -142,6 +147,8 @@ class PortfolioService:
     ) -> float:
         realized = position.close(close_price)
         self.position_repo.update(position)
+        if self.risk_service is not None:
+            self.risk_service.record_realized_pnl(realized)
         if self.audit:
             self.audit.record(
                 "position.close",

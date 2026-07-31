@@ -428,6 +428,7 @@ Scored 1–5 (5 = highest). **Leverage** = engineering×business×risk combined;
 ### Programme A — Core Loop Integrity
 **Goal:** the single trading cycle is *correct* — every subsystem it touches does what its tests claim.
 **Duration:** ~4 weeks | **PRI delta:** 22 → ~35 | **Blocker:** none (pure correctness)
+**Status: COMPLETED 2026-07-31** — all A1 correctness defects closed (D1–D6, D8, D9; D7 reclassified by-design). Evidence: `docs/engineering/CORE_LOOP_TRUTH.md`, `docs/engineering/CORE_LOOP_EVIDENCE.md`. Machine truth: **843 tests passed, 84.63% coverage, ruff/pyright clean.**
 
 | Work package | Tasks |
 |--------------|-------|
@@ -437,6 +438,8 @@ Scored 1–5 (5 = highest). **Leverage** = engineering×business×risk combined;
 | A4 — Hygiene sweep | Delete dead weight (Section 4+10); consolidate D1/D4/D7; unify strategy store; fix version drift; make runbooks true |
 
 **Why it matters:** Every downstream programme builds on a correct core loop. Today the loop has verified correctness defects (positions never created, sizing in dollars, 2/3 strategies dead) that would corrupt live accounts. Fixing these is the highest-risk-reduction work available.
+
+**Programme A outcome (2026-07-31):** defects fixed and pinned by 11 new invariant regression tests in `tests/test_core_loop_invariants.py` (I1/I2/I3/I5/I6/I8/I9 + D1–D6/D8/D9). Suite 832 → **843 passed**, coverage 84.42% → **84.63%**, ruff/pyright clean. Remaining Programme A backlog — A2 (wire analysis layer into the cycle), A3 (decompose `run()` into phase functions), A4 (hygiene sweep) — carries forward; note the Code Freeze scoped Programme A to *correctness only*, which is complete.
 **Dependencies:** none. **Expected leverage:** unlocks B and C; +25 PRI-equivalent trust.
 
 ### Programme B — Operational Trust
@@ -495,7 +498,7 @@ SDK, multi-tenancy, RBAC, pricing/billing, alerting integrations, advanced repor
 | Cycle executor never creates Position via `fill_trade()` | ✅ `cycle_executor.py:197-213` — `open_trade`/`update_trade` only |
 | Sizing returns dollars used as qty | ✅ `portfolio_service.size_position` returns `cash*allocation` |
 | docker-compose runs two API instances, no daemon | ✅ compose services `traderos` + `traderos-api` share entrypoint |
-| 832 tests / 84% coverage | ✅ local run 832 passed, 84.53% |
+| 832 tests / 84% coverage | ✅ fixed by Programme A: **843 passed, 84.63%** (`python3 -m pytest -q -p no:randomly`); evidence in `CORE_LOOP_EVIDENCE.md` §4 |
 | ruff clean | ✅ `ruff check src/traderos/` — All checks passed |
 | OT-001…OT-011 | ✅ from OPERATIONAL_TRUST_REPORT (22/100) |
 | No `modify_order` anywhere | ✅ grep across BrokerAdapter/Port/Alpaca/Paper/RateLimited |
