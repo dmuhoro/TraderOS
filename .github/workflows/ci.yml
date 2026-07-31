@@ -86,7 +86,7 @@ jobs:
       - name: Check dependency vulnerabilities
         run: pip-audit
       - name: Check for hardcoded secrets and security issues
-        run: bandit -r src/traderos/ -ll
+        run: bandit -r src/traderos/ -lll
 
   docker:
     runs-on: ubuntu-latest
