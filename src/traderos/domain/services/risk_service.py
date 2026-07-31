@@ -68,6 +68,15 @@ class KillSwitch:
             return TradeVerdict(False, f"Daily loss limit reached: {self.daily_realized_pnl:.2f}")
         return TradeVerdict(True, "")
 
+    def engage(self) -> None:
+        """Operator kill switch: block all trading immediately."""
+        self.circuit_open = True
+
+    def disengage(self) -> None:
+        """Clear the operator kill switch and failure counters."""
+        self.circuit_open = False
+        self.consecutive_failures = 0
+
     def reset(self) -> None:
         self.consecutive_failures = 0
         self.daily_realized_pnl = 0.0

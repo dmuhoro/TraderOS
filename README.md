@@ -29,6 +29,10 @@ make test
 - **Live Trading** — Alpaca integration for real market execution
 - **Risk Management** — Kill switch, circuit breaker, max drawdown, max positions
 - **Signal Framework** — Pluggable strategies (MA Trend, Volatility Breakout, Mean Reversion)
+- **Strategy Catalog** — Versioned strategy lifecycle (draft → active → promoted/disabled/archived), cloning, comparison ranking
+- **Operator Workflow** — Enforced paper→live session lifecycle with a per-step gate on every check
+- **Operator Dashboard API** — positions, orders, trades, portfolio, equity curve, pnl, kill switch, preflight, readiness, workflow, strategies, session reports
+- **Session Reports** — JSON/Markdown snapshot of a completed operator session
 - **REST API** — FastAPI server with health, strategies, backtest, paper trade, audit, metrics
 - **CLI** — Unified command-line interface for all operations
 - **Observability** — Audit trail (hash-chained), metrics, health checks, run manifest
@@ -83,6 +87,25 @@ traderos signal <market_id>      # Active signals
 # API server
 traderos-api                     # Start on 0.0.0.0:8000
 ```
+
+Operator workflow (paper → live) via the dashboard API:
+
+```bash
+curl -X POST localhost:8000/v1/workflow/advance -H 'Content-Type: application/json' -d '{"step": "start"}'
+curl localhost:8000/v1/workflow        # current step, status, history
+curl localhost:8000/v1/positions       # positions, orders, trades, portfolio, equity-curve, pnl
+curl -X POST localhost:8000/v1/kill-switch/engage
+curl localhost:8000/v1/reports/session # JSON session report (?fmt=markdown for Markdown)
+```
+
+## Documentation
+
+| Document | Purpose |
+|----------|---------|
+| `docs/engineering/FINISH_LINE_DASHBOARD.md` | Authoritative design of the operator surface (workflow, API, catalog, reports) |
+| `docs/engineering/CORE_LOOP_TRUTH.md` | Canonical description of the trading core loop |
+| `docs/engineering/OPERATIONAL_TRUST_MATRIX.md` | Operational-trust closure record |
+| `docs/engineering/MASTER_EXECUTION_PROGRAMME.md` | v1 master execution programme |
 
 ## Configuration
 

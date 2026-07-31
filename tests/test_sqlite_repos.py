@@ -214,6 +214,38 @@ class TestSQLiteStrategyRepository(RepositoryContractTests[Strategy]):
     def make_entity(self):
         return _strategy()
 
+    def test_template_roundtrip(self) -> None:
+        repo = self.make_repository()
+        strategy = Strategy(
+            name="TemplateMA",
+            params={"period": 5},
+            version="1.0.0",
+            template="moving_average_trend",
+        )
+        repo.add(strategy)
+        loaded = repo.get(strategy.id)
+        assert loaded is not None
+        assert loaded.template == "moving_average_trend"
+        assert loaded.params == {"period": 5}
+
+    def test_template_column_self_heals_on_legacy_table(self) -> None:
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            "CREATE TABLE strategies ("
+            " id TEXT PRIMARY KEY, name TEXT UNIQUE, params TEXT, version TEXT,"
+            " status TEXT, created_at TEXT)"
+        )
+        conn.commit()
+        repo = SQLiteStrategyRepository(conn)
+        repo.add(Strategy(name="Healed", params={}, version="1.0.0", template="mean_reversion"))
+        loaded = repo.get_by_name("Healed")
+        assert loaded is not None
+        assert loaded.template == "mean_reversion"
+        conn.close()
+
 
 class TestSQLiteBacktestResultRepository(RepositoryContractTests[BacktestResult]):
     def make_repository(self):
