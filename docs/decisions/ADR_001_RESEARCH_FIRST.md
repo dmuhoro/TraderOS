@@ -19,4 +19,3 @@ TraderOS is designed to create validated decision quality before capital deploym
 ## Status
 
 Accepted
-

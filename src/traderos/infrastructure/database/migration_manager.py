@@ -1,37 +1,38 @@
 import importlib
 import os
-import sqlite3
 from typing import Any
+
+from traderos.infrastructure.database.migration_utils import PG
+from traderos.infrastructure.database.migration_utils import detect_backend
+from traderos.infrastructure.database.migration_utils import execute
 
 SCHEMA_VERSION_TABLE = "_schema_version"
 
-PG = "postgres"
-
-
-def _detect_backend(conn: Any) -> str:
-    if isinstance(conn, sqlite3.Connection):
-        return "sqlite"
-    return PG
-
 
 def _ensure_version_table(conn: Any):
-    backend = _detect_backend(conn)
+    backend = detect_backend(conn)
     if backend == PG:
-        conn.execute(f"""
+        execute(
+            conn,
+            f"""
             CREATE TABLE IF NOT EXISTS {SCHEMA_VERSION_TABLE} (
                 version INTEGER PRIMARY KEY,
                 description TEXT,
                 applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """)
+        """,
+        )
     else:
-        conn.execute(f"""
+        execute(
+            conn,
+            f"""
             CREATE TABLE IF NOT EXISTS {SCHEMA_VERSION_TABLE} (
                 version INTEGER PRIMARY KEY,
                 description TEXT,
                 applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
-        """)
+        """,
+        )
     conn.commit()
 
 
@@ -59,7 +60,7 @@ def _discover_migrations(migrations_dir: str | None = None) -> list[dict[str, An
 
 def get_current_version(conn: Any) -> int:
     _ensure_version_table(conn)
-    row = conn.execute(f"SELECT COALESCE(MAX(version), 0) FROM {SCHEMA_VERSION_TABLE}").fetchone()
+    row = execute(conn, f"SELECT COALESCE(MAX(version), 0) FROM {SCHEMA_VERSION_TABLE}").fetchone()
     return row[0] if row else 0
 
 
@@ -70,7 +71,7 @@ def _version_placeholder(backend: str) -> str:
 def migrate(conn: Any, target_version: int | None = None, migrations_dir: str | None = None):
     _ensure_version_table(conn)
     migrations = _discover_migrations(migrations_dir)
-    backend = _detect_backend(conn)
+    backend = detect_backend(conn)
     ph = _version_placeholder(backend)
 
     if target_version is None:
@@ -86,7 +87,8 @@ def migrate(conn: Any, target_version: int | None = None, migrations_dir: str | 
         ]
         for m in pending:
             m["up"](conn, backend=backend)
-            conn.execute(
+            execute(
+                conn,
                 f"INSERT INTO {SCHEMA_VERSION_TABLE} (version, description) VALUES ({ph}, {ph})",
                 (m["version"], m["description"]),
             )
@@ -99,9 +101,15 @@ def migrate(conn: Any, target_version: int | None = None, migrations_dir: str | 
             if m["version"] <= current and m["version"] > target_version
         ]
         for m in pending:
-            m["down"](conn, backend=backend)
-            conn.execute(
+            # Remove the version marker BEFORE applying the down() so a
+            # partially-failed down can never leave a phantom version row
+            # pointing at dropped tables (OT-005). All down() implementations
+            # are idempotent (DROP TABLE IF EXISTS), so retries are safe.
+            execute(
+                conn,
                 f"DELETE FROM {SCHEMA_VERSION_TABLE} WHERE version = {ph}",
                 (m["version"],),
             )
+            conn.commit()
+            m["down"](conn, backend=backend)
             conn.commit()

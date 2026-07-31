@@ -89,4 +89,3 @@ Every architectural decision must answer:
 "Does this improve the quality of trader decisions?"
 
 If not, it should not exist.
-

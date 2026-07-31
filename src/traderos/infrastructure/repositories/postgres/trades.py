@@ -7,6 +7,7 @@ from traderos.domain.entities import Position
 from traderos.domain.entities import Trade
 from traderos.domain.entities import TradeSide
 from traderos.domain.entities import TradeStatus
+from traderos.domain.entities.trade import OPEN_TRADE_STATUSES
 from traderos.domain.repositories.trade_repository import PositionRepository
 from traderos.domain.repositories.trade_repository import TradeRepository
 from traderos.infrastructure.repositories.postgres.base import PostgresRepository
@@ -98,14 +99,11 @@ class PostgresTradeRepository(PostgresRepository[Trade], TradeRepository):
         return [self._from_row(row) for row in rows]
 
     def get_open(self) -> list[Trade]:
-        open_values = (
-            TradeStatus.PENDING.value,
-            TradeStatus.SUBMITTED.value,
-            TradeStatus.PARTIALLY_FILLED.value,
-        )
+        open_values = tuple(v.value for v in OPEN_TRADE_STATUSES)
+        placeholders = ", ".join("%s" for _ in open_values)
         with self.conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM trades WHERE status IN (%s, %s, %s) ORDER BY created_at",
+                f"SELECT * FROM trades WHERE status IN ({placeholders}) ORDER BY created_at",
                 open_values,
             )
             rows = cur.fetchall()

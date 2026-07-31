@@ -93,4 +93,3 @@ Every experiment increases understanding.
 The system's greatest asset is not software.
 
 It is accumulated truth.
-

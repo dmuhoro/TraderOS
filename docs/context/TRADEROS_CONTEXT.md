@@ -142,4 +142,3 @@ TraderOS succeeds when it can answer:
 - What should be tested next?
 
 before capital is deployed.
-

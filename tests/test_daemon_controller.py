@@ -17,7 +17,6 @@ from traderos.infrastructure.health import HealthService
 from traderos.infrastructure.metrics import MetricsService
 from traderos.infrastructure.run_manifest import RunManifestService
 
-
 TS = datetime.now(UTC)
 
 

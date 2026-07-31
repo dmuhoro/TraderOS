@@ -75,22 +75,24 @@ class TestBinanceCollector:
         import json
         from unittest.mock import patch
 
-        mock_json = json.dumps([
+        mock_json = json.dumps(
             [
-                1704067200000,
-                "44000.0",
-                "44500.0",
-                "43900.0",
-                "44200.0",
-                "1234.5",
-                1704067260000,
-                "54321000.0",
-                100,
-                "2200.0",
-                "98765000.0",
-                "0",
+                [
+                    1704067200000,
+                    "44000.0",
+                    "44500.0",
+                    "43900.0",
+                    "44200.0",
+                    "1234.5",
+                    1704067260000,
+                    "54321000.0",
+                    100,
+                    "2200.0",
+                    "98765000.0",
+                    "0",
+                ]
             ]
-        ])
+        )
         with patch("urllib.request.urlopen") as mock_urlopen:
             mock_resp = mock_urlopen.return_value.__enter__.return_value
             mock_resp.read.return_value = mock_json.encode()

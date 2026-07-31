@@ -1,3 +1,5 @@
+from traderos.infrastructure.database.migration_utils import execute
+
 VERSION = 2
 DESCRIPTION = "Observability persistence: audit_log, metrics_history, health_history, run_manifest"
 
@@ -12,7 +14,9 @@ def up(conn, backend: str = "sqlite"):
     s = _serial(backend)
     seq_type = "SERIAL" if backend == PG else "INTEGER"
     seq_null = "NOT NULL" if backend == PG else ""
-    conn.execute(f"""
+    execute(
+        conn,
+        f"""
         CREATE TABLE IF NOT EXISTS audit_log (
             id TEXT PRIMARY KEY,
             action TEXT NOT NULL,
@@ -24,8 +28,11 @@ def up(conn, backend: str = "sqlite"):
             hash TEXT NOT NULL,
             id_seq {seq_type} {seq_null}
         )
-    """)
-    conn.execute(f"""
+    """,
+    )
+    execute(
+        conn,
+        f"""
         CREATE TABLE IF NOT EXISTS metrics_history (
             id {s},
             name TEXT NOT NULL,
@@ -33,8 +40,11 @@ def up(conn, backend: str = "sqlite"):
             timestamp TEXT NOT NULL,
             tags TEXT DEFAULT '{{}}'
         )
-    """)
-    conn.execute(f"""
+    """,
+    )
+    execute(
+        conn,
+        f"""
         CREATE TABLE IF NOT EXISTS health_history (
             id {s},
             service TEXT NOT NULL,
@@ -43,8 +53,11 @@ def up(conn, backend: str = "sqlite"):
             latency_ms REAL DEFAULT 0.0,
             timestamp TEXT NOT NULL
         )
-    """)
-    conn.execute(f"""
+    """,
+    )
+    execute(
+        conn,
+        f"""
         CREATE TABLE IF NOT EXISTS run_manifest (
             id {s},
             run_id TEXT NOT NULL,
@@ -55,16 +68,17 @@ def up(conn, backend: str = "sqlite"):
             timestamp TEXT NOT NULL,
             metadata TEXT DEFAULT '{{}}'
         )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics_history(name)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_health_service ON health_history(service)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_manifest_service ON run_manifest(service)")
+    """,
+    )
+    execute(conn, "CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)")
+    execute(conn, "CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor)")
+    execute(conn, "CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics_history(name)")
+    execute(conn, "CREATE INDEX IF NOT EXISTS idx_health_service ON health_history(service)")
+    execute(conn, "CREATE INDEX IF NOT EXISTS idx_manifest_service ON run_manifest(service)")
 
 
 def down(conn, backend: str = "sqlite"):
-    conn.execute("DROP TABLE IF EXISTS run_manifest")
-    conn.execute("DROP TABLE IF EXISTS health_history")
-    conn.execute("DROP TABLE IF EXISTS metrics_history")
-    conn.execute("DROP TABLE IF EXISTS audit_log")
+    execute(conn, "DROP TABLE IF EXISTS run_manifest")
+    execute(conn, "DROP TABLE IF EXISTS health_history")
+    execute(conn, "DROP TABLE IF EXISTS metrics_history")
+    execute(conn, "DROP TABLE IF EXISTS audit_log")

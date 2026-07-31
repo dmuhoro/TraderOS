@@ -17,6 +17,8 @@ from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricSample
 from traderos.domain.ports import MetricsPort
 from traderos.infrastructure.audit import compute_audit_hash
+from traderos.infrastructure.health import DEFAULT_CHECK_TIMEOUT
+from traderos.infrastructure.health import run_with_timeout
 
 
 class SQLiteAuditService(AuditPort):
@@ -268,8 +270,7 @@ class SQLiteHealthService(HealthPort):
 
     def check(self, name: str, check_fn: Any) -> HealthStatus:
         try:
-            result = check_fn()
-            if result:
+            if bool(run_with_timeout(check_fn, DEFAULT_CHECK_TIMEOUT)):
                 return self.report_healthy(name, "check passed")
             return self.report_unhealthy(name, "check failed")
         except (RuntimeError, ValueError, OSError) as e:

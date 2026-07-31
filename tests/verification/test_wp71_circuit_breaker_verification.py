@@ -1,6 +1,7 @@
 """Release-gate tests for WP-7.1; these encode the ADR's required contract."""
 
-from traderos.domain.services.risk_service import KillSwitch, RiskService
+from traderos.domain.services.risk_service import KillSwitch
+from traderos.domain.services.risk_service import RiskService
 from traderos.infrastructure.metrics import MetricsService
 
 

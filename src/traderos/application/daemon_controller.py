@@ -189,8 +189,34 @@ class DaemonController:
     def _is_market_hours(self, mid: uuid.UUID) -> bool:
         return True
 
+    def _detect_crash(self) -> bool:
+        """True when the previous daemon process never recorded a clean stop.
+
+        The durable manifest records ``start`` on boot and ``stop`` on shutdown;
+        a last action of ``start`` means the process died mid-run (OT-002).
+        In-memory manifests have no history, so this defaults to no crash.
+        """
+        detect = getattr(self._run_manifest, "detect_unclean_shutdown", None)
+        if not callable(detect):
+            return False
+        try:
+            return bool(detect("orchestrator"))
+        except Exception:  # noqa: BLE001 — crash detection must never crash
+            return False
+
+    def _recover_from_crash(
+        self,
+        local_trades: list | None = None,
+        broker_orders_state: list | None = None,
+    ) -> ReconciliationResult:
+        if self._crash_recovered:
+            return ReconciliationResult()
+        if not self._detect_crash():
+            return ReconciliationResult()
+        return self.recover_from_crash(local_trades, broker_orders_state)
+
     def run_forever(self, interval_seconds: int = 60, shutdown_timeout: int = 30) -> None:
-        self.recover_from_crash()
+        self._recover_from_crash()
         if not self._run_startup_reconciliation():
             self._notifications.critical(
                 "Startup Reconciliation Failed",

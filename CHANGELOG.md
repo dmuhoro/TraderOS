@@ -1,5 +1,46 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 13 (Programme B — Operational Trust)
+
+### OT-001 — Binance WebSocket transport (thin; live connectivity = declared risk)
+- **`BinanceStreamTransport`** (`infrastructure/market_stream.py`): subscribes to `<symbol>@aggTrade`, parses frames, yields normalized raw ticks. Pure `parse_trade_frame` (handles combined-stream envelopes + raw `aggTrade`/`trade`, skips acks/klines), `build_subscription_frame`, `binance_stream_symbol`. Connector injected for offline tests; default lazily imports `websockets`. Live connect is **not** claimed — no network in this environment.
+
+### OT-002 — Durable idempotency/replay + restart recovery
+- **`OrderEventJournal`** (`infrastructure/journal.py`, `v005` migration): durable `order_events` table; preloads processed IDs at startup; `replay()` republishes pending events.
+- **`DurableRunManifest`** (`infrastructure/run_manifest.py`): sqlite-backed run history + `detect_unclean_shutdown`; `DaemonController._detect_crash`/`_recover_from_crash` run post-crash reconciliation only after an unclean shutdown.
+
+### OT-003 — Order-event side effects atomic via outbox
+- **`OrderEventEngine`**: journal record committed **before** persist/publish; `mark_published` only after a successful publish; publish failures stay pending and replay exactly once.
+
+### OT-004 — Tick validation + timestamp normalization
+- **`validate_tick`/`normalize_timestamp`/`InvalidTickError`** (`market_stream.py`): finite positive price, non-negative quantity, symbol checks, ms-vs-seconds auto-detection, stale/future rejection; malformed frames skipped, counted, never treated as a transport outage.
+
+### OT-005 — ACKNOWLEDGED open-order parity + Postgres migration path (H7)
+- **`OPEN_TRADE_STATUSES`** in `domain/entities/trade.py` used by in-memory/sqlite/postgres `get_open()`.
+- **`migration_utils.execute`** cursor routing; version marker deleted **before** `down()`; `v002–v005` backend-aware + idempotent; `v004` guards a missing `trades` table on fresh PG.
+
+### OT-006/OT-011 — Concurrency safety
+- **Per-trade locks** in `OrderEventEngine` (64/32-thread tests: exactly-one acceptance). **`ThreadSafeSQLiteConnection`** (`infrastructure/database/connection.py`) serializes every statement/cursor; `_connect_sqlite` honors an explicit `Config.db_path` (env must not shadow it).
+
+### OT-007/OT-008 — Candle robustness + bounded retention
+- **`CandleAggregator`**: epoch buckets, `flush`/`flush_all`/`flush_stale`, late-tick rejection + counter, bounded closed-bucket deque. **`ReplayRecorder`**: maxlen deque + drop counter; latency buffer trimmed.
+
+### OT-009 — Duplicate/overflow fill guards
+- **`_validate_fill`**: rejects non-finite/≤0 quantity, quantity > order quantity, non-finite/≤0 price.
+
+### OT-010 — Bounded health + liveness/readiness
+- **`run_with_timeout`** (`infrastructure/health.py`); `GET /v1/healthz` (liveness, no orchestrator build) and `GET /v1/health` (readiness, bounded by `ORCHESTRATOR_READY_TIMEOUT`, 503 degraded on timeout) in `interfaces/api/server.py`.
+
+### Regression surface
+- **`tests/test_programme_b_operational_trust.py` (new, 51 tests)** covering all 11 findings.
+
+### Docs
+- **`docs/engineering/OPERATIONAL_TRUST_MATRIX.md`**, **`docs/engineering/RECOVERY_TRUTH.md`**, **`docs/engineering/FAILURE_INJECTION_REPORT.md`** (new); MEP §26 and blueprint §13/§14 updated. Sprint report: `sprints/SPRINT_13.md`.
+
+### Verification
+- **864 tests passing, 0 failures**, **83.77% coverage** (threshold 70%), **ruff clean on `src/traderos`**, **pyright 0 errors**.
+- **Declared, non-fabricated remaining risks:** R-01 live Binance WS connectivity (no network/`websockets` in sandbox); R-02 live Alpaca/Postgres behavior (no credentials/server). Both are contract/structure-tested only.
+
 ## [Unreleased] - Sprint 12 (Programme A — Core Loop Integrity)
 
 ### D1/D2 — Fills now create positions; paper-broker fills no longer crash

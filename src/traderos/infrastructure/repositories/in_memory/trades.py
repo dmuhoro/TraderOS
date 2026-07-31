@@ -4,12 +4,10 @@ import uuid
 
 from traderos.domain.entities import Position
 from traderos.domain.entities import Trade
-from traderos.domain.entities.trade import TradeStatus
+from traderos.domain.entities.trade import OPEN_TRADE_STATUSES
 from traderos.domain.repositories.trade_repository import PositionRepository
 from traderos.domain.repositories.trade_repository import TradeRepository
 from traderos.infrastructure.repositories.in_memory.base import InMemoryRepository
-
-_OPEN_STATUSES = {TradeStatus.PENDING, TradeStatus.SUBMITTED, TradeStatus.PARTIALLY_FILLED}
 
 
 class InMemoryTradeRepository(InMemoryRepository[Trade], TradeRepository):
@@ -20,7 +18,7 @@ class InMemoryTradeRepository(InMemoryRepository[Trade], TradeRepository):
         return [t for t in self.list() if t.market_id == market_id]
 
     def get_open(self) -> list[Trade]:
-        return [t for t in self.list() if t.status in _OPEN_STATUSES]
+        return [t for t in self.list() if t.status in OPEN_TRADE_STATUSES]
 
 
 class InMemoryPositionRepository(InMemoryRepository[Position], PositionRepository):

@@ -17,6 +17,7 @@ from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
 from traderos.infrastructure.config.config_loader import Config
+from traderos.infrastructure.health import run_with_timeout
 from traderos.infrastructure.logging import setup_json_logging
 from traderos.infrastructure.rate_limiter import RateLimiter
 
@@ -81,6 +82,7 @@ _api_key: str | None = None
 _rate_limiter = RateLimiter(
     max_requests=int(os.getenv("RATE_LIMIT_MAX", "100")), window_seconds=60.0
 )
+ORCHESTRATOR_READY_TIMEOUT = float(os.getenv("ORCHESTRATOR_READY_TIMEOUT", "5.0"))
 
 
 def _load_api_key() -> str | None:
@@ -99,12 +101,17 @@ def _verify_api_key(request: Request) -> None:
         raise HTTPException(401, "Unauthorized: invalid or missing API key")
 
 
-def create_orchestrator(mode: str = "paper") -> TradingOrchestrator:
+def create_orchestrator(
+    mode: str = "paper", *, timeout: float | None = None
+) -> TradingOrchestrator:
     if mode in _orch_cache:
         return _orch_cache[mode]
 
     cfg = Config.load()
-    orch = build_orchestrator(mode=mode, config=cfg)
+    if timeout is not None:
+        orch = run_with_timeout(lambda: build_orchestrator(mode=mode, config=cfg), timeout)
+    else:
+        orch = build_orchestrator(mode=mode, config=cfg)
     _orch_cache[mode] = orch
     return orch
 
@@ -224,10 +231,28 @@ def build_app() -> Any:
         msg = "Prometheus client not installed; pip install traderos[monitoring]"
         return _error_response(501, msg)
 
+    @router.get("/healthz")
+    def get_liveness():
+        # Liveness: process is up and can answer requests. No dependency
+        # initialization, so this can never stall (OT-010).
+        return {"status": "alive"}
+
     @router.get("/health")
     def get_health():
-        orch = create_orchestrator()
-        return {"status": "ok", "mode": orch.mode.value, "running": orch.running}
+        # Readiness: bounded dependency initialization. A cold start that
+        # exceeds the budget reports 503 "degraded" instead of hanging.
+        try:
+            orch = create_orchestrator(timeout=ORCHESTRATOR_READY_TIMEOUT)
+        except TimeoutError:
+            return _error_response(
+                503, f"orchestrator not ready (build exceeded {ORCHESTRATOR_READY_TIMEOUT}s)"
+            )
+        return {
+            "status": "ok",
+            "mode": orch.mode.value,
+            "running": orch.running,
+            "ready": True,
+        }
 
     @router.get("/strategies")
     def list_strategies():
