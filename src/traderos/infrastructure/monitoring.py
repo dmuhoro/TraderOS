@@ -27,6 +27,13 @@ class PrometheusMetricsService(MetricsPort):
         self._prom_counters: dict[str, Any] = {}
         self._prom_gauges: dict[str, Any] = {}
         self._prom_histograms: dict[str, Any] = {}
+        self._registry: Any = (
+            _prometheus_client.CollectorRegistry() if _has_prometheus else None  # type: ignore[attr-defined]
+        )
+
+    @property
+    def registry(self) -> Any:
+        return self._registry
 
     def _counter(self, name: str) -> Any:
         if name not in self._prom_counters and _has_prometheus:
@@ -34,6 +41,7 @@ class PrometheusMetricsService(MetricsPort):
                 name.replace(".", "_"),
                 f"Counter: {name}",
                 namespace=self._namespace,
+                registry=self._registry,
             )
         return self._prom_counters.get(name)
 
@@ -43,15 +51,17 @@ class PrometheusMetricsService(MetricsPort):
                 name.replace(".", "_"),
                 f"Gauge: {name}",
                 namespace=self._namespace,
+                registry=self._registry,
             )
         return self._prom_gauges.get(name)
 
     def _histogram(self, name: str) -> Any:
         if name not in self._prom_histograms and _has_prometheus:
             self._prom_histograms[name] = _prometheus_client.Histogram(  # type: ignore[union-attr]
-                name.replace(".", "_"),
+                f"{name.replace('.', '_')}_seconds",
                 f"Histogram: {name}",
                 namespace=self._namespace,
+                registry=self._registry,
                 buckets=[1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000],
             )
         return self._prom_histograms.get(name)
@@ -96,6 +106,11 @@ class PrometheusMetricsService(MetricsPort):
     def clear(self) -> None:
         self._counters.clear()
         self._gauges.clear()
+        self._prom_counters.clear()
+        self._prom_gauges.clear()
+        self._prom_histograms.clear()
+        if _has_prometheus:
+            self._registry = _prometheus_client.CollectorRegistry()  # type: ignore[attr-defined]
 
 
 class TimingContext:

@@ -32,8 +32,8 @@ class TestConfigV2:
         with pytest.raises(AttributeError):
             config.db_path = "/new/path"
 
-    def test_validate_passes(self) -> None:
-        config = Config()
+    def test_validate_passes(self, tmp_path) -> None:
+        config = Config(db_path=str(tmp_path / "trader.db"))
         config.validate()
 
     def test_validate_empty_db_path(self) -> None:

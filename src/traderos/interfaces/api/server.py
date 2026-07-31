@@ -19,6 +19,7 @@ from traderos.domain.services.strategy_framework import registry as strategy_reg
 from traderos.infrastructure.config.config_loader import Config
 from traderos.infrastructure.health import run_with_timeout
 from traderos.infrastructure.logging import setup_json_logging
+from traderos.infrastructure.monitoring import PrometheusMetricsService
 from traderos.infrastructure.rate_limiter import RateLimiter
 
 if TYPE_CHECKING:
@@ -79,6 +80,7 @@ class PaperSessionResponse(BaseModel):  # type: ignore[valid-type,misc]
 
 _orch_cache: dict[str, TradingOrchestrator] = {}
 _api_key: str | None = None
+_metrics_service = PrometheusMetricsService()
 _rate_limiter = RateLimiter(
     max_requests=int(os.getenv("RATE_LIMIT_MAX", "100")), window_seconds=60.0
 )
@@ -139,11 +141,10 @@ def _error_response(status_code: int, message: str):
 
 def _prometheus_metrics() -> Response | None:
     try:
-        from prometheus_client import REGISTRY
         from prometheus_client import generate_latest
 
         return Response(
-            content=generate_latest(REGISTRY),
+            content=generate_latest(_metrics_service.registry),
             media_type="text/plain; version=0.0.4",
         )
     except ImportError:
@@ -190,14 +191,8 @@ def build_app() -> Any:
         start = time.perf_counter()
         response = await call_next(request)
         elapsed = (time.perf_counter() - start) * 1000
-        try:
-            from traderos.infrastructure.monitoring import PrometheusMetricsService
-
-            svc = PrometheusMetricsService()
-            svc.counter("http_requests_total", 1)
-            svc.observe("http_request_duration_ms", elapsed)
-        except ImportError:
-            pass
+        _metrics_service.counter("http_requests_total", 1)
+        _metrics_service.observe("http_request_duration_ms", elapsed)
         return response
 
     @app.middleware("http")
