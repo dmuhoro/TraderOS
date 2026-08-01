@@ -10,14 +10,25 @@ from traderos.application.orchestrator import TradingMode
 from traderos.application.orchestrator import TradingOrchestrator
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.adapters.broker_adapter import FillResult
+from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.risk_service import RiskService
+from traderos.domain.services.strategy_framework import SignalResult
+from traderos.domain.services.strategy_framework import StrategyBase
+from traderos.domain.services.strategy_framework import registry as strategy_registry
 from traderos.infrastructure.audit import AuditService
 from traderos.infrastructure.events import InMemoryEventBus
 from traderos.infrastructure.health import HealthService
 from traderos.infrastructure.metrics import MetricsService
 from traderos.infrastructure.run_manifest import RunManifestService
+
+
+class _BacktestStrat(StrategyBase):
+    name = "test_orchestrator_backtest"
+
+    def evaluate(self, state):
+        return SignalResult("long", 0.8, {"reason": "test"})
 
 
 class MockBroker(BrokerAdapter):
@@ -29,6 +40,19 @@ class MockBroker(BrokerAdapter):
 
     def cancel_order(self, order_id):
         return FillResult(True, 0.0, 0.0, 0.0, "cancelled", order_id)
+
+    def place_stop_order(self, market_id, side, quantity, stop_price, market_price=None):
+        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+
+    def place_trailing_stop_order(
+        self, market_id, side, quantity, trail_percent, market_price=None
+    ):
+        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+
+    def modify_order(
+        self, order_id, qty=None, limit_price=None, stop_price=None, trail_percent=None
+    ):
+        return FillResult(True, 0.0, 0.0, 0.0, "modified", order_id)
 
     def get_account_balance(self):
         return 10000.0
@@ -50,7 +74,7 @@ class TestTradingOrchestrator:
             execution=ExecutionService(),
             analysis=Mock(),
             broker=MockBroker(),
-            backtest=Mock(),
+            backtest=BacktestingService(execution=ExecutionService()),
             paper=None,
             event_bus=InMemoryEventBus(),
             health=HealthService(),
@@ -70,13 +94,17 @@ class TestTradingOrchestrator:
         assert not orch.running
 
     def test_run_cycle_backtest_mode(self) -> None:
-        orch = self._make(TradingMode.BACKTEST)
-        orch.start()
-        result = orch.run_cycle(uuid.uuid4(), 100.0)
-        assert isinstance(result, CycleResult)
-        assert result.signals == 0
-        assert result.trades == 0
-        orch.stop()
+        strategy_registry._strategies[_BacktestStrat.name] = _BacktestStrat
+        try:
+            orch = self._make(TradingMode.BACKTEST)
+            orch.start()
+            result = orch.run_cycle(uuid.uuid4(), 100.0)
+            assert isinstance(result, CycleResult)
+            assert result.signals > 0
+            assert result.trades > 0
+            orch.stop()
+        finally:
+            strategy_registry._strategies.pop(_BacktestStrat.name, None)
 
     def test_run_cycle_paper_mode(self) -> None:
         orch = self._make(TradingMode.PAPER)

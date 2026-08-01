@@ -21,6 +21,7 @@ class OrderStatus(Enum):
     PARTIAL = "partial"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
+    MODIFIED = "modified"
 
 
 @dataclass(frozen=True)

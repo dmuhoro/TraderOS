@@ -26,6 +26,7 @@ from traderos.domain.services.broker_state_reconciliation_service import (
 )
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
+from traderos.domain.services.knowledge_graph_service import KnowledgeGraphService
 from traderos.domain.services.live_readiness import LiveReadinessService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
@@ -35,6 +36,7 @@ from traderos.domain.services.paper_trading_service import PaperTradingService
 from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.preflight_service import PreflightService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
+from traderos.domain.services.research_service import ResearchService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_management import StrategyCatalogService
@@ -76,6 +78,8 @@ class TradingOrchestrator:
     operator_session: OperatorSessionService | None = None
     live_readiness: LiveReadinessService | None = None
     secret_rotator: SecretRotator | None = None
+    knowledge_graph: KnowledgeGraphService | None = None
+    research: ResearchService | None = None
 
     def _pre_cycle_check(self) -> None:
         if self.preflight_service is not None:
@@ -109,6 +113,9 @@ class TradingOrchestrator:
             default_cash=self.default_cash,
             preflight_service=self.preflight_service,
             enabled_strategies=enabled_strategies,
+            backtest=self.backtest,
+            knowledge_graph=self.knowledge_graph,
+            research=self.research,
         )
         self._daemon_controller = DaemonController(
             mode=self.mode,

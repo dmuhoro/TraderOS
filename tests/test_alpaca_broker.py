@@ -46,20 +46,38 @@ def _build_mock_alpaca():
     class FakeTimeInForce:
         DAY = "day"
 
-    class FakeLimitOrderRequest:
+    class FakeOrderType:
+        STOP = "stop"
+        TRAILING_STOP = "trailing_stop"
+
+    class _FakeRequest:
         def __init__(self, **kwargs):
             for k, v in kwargs.items():
                 setattr(self, k, v)
 
-    class FakeMarketOrderRequest:
-        def __init__(self, **kwargs):
-            for k, v in kwargs.items():
-                setattr(self, k, v)
+    class FakeLimitOrderRequest(_FakeRequest):
+        pass
+
+    class FakeMarketOrderRequest(_FakeRequest):
+        pass
+
+    class FakeStopOrderRequest(_FakeRequest):
+        pass
+
+    class FakeTrailingStopOrderRequest(_FakeRequest):
+        pass
+
+    class FakeReplaceOrderRequest(_FakeRequest):
+        pass
 
     enums.OrderSide = FakeOrderSide
     enums.TimeInForce = FakeTimeInForce
+    enums.OrderType = FakeOrderType
     requests.LimitOrderRequest = FakeLimitOrderRequest
     requests.MarketOrderRequest = FakeMarketOrderRequest
+    requests.StopOrderRequest = FakeStopOrderRequest
+    requests.TrailingStopOrderRequest = FakeTrailingStopOrderRequest
+    requests.ReplaceOrderRequest = FakeReplaceOrderRequest
 
     client.TradingClient = MagicMock()
 
@@ -192,3 +210,51 @@ class TestAlpacaBrokerAdapter:
         adapter.place_market_order(mid, "buy", 1.0)
         order_data = _patch_alpaca.submit_order.call_args[1]["order_data"]
         assert order_data.symbol == "ETHUSD"
+
+    def test_place_stop_order(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        _patch_alpaca.submit_order.return_value = FakeOrder(
+            id="ord-stop", filled_qty=0, qty=1.0, filled_avg_price=None
+        )
+        result = adapter.place_stop_order(uuid.uuid4(), "sell", 1.0, 48000.0)
+        assert result.filled is False
+        assert result.status == "pending"
+        order_data = _patch_alpaca.submit_order.call_args[1]["order_data"]
+        assert order_data.stop_price == 48000.0
+        assert order_data.type == "stop"
+
+    def test_place_stop_order_rejected(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        _patch_alpaca.submit_order.side_effect = RuntimeError("bad stop")
+        result = adapter.place_stop_order(uuid.uuid4(), "sell", 1.0, 48000.0)
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_place_trailing_stop_order(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        _patch_alpaca.submit_order.return_value = FakeOrder(
+            id="ord-trail", filled_qty=0, qty=1.0, filled_avg_price=None
+        )
+        result = adapter.place_trailing_stop_order(uuid.uuid4(), "sell", 1.0, 0.01)
+        assert result.filled is False
+        assert result.status == "pending"
+        order_data = _patch_alpaca.submit_order.call_args[1]["order_data"]
+        assert order_data.trail_percent == 0.01
+        assert order_data.type == "trailing_stop"
+
+    def test_modify_order(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        result = adapter.modify_order("ord1", qty=2.0, stop_price=47000.0)
+        assert result.filled is True
+        assert result.status == "modified"
+        _patch_alpaca.replace_order_by_id.assert_called_once()
+        order_data = _patch_alpaca.replace_order_by_id.call_args[1]["order_data"]
+        assert order_data.qty == 2
+        assert order_data.stop_price == 47000.0
+
+    def test_modify_order_rejected(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        _patch_alpaca.replace_order_by_id.side_effect = RuntimeError("not found")
+        result = adapter.modify_order("ord1", qty=2.0)
+        assert result.filled is False
+        assert result.status == "rejected"

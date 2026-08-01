@@ -53,6 +53,9 @@ class PaperBrokerAdapter(BrokerAdapter):
     partial_fill_probability: float = 0.0
     latency_ms: int = 0
     account_balance: float = float(os.getenv("DEFAULT_CASH", "10000.0"))
+    _positions: dict[str, dict] = field(default_factory=dict)
+    _open_orders: dict[str, dict] = field(default_factory=dict)
+    _order_seq: int = 0
 
     def _fill_result(
         self,
@@ -61,8 +64,61 @@ class PaperBrokerAdapter(BrokerAdapter):
         price: float,
         remaining: float,
         status: OrderStatus,
+        order_id: str = "",
     ) -> FillResult:
-        return FillResult(filled, qty, price, remaining, status.value, "")
+        return FillResult(filled, qty, price, remaining, status.value, order_id)
+
+    def _next_order_id(self) -> str:
+        self._order_seq += 1
+        return f"paper-{self._order_seq}"
+
+    def _apply_fill(self, symbol: str, side: str, qty: float, price: float) -> None:
+        signed = qty if side == "buy" else -qty
+        if side == "buy":
+            self.account_balance -= qty * price
+        else:
+            self.account_balance += qty * price
+
+        current = self._positions.get(symbol)
+        if current is None:
+            if signed > 0:
+                self._positions[symbol] = {
+                    "symbol": symbol,
+                    "qty": qty,
+                    "entry_price": price,
+                    "current_price": price,
+                    "market_value": qty * price,
+                }
+            return
+
+        new_qty = float(current["qty"]) + signed
+        if new_qty <= 0:
+            self._positions.pop(symbol, None)
+            return
+        current["qty"] = new_qty
+        current["market_value"] = abs(new_qty) * price
+        current["current_price"] = price
+        if signed > 0:
+            old_qty = float(current["qty"]) - qty
+            current["entry_price"] = (old_qty * float(current["entry_price"]) + qty * price) / (
+                new_qty
+            )
+
+    def _record_order(
+        self,
+        order_id: str,
+        symbol: str,
+        side: str,
+        quantity: float,
+        order_type: str,
+    ) -> None:
+        self._open_orders[order_id] = {
+            "id": order_id,
+            "symbol": symbol,
+            "qty": quantity,
+            "side": side,
+            "type": order_type,
+        }
 
     def place_market_order(
         self,
@@ -73,6 +129,7 @@ class PaperBrokerAdapter(BrokerAdapter):
     ) -> FillResult:
         import random
 
+        symbol = str(market_id)
         if random.random() > self.fill_probability:
             return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.REJECTED)
         ref_price = close_price if close_price is not None else 1.0
@@ -80,17 +137,25 @@ class PaperBrokerAdapter(BrokerAdapter):
             1 + self.slippage_bps / 10000 if side == "buy" else 1 - self.slippage_bps / 10000
         )
         fill_price = ref_price * slip_multiplier
+        order_id = self._next_order_id()
         if random.random() < self.partial_fill_probability:
             fill_qty = quantity * random.uniform(0.1, 0.9)
             remaining = quantity - fill_qty
+            self._apply_fill(symbol, side, round(fill_qty, 8), round(fill_price, 8))
+            if remaining > 0:
+                self._record_order(order_id, symbol, side, round(remaining, 8), "market")
             return self._fill_result(
                 True,
                 round(fill_qty, 8),
                 round(fill_price, 8),
                 round(remaining, 8),
                 OrderStatus.PARTIAL,
+                order_id,
             )
-        return self._fill_result(True, quantity, round(fill_price, 8), 0.0, OrderStatus.FILLED)
+        self._apply_fill(symbol, side, quantity, round(fill_price, 8))
+        return self._fill_result(
+            True, quantity, round(fill_price, 8), 0.0, OrderStatus.FILLED, order_id
+        )
 
     def place_limit_order(
         self,
@@ -100,15 +165,22 @@ class PaperBrokerAdapter(BrokerAdapter):
         price: float,
         close_price: float | None = None,
     ) -> FillResult:
+        symbol = str(market_id)
+        order_id = self._next_order_id()
         if close_price is None:
-            return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING)
+            self._record_order(order_id, symbol, side, quantity, "limit")
+            return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING, order_id)
         if (side == "buy" and close_price <= price) or (side == "sell" and close_price >= price):
             slip_multiplier = (
                 1 + self.slippage_bps / 10000 if side == "buy" else 1 - self.slippage_bps / 10000
             )
             fill_price = close_price * slip_multiplier
-            return self._fill_result(True, quantity, round(fill_price, 8), 0.0, OrderStatus.FILLED)
-        return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING)
+            self._apply_fill(symbol, side, quantity, round(fill_price, 8))
+            return self._fill_result(
+                True, quantity, round(fill_price, 8), 0.0, OrderStatus.FILLED, order_id
+            )
+        self._record_order(order_id, symbol, side, quantity, "limit")
+        return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING, order_id)
 
     def place_stop_order(
         self,
@@ -116,26 +188,74 @@ class PaperBrokerAdapter(BrokerAdapter):
         side: str,
         quantity: float,
         stop_price: float,
-        market_price: float,
+        market_price: float | None = None,
     ) -> FillResult:
+        symbol = str(market_id)
+        order_id = self._next_order_id()
+        triggered = market_price is not None and (
+            (side == "buy" and market_price >= stop_price)
+            or (side == "sell" and market_price <= stop_price)
+        )
+        if not triggered:
+            self._record_order(order_id, symbol, side, quantity, "stop")
+            return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING, order_id)
+        return self.place_market_order(market_id, side, quantity, close_price=market_price)
+
+    def place_trailing_stop_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        trail_percent: float,
+        market_price: float | None = None,
+    ) -> FillResult:
+        symbol = str(market_id)
+        order_id = self._next_order_id()
+        if market_price is None:
+            self._record_order(order_id, symbol, side, quantity, "trailing_stop")
+            return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING, order_id)
+        stop_price = (
+            market_price * (1 + trail_percent)
+            if side == "buy"
+            else market_price * (1 - trail_percent)
+        )
         triggered = (side == "buy" and market_price >= stop_price) or (
             side == "sell" and market_price <= stop_price
         )
         if not triggered:
-            return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING)
+            self._record_order(order_id, symbol, side, quantity, "trailing_stop")
+            return self._fill_result(False, 0.0, 0.0, quantity, OrderStatus.PENDING, order_id)
         return self.place_market_order(market_id, side, quantity, close_price=market_price)
 
+    def modify_order(
+        self,
+        order_id: str,
+        qty: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        trail_percent: float | None = None,
+    ) -> FillResult:
+        order = self._open_orders.get(order_id)
+        if order is None:
+            return self._fill_result(False, 0.0, 0.0, 0.0, OrderStatus.REJECTED, order_id)
+        if qty is not None:
+            order["qty"] = qty
+        return self._fill_result(True, 0.0, 0.0, 0.0, OrderStatus.MODIFIED, order_id)
+
     def cancel_order(self, order_id: str) -> FillResult:
-        return self._fill_result(True, 0.0, 0.0, 0.0, OrderStatus.CANCELLED)
+        order = self._open_orders.pop(order_id, None)
+        if order is None:
+            return self._fill_result(False, 0.0, 0.0, 0.0, OrderStatus.REJECTED, order_id)
+        return self._fill_result(True, 0.0, 0.0, 0.0, OrderStatus.CANCELLED, order_id)
 
     def get_account_balance(self) -> float:
         return self.account_balance
 
     def get_positions(self) -> list[dict]:
-        return []
+        return list(self._positions.values())
 
     def get_open_orders(self) -> list[dict]:
-        return []
+        return list(self._open_orders.values())
 
 
 @dataclass

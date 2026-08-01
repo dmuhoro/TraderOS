@@ -38,6 +38,19 @@ class _BrokerStub(BrokerAdapter):
     def cancel_order(self, order_id):
         return FillResult(True, 0.0, 0.0, 0.0, "cancelled", order_id)
 
+    def place_stop_order(self, market_id, side, quantity, stop_price, market_price=None):
+        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+
+    def place_trailing_stop_order(
+        self, market_id, side, quantity, trail_percent, market_price=None
+    ):
+        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+
+    def modify_order(
+        self, order_id, qty=None, limit_price=None, stop_price=None, trail_percent=None
+    ):
+        return FillResult(True, 0.0, 0.0, 0.0, "modified", order_id)
+
     def get_account_balance(self):
         if not self.reachable:
             raise RuntimeError("connection refused")
