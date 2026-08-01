@@ -74,6 +74,47 @@ class RateLimitedBroker(BrokerAdapter):
         self._check("cancel_order")
         return self._inner.cancel_order(order_id)
 
+    def place_stop_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        stop_price: float,
+        market_price: float | None = None,
+    ) -> FillResult:
+        self._check("place_stop_order")
+        return self._inner.place_stop_order(market_id, side, quantity, stop_price, market_price)
+
+    def place_trailing_stop_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        trail_percent: float,
+        market_price: float | None = None,
+    ) -> FillResult:
+        self._check("place_trailing_stop_order")
+        return self._inner.place_trailing_stop_order(
+            market_id, side, quantity, trail_percent, market_price
+        )
+
+    def modify_order(
+        self,
+        order_id: str,
+        qty: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        trail_percent: float | None = None,
+    ) -> FillResult:
+        self._check("modify_order")
+        return self._inner.modify_order(
+            order_id,
+            qty=qty,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            trail_percent=trail_percent,
+        )
+
     def get_account_balance(self) -> float:
         self._check("get_account_balance")
         return self._inner.get_account_balance()

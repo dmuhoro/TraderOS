@@ -9,6 +9,11 @@ from traderos.application.cycle_executor import CycleExecutor
 from traderos.application.models import TradingMode
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.adapters.broker_adapter import FillResult
+from traderos.domain.services.backtesting_service import BacktestingService
+from traderos.domain.services.backtesting_service import synthetic_candles
+from traderos.domain.services.execution_service import ExecutionService
+from traderos.domain.services.knowledge_graph_service import KnowledgeGraphService
+from traderos.domain.services.research_service import ResearchService
 from traderos.domain.services.strategy_framework import SignalResult
 from traderos.domain.services.strategy_framework import StrategyBase
 from traderos.domain.services.strategy_framework import registry as strategy_registry
@@ -17,6 +22,13 @@ from traderos.infrastructure.observability import SQLiteAuditService
 from traderos.infrastructure.observability import SQLiteHealthService
 from traderos.infrastructure.observability import SQLiteManifestService
 from traderos.infrastructure.observability import SQLiteMetricsService
+from traderos.infrastructure.repositories.in_memory import InMemoryExperimentRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryExperimentResultRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryHypothesisRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryKnowledgeEdgeRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryKnowledgeNodeRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryLessonRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryObservationRepository
 
 
 class _MockBroker(BrokerAdapter):
@@ -28,6 +40,19 @@ class _MockBroker(BrokerAdapter):
 
     def cancel_order(self, order_id):
         return FillResult(True, 0.0, 0.0, 0.0, "cancelled", order_id)
+
+    def place_stop_order(self, market_id, side, quantity, stop_price, market_price=None):
+        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+
+    def place_trailing_stop_order(
+        self, market_id, side, quantity, trail_percent, market_price=None
+    ):
+        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+
+    def modify_order(
+        self, order_id, qty=None, limit_price=None, stop_price=None, trail_percent=None
+    ):
+        return FillResult(True, 0.0, 0.0, 0.0, "modified", order_id)
 
     def get_account_balance(self):
         return 10000.0
@@ -74,7 +99,37 @@ def _unregister(name):
 
 
 class TestCycleExecutor:
-    def test_backtest_mode_returns_early(self) -> None:
+    def test_backtest_mode_runs_strategies(self) -> None:
+        conn = _make_conn()
+        _register("test_backtest_good", _GoodStrat)
+        try:
+            executor = CycleExecutor(
+                mode=TradingMode.BACKTEST,
+                signal_service=Mock(),
+                risk_service=Mock(),
+                portfolio_service=Mock(),
+                execution=Mock(),
+                analysis=Mock(),
+                broker=_MockBroker(),
+                event_bus=InMemoryEventBus(),
+                health=SQLiteHealthService(conn),
+                audit=SQLiteAuditService(conn),
+                metrics=SQLiteMetricsService(conn),
+                notifications=Mock(),
+                run_manifest=SQLiteManifestService(conn),
+                backtest=BacktestingService(execution=ExecutionService()),
+            )
+            mid = uuid.uuid4()
+            result = executor.run(mid, 100.0)
+            assert result.market_id == mid
+            assert result.signals > 0
+            assert result.trades > 0
+            assert not any("test_backtest_good" in e for e in result.errors)
+        finally:
+            _unregister("test_backtest_good")
+        conn.close()
+
+    def test_backtest_mode_without_service_records_error(self) -> None:
         conn = _make_conn()
         executor = CycleExecutor(
             mode=TradingMode.BACKTEST,
@@ -92,9 +147,131 @@ class TestCycleExecutor:
             run_manifest=SQLiteManifestService(conn),
         )
         result = executor.run(uuid.uuid4(), 100.0)
-        assert result.signals == 0
-        assert result.trades == 0
-        assert len(result.errors) == 0
+        assert len(result.errors) == 1
+        assert "BacktestingService is not available" in result.errors[0]
+        conn.close()
+
+    def test_cycle_analysis_event_publishes_regime(self) -> None:
+        conn = _make_conn()
+        data_ingestion = Mock()
+        data_ingestion.fetch_candles.return_value = synthetic_candles(
+            count=210, market_id=uuid.uuid4()
+        )
+        analysis = Mock()
+        analysis.compute_sma.return_value = []
+        analysis.compute_atr.return_value = []
+        analysis.compute_bollinger_bands.return_value = Mock(upper=[], lower=[])
+        event_bus = InMemoryEventBus()
+        analysis_events: list = []
+        event_bus.subscribe("cycle.analysis", analysis_events.append)
+        executor = CycleExecutor(
+            mode=TradingMode.PAPER,
+            signal_service=Mock(),
+            risk_service=Mock(),
+            portfolio_service=Mock(),
+            execution=Mock(),
+            analysis=analysis,
+            broker=_MockBroker(),
+            event_bus=event_bus,
+            health=SQLiteHealthService(conn),
+            audit=SQLiteAuditService(conn),
+            metrics=SQLiteMetricsService(conn),
+            notifications=Mock(),
+            run_manifest=SQLiteManifestService(conn),
+            data_ingestion=data_ingestion,
+        )
+        executor.run(uuid.uuid4(), 100.0)
+        assert analysis_events, "cycle.analysis event not published"
+        payload = analysis_events[0].payload
+        assert payload["regime"] == "trending_bullish"
+        assert isinstance(payload["breakout_events"], list)
+        conn.close()
+
+    def test_post_trade_records_knowledge_and_research(self) -> None:
+        from datetime import timedelta
+
+        from traderos.domain.entities.signal import Signal
+        from traderos.domain.entities.signal import SignalDirection
+        from traderos.domain.services.analysis_service import AnalysisService
+        from traderos.domain.services.risk_service import KillSwitch
+        from traderos.domain.services.risk_service import RiskAssessment
+        from traderos.domain.services.risk_service import TradeVerdict
+        from traderos.domain.services.signal_service import SignalProvenance
+
+        conn = _make_conn()
+        _register("test_evidence_good", _GoodStrat)
+        try:
+            data_ingestion = Mock()
+            data_ingestion.fetch_candles.return_value = synthetic_candles(
+                count=25, market_id=uuid.uuid4()
+            )
+            now = datetime.now(UTC)
+            signal = Signal(
+                market_id=uuid.uuid4(),
+                strategy_id=uuid.uuid4(),
+                direction=SignalDirection.LONG,
+                confidence=0.8,
+                generated_at=now,
+                expires_at=now + timedelta(hours=1),
+            )
+            provenance = SignalProvenance(signal=signal, strategy_name="x", indicators_used={})
+            signal_service = Mock()
+            signal_service.process_evaluation.return_value = provenance
+            risk_service = Mock()
+            risk_service.can_trade.return_value = TradeVerdict(True, "")
+            risk_service.kill_switch = KillSwitch()
+            risk_service.assess_trade.return_value = RiskAssessment(
+                kelly_fraction=0.5,
+                suggested_stop_loss=99.0,
+                suggested_take_profit=102.0,
+                risk_per_unit=1.0,
+                max_risk_amount=200.0,
+            )
+            portfolio_service = Mock()
+            summary = Mock()
+            summary.open_positions = []
+            summary.total_equity = 10000.0
+            portfolio_service.get_summary.return_value = summary
+            portfolio_service.size_position.return_value = 1.0
+
+            knowledge_graph = KnowledgeGraphService(
+                nodes=InMemoryKnowledgeNodeRepository(),
+                edges=InMemoryKnowledgeEdgeRepository(),
+            )
+            research = ResearchService(
+                observations=InMemoryObservationRepository(),
+                hypotheses=InMemoryHypothesisRepository(),
+                experiments=InMemoryExperimentRepository(),
+                results=InMemoryExperimentResultRepository(),
+                lessons=InMemoryLessonRepository(),
+            )
+
+            executor = CycleExecutor(
+                mode=TradingMode.PAPER,
+                signal_service=signal_service,
+                risk_service=risk_service,
+                portfolio_service=portfolio_service,
+                execution=Mock(),
+                analysis=AnalysisService(),
+                broker=_MockBroker(),
+                event_bus=InMemoryEventBus(),
+                health=SQLiteHealthService(conn),
+                audit=SQLiteAuditService(conn),
+                metrics=SQLiteMetricsService(conn),
+                notifications=Mock(),
+                run_manifest=SQLiteManifestService(conn),
+                data_ingestion=data_ingestion,
+                knowledge_graph=knowledge_graph,
+                research=research,
+            )
+            result = executor.run(uuid.uuid4(), 100.0)
+            assert result.errors == []
+            assert result.trades > 0
+            assert research.observations.list(), "no research observation recorded"
+            assert knowledge_graph.nodes.list(), "no knowledge nodes recorded"
+            assert knowledge_graph.edges.list(), "no knowledge edges recorded"
+        finally:
+            _unregister("test_evidence_good")
         conn.close()
 
     def test_no_data_ingestion_runs_cleanly(self) -> None:

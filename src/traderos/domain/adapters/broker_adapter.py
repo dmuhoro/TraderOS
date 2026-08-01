@@ -39,6 +39,36 @@ class BrokerAdapter(ABC):
     def cancel_order(self, order_id: str) -> FillResult: ...
 
     @abstractmethod
+    def place_stop_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        stop_price: float,
+        market_price: float | None = None,
+    ) -> FillResult: ...
+
+    @abstractmethod
+    def place_trailing_stop_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        trail_percent: float,
+        market_price: float | None = None,
+    ) -> FillResult: ...
+
+    @abstractmethod
+    def modify_order(
+        self,
+        order_id: str,
+        qty: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        trail_percent: float | None = None,
+    ) -> FillResult: ...
+
+    @abstractmethod
     def get_account_balance(self) -> float: ...
 
     @abstractmethod

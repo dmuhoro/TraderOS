@@ -16,6 +16,7 @@ from traderos.domain.services.broker_state_reconciliation_service import (
 )
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
+from traderos.domain.services.knowledge_graph_service import KnowledgeGraphService
 from traderos.domain.services.live_readiness import LiveReadinessService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
@@ -27,6 +28,7 @@ from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.preflight_service import PreflightService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
 from traderos.domain.services.reconciliation_service import PersistentKillSwitch
+from traderos.domain.services.research_service import ResearchService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
@@ -50,6 +52,13 @@ from traderos.infrastructure.observability_postgres import PostgresHealthService
 from traderos.infrastructure.observability_postgres import PostgresManifestService
 from traderos.infrastructure.observability_postgres import PostgresMetricsService
 from traderos.infrastructure.repositories.in_memory import InMemoryBacktestResultRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryExperimentRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryExperimentResultRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryHypothesisRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryKnowledgeEdgeRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryKnowledgeNodeRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryLessonRepository
+from traderos.infrastructure.repositories.in_memory import InMemoryObservationRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryOperatorWorkflowRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryPositionRepository
 from traderos.infrastructure.repositories.in_memory import InMemorySignalRepository
@@ -205,6 +214,18 @@ def build_orchestrator(
 
     backtest = BacktestingService(execution=execution)
 
+    knowledge_graph = KnowledgeGraphService(
+        nodes=InMemoryKnowledgeNodeRepository(),
+        edges=InMemoryKnowledgeEdgeRepository(),
+    )
+    research = ResearchService(
+        observations=InMemoryObservationRepository(),
+        hypotheses=InMemoryHypothesisRepository(),
+        experiments=InMemoryExperimentRepository(),
+        results=InMemoryExperimentResultRepository(),
+        lessons=InMemoryLessonRepository(),
+    )
+
     if db is not None and backend != PG_BACKEND:
         strategy_repo = SQLiteStrategyRepository(db)
         workflow_repo = SQLiteOperatorWorkflowRepository(db)
@@ -287,6 +308,8 @@ def build_orchestrator(
         operator_session=operator_session,
         live_readiness=live_readiness,
         secret_rotator=_build_secret_rotator(),
+        knowledge_graph=knowledge_graph,
+        research=research,
     )
     return orch
 

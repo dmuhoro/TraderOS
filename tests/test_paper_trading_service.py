@@ -4,6 +4,8 @@ import uuid
 from datetime import UTC
 from datetime import datetime
 
+import pytest
+
 from traderos.domain.services.paper_trading_service import DeviationAnalysisService
 from traderos.domain.services.paper_trading_service import PaperBrokerAdapter
 from traderos.domain.services.paper_trading_service import PaperSession
@@ -50,8 +52,74 @@ class TestPaperBrokerAdapter:
 
     def test_cancel_order(self) -> None:
         broker = PaperBrokerAdapter()
-        result = broker.cancel_order("")
-        assert result.status == "cancelled"
+        mid = uuid.uuid4()
+        result = broker.place_limit_order(mid, "buy", 100.0, 90.0, close_price=100.0)
+        assert result.status == "pending"
+        assert len(broker.get_open_orders()) == 1
+        cancelled = broker.cancel_order(result.order_id)
+        assert cancelled.status == "cancelled"
+        assert broker.get_open_orders() == []
+
+    def test_cancel_unknown_order_rejected(self) -> None:
+        broker = PaperBrokerAdapter()
+        assert broker.cancel_order("nope").status == "rejected"
+
+    def test_tracks_positions_and_balance(self) -> None:
+        broker = PaperBrokerAdapter(fill_probability=1.0, slippage_bps=0.0)
+        mid = uuid.uuid4()
+        broker.place_market_order(mid, "buy", 10.0, close_price=100.0)
+        positions = broker.get_positions()
+        assert len(positions) == 1
+        assert positions[0]["symbol"] == str(mid)
+        assert positions[0]["qty"] == 10.0
+        assert broker.get_account_balance() == pytest.approx(10000.0 - 10.0 * 100.0)
+
+    def test_sell_closes_position(self) -> None:
+        broker = PaperBrokerAdapter(fill_probability=1.0)
+        mid = uuid.uuid4()
+        broker.place_market_order(mid, "buy", 10.0, close_price=100.0)
+        broker.place_market_order(mid, "sell", 10.0, close_price=100.0)
+        assert broker.get_positions() == []
+
+    def test_pending_limit_recorded_as_open_order(self) -> None:
+        broker = PaperBrokerAdapter()
+        mid = uuid.uuid4()
+        result = broker.place_limit_order(mid, "buy", 5.0, 90.0, close_price=100.0)
+        assert result.status == "pending"
+        orders = broker.get_open_orders()
+        assert len(orders) == 1
+        assert orders[0]["id"] == result.order_id
+        assert orders[0]["type"] == "limit"
+
+    def test_trailing_stop_rests_open(self) -> None:
+        broker = PaperBrokerAdapter(fill_probability=1.0)
+        mid = uuid.uuid4()
+        result = broker.place_trailing_stop_order(mid, "sell", 5.0, 0.05, market_price=100.0)
+        assert not result.filled
+        assert result.status == "pending"
+        orders = broker.get_open_orders()
+        assert len(orders) == 1
+        assert orders[0]["type"] == "trailing_stop"
+
+    def test_trailing_stop_without_market_price_pending(self) -> None:
+        broker = PaperBrokerAdapter(fill_probability=1.0)
+        mid = uuid.uuid4()
+        result = broker.place_trailing_stop_order(mid, "sell", 5.0, 0.05)
+        assert not result.filled
+        assert result.status == "pending"
+
+    def test_modify_order(self) -> None:
+        broker = PaperBrokerAdapter()
+        mid = uuid.uuid4()
+        result = broker.place_limit_order(mid, "buy", 5.0, 90.0, close_price=100.0)
+        modified = broker.modify_order(result.order_id, qty=8.0)
+        assert modified.status == "modified"
+        orders = broker.get_open_orders()
+        assert orders[0]["qty"] == 8.0
+
+    def test_modify_unknown_order_rejected(self) -> None:
+        broker = PaperBrokerAdapter()
+        assert broker.modify_order("nope", qty=8.0).status == "rejected"
 
     def test_place_market_order_slippage(self) -> None:
         broker = PaperBrokerAdapter(slippage_bps=10.0, fill_probability=1.0)

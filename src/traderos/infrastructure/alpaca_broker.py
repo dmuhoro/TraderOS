@@ -12,19 +12,25 @@ from traderos.infrastructure.retry import retry_with_backoff
 _has_alpaca: bool
 try:
     from alpaca.trading.client import TradingClient as _TradingClient
-    from alpaca.trading.requests import MarketOrderRequest
+    from alpaca.trading.enums import OrderSide as _OrderSide
+    from alpaca.trading.enums import OrderType as _OrderType
+    from alpaca.trading.enums import TimeInForce as _TimeInForce
+    from alpaca.trading.requests import MarketOrderRequest as _MarketOrderRequest
+    from alpaca.trading.requests import ReplaceOrderRequest as _ReplaceOrderRequest
+    from alpaca.trading.requests import StopOrderRequest as _StopOrderRequest
+    from alpaca.trading.requests import TrailingStopOrderRequest as _TrailingStopOrderRequest
 
     _has_alpaca = True
-    _OrderSide_BUY = "buy"
-    _OrderSide_SELL = "sell"
-    _TimeInForce_DAY = "day"
 except ImportError:
     _has_alpaca = False
     _TradingClient = None  # type: ignore[assignment]
-    MarketOrderRequest = None  # type: ignore[assignment]
-    _OrderSide_BUY = "buy"
-    _OrderSide_SELL = "sell"
-    _TimeInForce_DAY = "day"
+    _MarketOrderRequest = None  # type: ignore[assignment]
+    _ReplaceOrderRequest = None  # type: ignore[assignment]
+    _StopOrderRequest = None  # type: ignore[assignment]
+    _TrailingStopOrderRequest = None  # type: ignore[assignment]
+    _OrderSide = None  # type: ignore[assignment]
+    _OrderType = None  # type: ignore[assignment]
+    _TimeInForce = None  # type: ignore[assignment]
 
 
 class AlpacaBrokerAdapter(BrokerAdapter):
@@ -40,6 +46,19 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         self._client: Any = _TradingClient(api_key, secret_key, paper=paper)
         self._symbol_map: dict[uuid.UUID, str] = symbol_map or {}
 
+    def _symbol(self, market_id: uuid.UUID) -> str:
+        return self._symbol_map.get(market_id, str(market_id))
+
+    def _side(self, side: str) -> Any:
+        if _OrderSide is None:
+            raise InfrastructureError("alpaca-py OrderSide not available")
+        return _OrderSide.BUY if side == "buy" else _OrderSide.SELL
+
+    def _time_in_force(self) -> Any:
+        if _TimeInForce is None:
+            raise InfrastructureError("alpaca-py TimeInForce not available")
+        return _TimeInForce.DAY
+
     def place_market_order(
         self,
         market_id: uuid.UUID,
@@ -48,13 +67,11 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         close_price: float | None = None,
     ) -> FillResult:
         try:
-            if MarketOrderRequest is None:
-                raise ImportError("alpaca-py not available")
-            symbol = self._symbol_map.get(market_id, str(market_id))
+            symbol = self._symbol(market_id)
 
             def _submit() -> Any:
                 client = self._client
-                req_cls = MarketOrderRequest
+                req_cls = _MarketOrderRequest
                 if client is None:
                     raise InfrastructureError("Alpaca client not initialized")
                 if req_cls is None:
@@ -63,8 +80,8 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                     order_data=req_cls(
                         symbol=symbol,
                         qty=quantity,
-                        side=_OrderSide_BUY if side == "buy" else _OrderSide_SELL,
-                        time_in_force=_TimeInForce_DAY,
+                        side=self._side(side),
+                        time_in_force=self._time_in_force(),
                     )
                 )
 
@@ -89,11 +106,9 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         close_price: float | None = None,
     ) -> FillResult:
         try:
-            from alpaca.trading.enums import OrderSide
-            from alpaca.trading.enums import TimeInForce
             from alpaca.trading.requests import LimitOrderRequest
 
-            symbol = self._symbol_map.get(market_id, str(market_id))
+            symbol = self._symbol(market_id)
 
             def _submit() -> Any:
                 client = self._client
@@ -103,8 +118,8 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                     order_data=LimitOrderRequest(
                         symbol=symbol,
                         qty=quantity,
-                        side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
-                        time_in_force=TimeInForce.DAY,
+                        side=self._side(side),
+                        time_in_force=self._time_in_force(),
                         limit_price=round(price, 2),
                     )
                 )
@@ -120,6 +135,123 @@ class AlpacaBrokerAdapter(BrokerAdapter):
             )
         except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
             return FillResult(False, 0.0, 0.0, quantity, "rejected", str(e))
+
+    def place_stop_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        stop_price: float,
+        market_price: float | None = None,
+    ) -> FillResult:
+        try:
+            symbol = self._symbol(market_id)
+
+            def _submit() -> Any:
+                client = self._client
+                req_cls = _StopOrderRequest
+                if client is None:
+                    raise InfrastructureError("Alpaca client not initialized")
+                if req_cls is None or _OrderType is None:
+                    raise InfrastructureError("alpaca-py StopOrderRequest not available")
+                return client.submit_order(
+                    order_data=req_cls(
+                        symbol=symbol,
+                        qty=quantity,
+                        side=self._side(side),
+                        time_in_force=self._time_in_force(),
+                        type=_OrderType.STOP,
+                        stop_price=round(stop_price, 2),
+                    )
+                )
+
+            order = retry_with_backoff(_submit, max_retries=2)
+            return FillResult(
+                filled=bool(order.filled_qty),
+                fill_quantity=float(order.filled_qty or 0),
+                fill_price=float(order.filled_avg_price or 0.0),
+                remaining=float(order.qty - (order.filled_qty or 0)),
+                status="filled" if order.filled_qty == order.qty else "pending",
+                order_id=order.id,
+            )
+        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
+            return FillResult(False, 0.0, 0.0, quantity, "rejected", str(e))
+
+    def place_trailing_stop_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        trail_percent: float,
+        market_price: float | None = None,
+    ) -> FillResult:
+        try:
+            symbol = self._symbol(market_id)
+
+            def _submit() -> Any:
+                client = self._client
+                req_cls = _TrailingStopOrderRequest
+                if client is None:
+                    raise InfrastructureError("Alpaca client not initialized")
+                if req_cls is None or _OrderType is None:
+                    raise InfrastructureError("alpaca-py TrailingStopOrderRequest not available")
+                return client.submit_order(
+                    order_data=req_cls(
+                        symbol=symbol,
+                        qty=quantity,
+                        side=self._side(side),
+                        time_in_force=self._time_in_force(),
+                        type=_OrderType.TRAILING_STOP,
+                        trail_percent=round(trail_percent, 4),
+                    )
+                )
+
+            order = retry_with_backoff(_submit, max_retries=2)
+            return FillResult(
+                filled=bool(order.filled_qty),
+                fill_quantity=float(order.filled_qty or 0),
+                fill_price=float(order.filled_avg_price or 0.0),
+                remaining=float(order.qty - (order.filled_qty or 0)),
+                status="filled" if order.filled_qty == order.qty else "pending",
+                order_id=order.id,
+            )
+        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
+            return FillResult(False, 0.0, 0.0, quantity, "rejected", str(e))
+
+    def modify_order(
+        self,
+        order_id: str,
+        qty: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        trail_percent: float | None = None,
+    ) -> FillResult:
+        try:
+
+            def _submit() -> Any:
+                client = self._client
+                req_cls = _ReplaceOrderRequest
+                if client is None:
+                    raise InfrastructureError("Alpaca client not initialized")
+                if req_cls is None:
+                    raise InfrastructureError("alpaca-py ReplaceOrderRequest not available")
+                kwargs: dict[str, Any] = {}
+                if qty is not None:
+                    kwargs["qty"] = int(qty)
+                if limit_price is not None:
+                    kwargs["limit_price"] = round(limit_price, 2)
+                if stop_price is not None:
+                    kwargs["stop_price"] = round(stop_price, 2)
+                if trail_percent is not None:
+                    kwargs["trail"] = round(trail_percent, 4)
+                if not kwargs:
+                    raise InfrastructureError("no fields provided to modify order")
+                return client.replace_order_by_id(order_id, order_data=req_cls(**kwargs))
+
+            retry_with_backoff(_submit, max_retries=2)
+            return FillResult(True, 0.0, 0.0, 0.0, "modified", order_id)
+        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
+            return FillResult(False, 0.0, 0.0, 0.0, "rejected", str(e))
 
     def cancel_order(self, order_id: str) -> FillResult:
         try:

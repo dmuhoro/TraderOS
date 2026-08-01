@@ -19,11 +19,18 @@ from traderos.domain.ports import HealthPort
 from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricsPort
 from traderos.domain.services.analysis_service import AnalysisService
+from traderos.domain.services.backtesting_service import BacktestingService
+from traderos.domain.services.backtesting_service import synthetic_candles
+from traderos.domain.services.breakout_detection import BreakoutDetectionService
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
+from traderos.domain.services.knowledge_graph_service import KnowledgeGraphService
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.preflight_service import PreflightService
+from traderos.domain.services.regime_detection import Regime
+from traderos.domain.services.regime_detection import RegimeDetectionService
+from traderos.domain.services.research_service import ResearchService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import MarketState
@@ -50,6 +57,9 @@ class CycleExecutor:
         default_cash: float = 10000.0,
         preflight_service: PreflightService | None = None,
         enabled_strategies: Callable[[], list[tuple[str, str, dict]]] | None = None,
+        backtest: BacktestingService | None = None,
+        knowledge_graph: KnowledgeGraphService | None = None,
+        research: ResearchService | None = None,
     ) -> None:
         self._mode = mode
         self._signal_service = signal_service
@@ -68,6 +78,9 @@ class CycleExecutor:
         self._default_cash = default_cash
         self._preflight_service = preflight_service
         self._enabled_strategies = enabled_strategies
+        self._backtest = backtest
+        self._knowledge_graph = knowledge_graph
+        self._research = research
 
     def run(
         self, market_id: uuid.UUID, close_price: float, candle_time: datetime | None = None
@@ -90,10 +103,13 @@ class CycleExecutor:
 
         try:
             if self._mode == TradingMode.BACKTEST:
-                self._run_manifest.record(
-                    "orchestrator", "cycle", metadata={"market": str(market_id), "mode": "backtest"}
+                return self._run_backtest_cycle(
+                    market_id=market_id,
+                    cycle_id=cycle_id,
+                    start=start,
+                    errors=errors,
+                    candle_time=candle_time,
                 )
-                return CycleResult(market_id, 0, 0, [], 0.0, datetime.now(UTC))
 
             candles: list = []
             if self._data_ingestion is not None:
@@ -126,6 +142,30 @@ class CycleExecutor:
                     bb_upper_20 = bb.upper[-1].value
                 if bb.lower:
                     bb_lower_20 = bb.lower[-1].value
+
+            regime_value = Regime.UNKNOWN.value
+            if candles:
+                regime_results = RegimeDetectionService.detect(candles)
+                if regime_results:
+                    regime_value = regime_results[-1].regime.value
+                breakout_events = [
+                    {
+                        "timestamp": e.timestamp.isoformat(),
+                        "type": e.event_type,
+                        "description": e.description,
+                    }
+                    for e in BreakoutDetectionService.analyze(candles)
+                ]
+                self._event_bus.publish(
+                    Event(
+                        "cycle.analysis",
+                        {
+                            "market_id": str(market_id),
+                            "regime": regime_value,
+                            "breakout_events": breakout_events,
+                        },
+                    )
+                )
 
             strategy_sources = (
                 self._enabled_strategies()
@@ -256,6 +296,13 @@ class CycleExecutor:
                             )
                             self._risk_service.kill_switch.record_success()
                             self._metrics.counter("trades.executed")
+                            self._record_trade_evidence(
+                                market_id=market_id,
+                                strategy_name=name,
+                                side=side,
+                                quantity=fill.fill_quantity,
+                                price=fill.fill_price,
+                            )
                         else:
                             self._risk_service.kill_switch.record_failure()
                 except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
@@ -301,3 +348,133 @@ class CycleExecutor:
         if self._mode == TradingMode.LIVE:
             return self._broker.get_account_balance()
         return self._default_cash
+
+    def _record_trade_evidence(
+        self,
+        market_id: uuid.UUID,
+        strategy_name: str,
+        side: str,
+        quantity: float,
+        price: float,
+    ) -> None:
+        if self._knowledge_graph is not None:
+            market_label = f"market:{market_id}"
+            market_nodes = self._knowledge_graph.nodes.get_by_label(market_label)
+            market_node = (
+                market_nodes[0]
+                if market_nodes
+                else self._knowledge_graph.add_node(
+                    label=market_label,
+                    node_type="market",
+                    content=f"Traded market {market_id}",
+                )
+            )
+            strategy_node = self._knowledge_graph.add_node(
+                label=f"strategy:{strategy_name}",
+                node_type="strategy",
+                content=f"{strategy_name} fired on {market_id}",
+            )
+            self._knowledge_graph.add_edge(strategy_node.id, market_node.id, "trades_in")
+            self._knowledge_graph.add_edge(market_node.id, strategy_node.id, "has_strategy")
+        if self._research is not None:
+            self._research.create_observation(
+                symbol=str(market_id),
+                content=f"{strategy_name} {side} qty={quantity} @ {price}",
+                tags=[strategy_name, "trade"],
+            )
+
+    def _run_backtest_cycle(
+        self,
+        market_id: uuid.UUID,
+        cycle_id: uuid.UUID,
+        start: float,
+        errors: list[str],
+        candle_time: datetime | None,
+    ) -> CycleResult:
+        if self._backtest is None:
+            raise ServiceError("BacktestingService is not available in BACKTEST mode")
+
+        candles: list = []
+        if self._data_ingestion is not None:
+            candles = self._data_ingestion.fetch_candles(market_id, limit=200)
+        if not candles:
+            candles = synthetic_candles(count=50, market_id=market_id)
+
+        signals_count = 0
+        trades_count = 0
+
+        strategy_sources = (
+            self._enabled_strategies()
+            if self._enabled_strategies is not None
+            else [(name, name, {}) for name in strategy_registry.list()]
+        )
+        for name, template, params in strategy_sources:
+            try:
+                strat_cls = strategy_registry.get(template)
+                if strat_cls is None:
+                    continue
+                strategy = strat_cls(params=params)
+                result, steps = self._backtest.run(strategy, candles, market_id)
+                signals = len([s for s in steps if s.order is not None])
+                trades = len([s for s in steps if s.fill_price is not None])
+                signals_count += signals
+                trades_count += trades
+                metrics = result.metrics
+                self._run_manifest.record(
+                    "orchestrator",
+                    "backtest",
+                    metadata={
+                        "market": str(market_id),
+                        "strategy": name,
+                        "total_return": metrics.total_return,
+                        "sharpe_ratio": metrics.sharpe_ratio,
+                        "max_drawdown": metrics.max_drawdown,
+                    },
+                )
+                self._event_bus.publish(
+                    Event(
+                        "backtest.complete",
+                        {
+                            "market_id": str(market_id),
+                            "strategy": name,
+                            "signals": signals,
+                            "trades": trades,
+                            "total_return": metrics.total_return,
+                            "sharpe_ratio": metrics.sharpe_ratio,
+                            "max_drawdown": metrics.max_drawdown,
+                        },
+                    )
+                )
+            except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
+                errors.append(f"{name}: backtest: {e}")
+                self._event_bus.publish(
+                    Event(
+                        "cycle.error",
+                        {
+                            "market_id": str(market_id),
+                            "strategy": name,
+                            "error": str(e),
+                        },
+                    )
+                )
+
+        self._metrics.counter("cycles.completed")
+        self._metrics.counter("backtests.completed")
+        duration = (time.perf_counter() - start) * 1000
+        self._metrics.gauge("cycle.duration_ms", duration)
+
+        t = candle_time or datetime.now(UTC)
+        self._event_bus.publish(
+            Event(
+                "cycle.complete",
+                {
+                    "cycle_id": str(cycle_id),
+                    "market_id": str(market_id),
+                    "signals": signals_count,
+                    "trades": trades_count,
+                    "errors": errors,
+                    "duration_ms": round(duration, 2),
+                },
+            )
+        )
+        return CycleResult(market_id, signals_count, trades_count, errors, duration, t)
