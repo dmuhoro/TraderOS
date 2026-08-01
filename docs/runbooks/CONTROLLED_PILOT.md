@@ -42,6 +42,29 @@ All checks must pass before a live trading session begins:
 
 ---
 
+## Order-Size Guardrails (Enforced in Front of the Broker)
+
+The broker is wrapped in a `GuardrailedBroker` that rejects any order whose
+size breaches the configured envelope before it reaches the exchange. A
+rejected order returns `status="rejected"` and counts toward the kill-switch
+failure counter like any other broker failure.
+
+| Parameter | Pilot Value | Env Var |
+|-----------|-------------|---------|
+| Guardrail enabled | true | `TRADEROS_ORDER_GUARDRAIL_ENABLED` |
+| Minimum order quantity | 1.0 shares | `TRADEROS_MIN_ORDER_QTY` |
+| Maximum order notional | 500 USD | `TRADEROS_MAX_ORDER_NOTIONAL` |
+
+Rationale for pilot values:
+
+- **Minimum quantity 1.0** — the pilot trades whole-share US equities via
+  Alpaca, which rejects fractional/dust quantities. Any signal that sizes to
+  less than one share is refused instead of being silently rounded to 0.
+- **Maximum notional 500 USD** — caps the blast radius of a single order while
+  the strategy stack is still being validated live.
+
+---
+
 ## Reconciliation
 
 | Parameter | Value | Notes |
