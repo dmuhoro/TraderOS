@@ -1,5 +1,32 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 17 (Pilot Readiness — Order Surface, Service Wiring, Security Hardening, Pilot CLI)
+
+### WP-2 — Order surface
+- **Broker ABC** (`domain/adapters/broker_adapter.py`): `place_stop_order`, `place_trailing_stop_order`, `modify_order`.
+- **Alpaca** (`infrastructure/alpaca_broker.py`): all three implemented via `replace_order_by_id` (qty → int, prices rounded).
+- **Paper broker** (`domain/services/paper_trading_service.py`): stateful adapter (`_positions`, `_open_orders`, `_order_seq`, `_apply_fill`, `_record_order`); stop/trailing stops become real guarded limit orders (trigger only when `market_price is not None`).
+- **`OrderStatus.MODIFIED`** (`domain/services/execution_service.py`); **rate-limiter** pass-throughs for the three new methods.
+
+### WP-3 — Service wiring
+- **BACKTEST mode** now runs enabled strategies through `BacktestingService.run` on fetched/synthetic candles; per-strategy `run_manifest` + `backtest.complete` events; missing service records a `ServiceError` instead of crashing the cycle.
+- **Regime + breakout analysis** run each cycle and publish `cycle.analysis` events (`payload: {market_id, regime, breakout_events}`).
+- **Trade evidence**: post-fill hook creates knowledge-graph market/strategy nodes with `trades_in`/`has_strategy` edges and a `research.create_observation` entry.
+- **Factory** wires in-memory `KnowledgeGraphService` + `ResearchService` (all five research repos) and wraps the broker as `GuardrailedBroker(RateLimitedBroker(broker))`.
+
+### WP-4 — Security hardening
+- **`GuardrailedBroker`** (`infrastructure/order_guardrail.py`, enabled by default): rejects `qty < TRADEROS_MIN_ORDER_QTY` (default 1.0) or notional > `TRADEROS_MAX_ORDER_NOTIONAL` (default 500.0); rejections return `FillResult(..., "rejected", reason)` so they count against the kill-switch failure counter. Covers market/limit/stop/trailing/modify-qty.
+- **CORS**: `CORS_ORIGINS` now defaults to `""` (deny-all browser CORS); explicit `*` or comma-separated origins to enable.
+- `docs/runbooks/CONTROLLED_PILOT.md` gains an **Order-Size Guardrails** section with pilot values.
+
+### WP-5 — Pilot readiness
+- **`traderos pilot readiness`** — runs the live-readiness gate (human table or `--json`), exits 0 only when ready; **`traderos pilot dry-run`** rehearses the operator workflow end to end with `dry_run=True`, driving the state machine from its current step, skipping strategy promotion (operator decision), stopping at the first failing gate.
+- **`docs/runbooks/PILOT_READINESS.md`** — readiness checks, dry-run flow, six go/no-go gates, controlled-live procedure, exit criteria.
+- CLI tests for both pilot subcommands.
+
+### Verification
+- **1060 tests passing, 1 skipped** (full suite), **86.80% coverage** (threshold 70%), **ruff 0 errors** and **pyright 0 errors** on all changed files. Sprint report: `sprints/SPRINT_17.md`.
+
 ## [Unreleased] - Sprint 16 (Programme C — Auth, Observability, Dashboard, Live Verification, Ops)
 
 ### WP-3 — Auth / RBAC
