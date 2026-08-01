@@ -194,6 +194,11 @@ def build_orchestrator(
     else:
         broker = PaperBrokerAdapter(fill_probability=1.0)
 
+    from traderos.infrastructure.broker_rate_limiter import RateLimitedBroker
+    from traderos.infrastructure.order_guardrail import GuardrailedBroker
+
+    broker = GuardrailedBroker(RateLimitedBroker(broker))
+
     broker_reconciliation = BrokerStateReconciliationService(broker=broker)
 
     preflight_service = PreflightService(

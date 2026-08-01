@@ -152,10 +152,14 @@ def build_app() -> Any:
     setup_json_logging()
     _logger = logging.getLogger("traderos.api")
     app = FastAPI(title="TraderOS API", version=version("traderos"))
-    cors_origins = os.getenv("CORS_ORIGINS", "*")
+    cors_origins = os.getenv("CORS_ORIGINS", "").strip()
+    if cors_origins == "*":
+        allowed_origins = ["*"]
+    else:
+        allowed_origins = [o.strip() for o in cors_origins.split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins.split(",") if cors_origins != "*" else ["*"],
+        allow_origins=allowed_origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
