@@ -456,13 +456,13 @@ Scored 1–5 (5 = highest). **Leverage** = engineering×business×risk combined;
 
 **Why it matters:** This is the entire difference between "22/100 — do not approve" and "production-complete, operationally trusted."
 **Dependencies:** A (correct loop to operate), B1 before B2 (data first).
-**Expected leverage:** +45 PRI; first credible live-mode claim. **Evidence:** `OPERATIONAL_TRUST_MATRIX.md`, `RECOVERY_TRUTH.md`, `FAILURE_INJECTION_REPORT.md`, `sprints/SPRINT_13.md`.
+**Expected leverage:** +45 PRI; first credible live-mode claim. **Evidence:** `OPERATIONAL_TRUST_MATRIX.md`, `RECOVERY_TRUTH.md`, `FAILURE_INJECTION_REPORT.md`, `docs/sprints/SPRINT_13.md`.
 
 ### Programme C — Commercial Surface
 **Goal:** a human being can sign in and run the platform.
 **Duration:** ~3 weeks | **PRI delta:** 70 → 75 (ops) | **Depends on:** B
 **Commercial Readiness delta:** 0 → ~60
-**Status (2026-08-01):** **IN PROGRESS.** Restructured into enforced-workflow-first work packages (C1 operator API, C2 enforced workflow, C3 strategy catalog, C4 session reports, C5 dashboard design, C6 productization) — full record in `sprints/SPRINT_14.md`, authoritative design in `docs/engineering/FINISH_LINE_DASHBOARD.md`.
+**Status (2026-08-01):** **IN PROGRESS.** Restructured into enforced-workflow-first work packages (C1 operator API, C2 enforced workflow, C3 strategy catalog, C4 session reports, C5 dashboard design, C6 productization) — full record in `docs/sprints/SPRINT_14.md`, authoritative design in `docs/engineering/FINISH_LINE_DASHBOARD.md`.
 
 | Work package | Tasks |
 |--------------|-------|

@@ -76,7 +76,7 @@
 |------|---------|
 | `docs/engineering/FINISH_LINE_DASHBOARD.md` (new) | Authoritative C5 operator-surface doc |
 | `README.md` | Productized entry point (features, examples, docs table) |
-| `sprints/SPRINT_14.md` | This sprint record |
+| `docs/sprints/SPRINT_14.md` | This sprint record |
 
 ## Machine Truth
 

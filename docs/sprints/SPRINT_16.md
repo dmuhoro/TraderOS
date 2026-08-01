@@ -84,7 +84,7 @@
 ### Docs
 | File | Purpose |
 |------|---------|
-| `sprints/SPRINT_16.md` (new) | This sprint record |
+| `docs/sprints/SPRINT_16.md` (new) | This sprint record |
 | `CHANGELOG.md` | New `[Unreleased] — Sprint 16` section |
 
 ## Machine Truth

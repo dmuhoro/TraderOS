@@ -71,7 +71,7 @@
 |------|---------|
 | `docs/runbooks/PILOT_READINESS.md` (new) | Pilot readiness gate + dry-run rehearsal runbook |
 | `docs/runbooks/CONTROLLED_PILOT.md` | Order-Size Guardrails section |
-| `sprints/SPRINT_17.md` (new) | This sprint record |
+| `docs/sprints/SPRINT_17.md` (new) | This sprint record |
 | `CHANGELOG.md` | New `[Unreleased] — Sprint 17` section |
 
 ## Machine Truth
