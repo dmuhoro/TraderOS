@@ -183,6 +183,47 @@ class TestInMemoryIndicatorRepository(RepositoryContractTests[Indicator]):
     def make_entity(self):
         return _indicator()
 
+    def test_get_by_name_filters_market_and_name(self) -> None:
+        repo = InMemoryIndicatorRepository()
+        market = uuid.uuid4()
+        other_market = uuid.uuid4()
+        a = Indicator(market_id=market, name="RSI", value=30.0, timestamp=datetime.now(tz=UTC))
+        b = Indicator(market_id=market, name="MACD", value=5.0, timestamp=datetime.now(tz=UTC))
+        c = Indicator(
+            market_id=other_market,
+            name="RSI",
+            value=70.0,
+            timestamp=datetime.now(tz=UTC),
+        )
+        repo.add(a)
+        repo.add(b)
+        repo.add(c)
+        assert [i.id for i in repo.get_by_name(market, "RSI")] == [a.id]
+        assert repo.get_by_name(other_market, "MACD") == []
+
+    def test_get_latest_returns_most_recent(self) -> None:
+        repo = InMemoryIndicatorRepository()
+        market = uuid.uuid4()
+        older = Indicator(
+            market_id=market,
+            name="RSI",
+            value=40.0,
+            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        newer = Indicator(
+            market_id=market,
+            name="RSI",
+            value=55.0,
+            timestamp=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        repo.add(older)
+        repo.add(newer)
+        assert repo.get_latest(market, "RSI").value == 55.0
+
+    def test_get_latest_returns_none_when_absent(self) -> None:
+        repo = InMemoryIndicatorRepository()
+        assert repo.get_latest(uuid.uuid4(), "RSI") is None
+
 
 class TestInMemoryLiquidityZoneRepository(RepositoryContractTests[LiquidityZone]):
     def make_repository(self):
