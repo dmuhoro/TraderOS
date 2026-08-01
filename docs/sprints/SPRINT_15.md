@@ -19,7 +19,7 @@
 | 2a | M/R-1 | Single version source (`pyproject.toml`); `VERSION` file removed; `settings.yaml` synced; CI version drift check | CI green |
 | 2b | M/R-2 | `release.yml`: tag-triggered gate + wheel + GHCR image + GitHub Release from CHANGELOG | YAML valid |
 | 2c | M/R-3 | SecretRotator wired into orchestrator lifecycle + surfaced in status; `order_events` retention; rotating log files | 981 tests green |
-| 3 | M/R-4 | `sprints/SPRINT_15.md` + `CHANGELOG.md` | committed |
+| 3 | M/R-4 | `docs/sprints/SPRINT_15.md` + `CHANGELOG.md` | committed |
 
 ## Work Completed
 
@@ -78,7 +78,7 @@
 ### Docs
 | File | Purpose |
 |------|---------|
-| `sprints/SPRINT_15.md` (new) | This sprint record |
+| `docs/sprints/SPRINT_15.md` (new) | This sprint record |
 | `CHANGELOG.md` | New `[Unreleased] — Sprint 15` section |
 
 ## Machine Truth

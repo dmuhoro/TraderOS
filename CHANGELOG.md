@@ -25,7 +25,7 @@
 - CLI tests for both pilot subcommands.
 
 ### Verification
-- **1060 tests passing, 1 skipped** (full suite), **86.80% coverage** (threshold 70%), **ruff 0 errors** and **pyright 0 errors** on all changed files. Sprint report: `sprints/SPRINT_17.md`.
+- **1060 tests passing, 1 skipped** (full suite), **86.80% coverage** (threshold 70%), **ruff 0 errors** and **pyright 0 errors** on all changed files. Sprint report: `docs/sprints/SPRINT_17.md`.
 
 ## [Unreleased] - Sprint 16 (Programme C — Auth, Observability, Dashboard, Live Verification, Ops)
 
@@ -52,7 +52,7 @@
 - Lint/typecheck cleanup: duplicate `WorkflowAdvanceRequest` fields removed (PIE794), unused imports removed (F401), redundant comparison simplified (reportUnnecessaryComparison).
 
 ### Verification
-- **1031 tests passing, 1 skipped** (full suite, repeated runs), **86.80% coverage** (threshold 70%), **ruff 0 errors** and **pyright 0 errors** on all changed files. Sprint report: `sprints/SPRINT_16.md`.
+- **1031 tests passing, 1 skipped** (full suite, repeated runs), **86.80% coverage** (threshold 70%), **ruff 0 errors** and **pyright 0 errors** on all changed files. Sprint report: `docs/sprints/SPRINT_16.md`.
 
 ## [Unreleased] - Sprint 15 (Deployment, Railway, Maintenance/Release)
 
@@ -124,7 +124,7 @@
 - **`tests/test_programme_b_operational_trust.py` (new, 51 tests)** covering all 11 findings.
 
 ### Docs
-- **`docs/engineering/OPERATIONAL_TRUST_MATRIX.md`**, **`docs/engineering/RECOVERY_TRUTH.md`**, **`docs/engineering/FAILURE_INJECTION_REPORT.md`** (new); MEP §26 and blueprint §13/§14 updated. Sprint report: `sprints/SPRINT_13.md`.
+- **`docs/engineering/OPERATIONAL_TRUST_MATRIX.md`**, **`docs/engineering/RECOVERY_TRUTH.md`**, **`docs/engineering/FAILURE_INJECTION_REPORT.md`** (new); MEP §26 and blueprint §13/§14 updated. Sprint report: `docs/sprints/SPRINT_13.md`.
 
 ### Verification
 - **864 tests passing, 0 failures**, **83.77% coverage** (threshold 70%), **ruff clean on `src/traderos`**, **pyright 0 errors**.
@@ -158,7 +158,7 @@
 - **Docs:** `docs/engineering/CORE_LOOP_TRUTH.md` (execution graph + defect register), `docs/engineering/CORE_LOOP_EVIDENCE.md` (per-defect proofs), `docs/AUDIT_GROUND_TRUTH.md` committed.
 
 ### Verification
-- **843 tests passing, 0 failures** (`python3 -m pytest -q -p no:randomly`), **84.63% coverage** (baseline 84.42%), **ruff clean on `src/traderos` + touched tests**, **pyright 0 errors**. Sprint report: `sprints/SPRINT_12.md`.
+- **843 tests passing, 0 failures** (`python3 -m pytest -q -p no:randomly`), **84.63% coverage** (baseline 84.42%), **ruff clean on `src/traderos` + touched tests**, **pyright 0 errors**. Sprint report: `docs/sprints/SPRINT_12.md`.
 
 ## [Unreleased] - Sprint 11 (Programme Ω — Operational Verification)
 

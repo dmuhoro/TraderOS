@@ -28,7 +28,7 @@ Required test coverage of 70.0% reached. Total coverage: 84.42%
 ```
 
 - **Actual coverage: 84.42%** (6914 statements, 1077 missed). Config threshold is `fail_under = 70` (pyproject.toml:85).
-- ⚠ **Discrepancy recorded:** `sprints/SPRINT_11.md:170` claims "actual: 85%". Machine truth is **84.42%**. The doc rounds up; the gate is 70, so this does not affect pass/fail, but the document is not verbatim-accurate.
+- ⚠ **Discrepancy recorded:** `docs/sprints/SPRINT_11.md:170` claims "actual: 85%". Machine truth is **84.42%**. The doc rounds up; the gate is 70, so this does not affect pass/fail, but the document is not verbatim-accurate.
 
 ### 1.3 Lint — `ruff check src/traderos/`
 
@@ -123,7 +123,7 @@ Method: for each file, counted timestamp patterns (`20XX-XX-XX`, clock times), e
 
 ## 3. Codex Rejection Report — Exists vs Required, Item by Item
 
-**Provenance caveat:** no file named `*codex*` exists in the repository (verified by `find`). The rejection points were reconstructed from `sprints/SPRINT_11.md` ("All 9 Codex rejection points addressed in 8 sequential layers L1–L8") and `CHANGELOG.md`. Where SPRINT_11's own text and machine truth disagree, the discrepancy is recorded. **No item is marked DONE without attached evidence; every DONE below is re-runnable.**
+**Provenance caveat:** no file named `*codex*` exists in the repository (verified by `find`). The rejection points were reconstructed from `docs/sprints/SPRINT_11.md` ("All 9 Codex rejection points addressed in 8 sequential layers L1–L8") and `CHANGELOG.md`. Where SPRINT_11's own text and machine truth disagree, the discrepancy is recorded. **No item is marked DONE without attached evidence; every DONE below is re-runnable.**
 
 | # | Codex requirement (as reconstructed) | Status | Evidence |
 |---|---------------------------------------|--------|----------|

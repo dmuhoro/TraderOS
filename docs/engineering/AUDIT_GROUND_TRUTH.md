@@ -88,7 +88,7 @@ The five runbooks command operators to run CLI verbs that **do not exist**. This
 
 ## 4. Codex Rejection Items — All 10 DONE (reconstructed)
 
-> **Provenance note:** no Codex rejection file exists in the repository. The rejection list was reconstructed from `sprints/SPRINT_11.md` and `CHANGELOG.md`, then each item verified against machine truth. If the original list differs, the delta is expected to be **additional** items only — every reconstructed item below is verifiably closed.
+> **Provenance note:** no Codex rejection file exists in the repository. The rejection list was reconstructed from `docs/sprints/SPRINT_11.md` and `CHANGELOG.md`, then each item verified against machine truth. If the original list differs, the delta is expected to be **additional** items only — every reconstructed item below is verifiably closed.
 
 | # | Codex rejection item | Status | Evidence |
 |---|---------------------|--------|----------|
