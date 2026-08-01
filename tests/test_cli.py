@@ -203,6 +203,47 @@ class TestCliPilot:
         assert all("step" in row and "ok" in row for row in data)
 
 
+class TestCliSecurity:
+    def _run_security(self, json: bool) -> tuple[str, int | None]:
+        out = StringIO()
+        exit_code = None
+        with patch("sys.stdout", out):
+            try:
+                cli_main.cmd_security(argparse.Namespace(json=json, security_cmd="audit"))
+            except SystemExit as exc:
+                exit_code = exc.code
+        return out.getvalue(), exit_code
+
+    def test_security_audit_text(self, monkeypatch):
+        monkeypatch.delenv("TRADEROS_ENV", raising=False)
+        output, code = self._run_security(json=False)
+        assert code == 0
+        assert "Security posture" in output
+        assert "Verdict: SECURE" in output
+        assert "[PASS] auth" in output
+
+    def test_security_audit_json(self, monkeypatch):
+        monkeypatch.delenv("TRADEROS_ENV", raising=False)
+        output, code = self._run_security(json=True)
+        assert code == 0
+        data = json.loads(output)
+        assert data["environment"] == "development"
+        assert data["verdict"] == "SECURE"
+        assert isinstance(data["findings"], list)
+
+    def test_security_audit_production_open_fails(self, monkeypatch):
+        monkeypatch.setenv("TRADEROS_ENV", "production")
+        output, code = self._run_security(json=False)
+        assert code == 1
+        assert "[FAIL] auth" in output
+        assert "Verdict: INSUFFICIENT" in output
+
+    def test_security_main_dispatch(self, monkeypatch):
+        monkeypatch.delenv("TRADEROS_ENV", raising=False)
+        output = _run_main(["security", "audit"])
+        assert "Security posture" in output
+
+
 class TestCliEdgeCases:
     def test_paper_not_available(self):
         from traderos.application.factory import build_orchestrator

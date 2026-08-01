@@ -61,3 +61,41 @@ class TestApiMainRunner:
         call_args, _call_kwargs = self._run_main(monkeypatch)
         app_arg = call_args[0]
         assert app_arg is not None
+
+    def test_production_fails_closed_without_keys(self, monkeypatch) -> None:
+        from traderos.domain.exceptions import ConfigError
+        from traderos.interfaces.api.main import main
+
+        monkeypatch.setenv("TRADEROS_ENV", "production")
+        monkeypatch.delenv("TRADEROS_ADMIN_API_KEY", raising=False)
+        monkeypatch.delenv("TRADEROS_OPERATOR_API_KEY", raising=False)
+        monkeypatch.delenv("TRADEROS_API_KEY", raising=False)
+        monkeypatch.setenv("SSL_KEYFILE", "/keys/server.key")
+        monkeypatch.setenv("SSL_CERTFILE", "/keys/server.crt")
+
+        try:
+            main()
+        except ConfigError as exc:
+            assert "security policy" in str(exc).lower()
+        else:
+            raise AssertionError("expected SecurityPolicyError in production without keys")
+
+    def test_production_proceeds_when_hardened(self, monkeypatch) -> None:
+        from traderos.interfaces.api.main import main
+
+        monkeypatch.setenv("TRADEROS_ENV", "production")
+        monkeypatch.setenv("TRADEROS_ADMIN_API_KEY", "admin-secret-key")
+        monkeypatch.setenv("SSL_KEYFILE", "/keys/server.key")
+        monkeypatch.setenv("SSL_CERTFILE", "/keys/server.crt")
+        monkeypatch.setenv("PORT", "8443")
+
+        uvicorn = ModuleType("uvicorn")
+        uvicorn.run = MagicMock()
+        monkeypatch.setitem(sys.modules, "uvicorn", uvicorn)
+
+        with patch("traderos.interfaces.api.main.build_app") as build:
+            build.return_value = MagicMock()
+            main()
+
+        assert uvicorn.run.call_args.kwargs["port"] == 8443
+        assert uvicorn.run.call_args.kwargs["ssl_keyfile"] == "/keys/server.key"
