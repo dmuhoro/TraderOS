@@ -569,15 +569,14 @@ def test_sqlite_health_check_times_out():
 def test_healthz_liveness_never_builds_orchestrator():
     from fastapi.testclient import TestClient
 
+    from traderos.interfaces.api import security
     from traderos.interfaces.api import server
 
     def _boom(*args, **kwargs):
         raise AssertionError("liveness must not build the orchestrator")
 
-    with (
-        __import__("unittest.mock").mock.patch.object(server, "create_orchestrator", _boom),
-        __import__("unittest.mock").mock.patch.object(server, "_load_api_key", return_value=None),
-    ):
+    security.reset_authenticator()
+    with __import__("unittest.mock").mock.patch.object(server, "create_orchestrator", _boom):
         app = server.build_app()
         resp = TestClient(app).get("/v1/healthz")
     assert resp.status_code == 200
@@ -590,6 +589,7 @@ def test_health_readiness_degraded_on_timeout():
 
     from fastapi.testclient import TestClient
 
+    from traderos.interfaces.api import security
     from traderos.interfaces.api import server
 
     def _slow_build(mode="paper", config=None):
@@ -597,10 +597,10 @@ def test_health_readiness_degraded_on_timeout():
         raise AssertionError("should not finish")
 
     server._orch_cache.clear()
+    security.reset_authenticator()
     with (
         patch.object(server, "build_orchestrator", _slow_build),
         patch.object(server, "ORCHESTRATOR_READY_TIMEOUT", 0.05),
-        patch.object(server, "_load_api_key", return_value=None),
     ):
         app = server.build_app()
         resp = TestClient(app).get("/v1/health")

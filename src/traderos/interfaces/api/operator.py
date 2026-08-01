@@ -10,22 +10,35 @@ provider injected at registration time.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import queue
+from collections.abc import AsyncIterator
 from collections.abc import Callable
 from datetime import UTC
 from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter
+from fastapi import Depends
 from fastapi import HTTPException
 from fastapi import Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from traderos.application.orchestrator import TradingMode
 from traderos.application.orchestrator import TradingOrchestrator
+from traderos.domain.services.notification_service import NotificationLevel
 from traderos.domain.services.operator_workflow import OperatorStep
 from traderos.domain.services.operator_workflow import WorkflowError
 from traderos.domain.services.session_report import SessionReportService
 from traderos.domain.services.strategy_management import StrategyLifecycleError
+from traderos.interfaces.api.events import EventBroker
+from traderos.interfaces.api.events import get_broker
+from traderos.interfaces.api.events import publish_event
+from traderos.interfaces.api.security import require_admin
+from traderos.interfaces.api.security import require_operate
+from traderos.interfaces.api.security import require_read
 
 OrchestratorProvider = Callable[[], TradingOrchestrator]
 
@@ -49,6 +62,7 @@ class WorkflowAdvanceRequest(BaseModel):
     actor: str = "operator"
     strategy: str | None = None
     session_id: str | None = None
+    dry_run: bool = False
 
 
 def _cash(orch: TradingOrchestrator) -> float:
@@ -70,10 +84,89 @@ def _lifecycle_error(exc: Exception) -> HTTPException:
     return HTTPException(400, str(exc))
 
 
+def _live_snapshot(orch_provider: OrchestratorProvider) -> dict[str, Any]:
+    """Cheap snapshot of the operator surface for the SSE feed.
+
+    Never blocks a request: a cold orchestrator build or a connectivity
+    failure degrades the snapshot to ``ready=False`` and the dashboard falls
+    back to its REST polling.
+    """
+    try:
+        orch = orch_provider()
+        workflow: dict[str, Any] | None = None
+        if orch.operator_session is not None:
+            session = orch.operator_session
+            workflow = {
+                "current_step": session.current_step.value if session.current_step else None,
+                "next_step": session.next_step.value if session.next_step else None,
+                "status": session.status.value,
+            }
+        kill_switch = orch.risk_service.kill_switch
+        verdict = kill_switch.can_trade()
+        return {
+            "ready": True,
+            "mode": orch.mode.value,
+            "running": orch.running,
+            "workflow": workflow,
+            "kill_switch": {
+                "engaged": not verdict.allowed,
+                "circuit_open": kill_switch.circuit_open,
+                "reason": verdict.reason,
+            },
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+    except Exception:  # noqa: BLE001 — degraded snapshot is a first-class state
+        return {"ready": False, "timestamp": datetime.now(UTC).isoformat()}
+
+
+def _sse(event_type: str, data: dict[str, Any]) -> str:
+    return f"event: {event_type}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+async def event_stream(
+    broker: EventBroker,
+    orch_provider: OrchestratorProvider,
+    wait_timeout: float = 15.0,
+) -> AsyncIterator[str]:
+    """Async generator backing the ``/v1/events`` SSE feed.
+
+    Yields a snapshot frame first, then every event published to ``broker``.
+    If nothing arrives within ``wait_timeout`` seconds a keepalive comment
+    frame is emitted. Always unsubscribes on close/error.
+    """
+    sub = broker.subscribe()
+    try:
+        yield _sse("snapshot", _live_snapshot(orch_provider))
+        while True:
+            try:
+                # queue.Queue.get(block=True, timeout=...) run off-loop
+                event = await asyncio.to_thread(sub.get, True, wait_timeout)
+            except queue.Empty:
+                yield ": keepalive\n\n"
+                continue
+            yield _sse(event.get("type", "state"), event.get("data", {}))
+    finally:
+        broker.unsubscribe(sub)
+
+
 def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorProvider) -> None:
+    # --- real-time feed (SSE) ---
+
+    @router.get("/events", dependencies=[Depends(require_read)])
+    async def stream_events():
+        return StreamingResponse(
+            event_stream(get_broker(), orch_provider),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     # --- positions / orders / trades / portfolio ---
 
-    @router.get("/positions")
+    @router.get("/positions", dependencies=[Depends(require_read)])
     def get_positions():
         orch = orch_provider()
         positions = orch.portfolio_service.position_repo.list()
@@ -93,13 +186,13 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             ]
         }
 
-    @router.get("/orders")
+    @router.get("/orders", dependencies=[Depends(require_read)])
     def get_orders():
         orch = orch_provider()
         open_orders = orch.broker.get_open_orders()
         return {"orders": open_orders}
 
-    @router.get("/trades")
+    @router.get("/trades", dependencies=[Depends(require_read)])
     def get_trades(limit: int = 100):
         orch = orch_provider()
         trades = sorted(
@@ -125,7 +218,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             ]
         }
 
-    @router.get("/portfolio")
+    @router.get("/portfolio", dependencies=[Depends(require_read)])
     def get_portfolio():
         orch = orch_provider()
         cash = _cash(orch)
@@ -138,7 +231,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             "position_count": summary.position_count,
         }
 
-    @router.get("/equity-curve")
+    @router.get("/equity-curve", dependencies=[Depends(require_read)])
     def get_equity_curve():
         orch = orch_provider()
         cash = _cash(orch)
@@ -160,7 +253,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
         )
         return {"points": points}
 
-    @router.get("/pnl")
+    @router.get("/pnl", dependencies=[Depends(require_read)])
     def get_pnl():
         orch = orch_provider()
         positions = orch.portfolio_service.position_repo.list()
@@ -174,7 +267,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
 
     # --- risk / kill switch / preflight ---
 
-    @router.get("/kill-switch")
+    @router.get("/kill-switch", dependencies=[Depends(require_read)])
     def get_kill_switch():
         orch = orch_provider()
         ks = orch.risk_service.kill_switch
@@ -187,19 +280,33 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             "daily_realized_pnl": ks.daily_realized_pnl,
         }
 
-    @router.post("/kill-switch/engage")
+    @router.post("/kill-switch/engage", dependencies=[Depends(require_admin)])
     def engage_kill_switch():
         orch = orch_provider()
         orch.risk_service.kill_switch.engage()
+        orch.notifications.send(
+            NotificationLevel.CRITICAL,
+            "Kill switch engaged",
+            "Manual operator action — all trading halted.",
+            metadata={"source": "operator_api"},
+        )
+        publish_event("kill_switch", {"engaged": True})
         return {"engaged": True}
 
-    @router.post("/kill-switch/disengage")
+    @router.post("/kill-switch/disengage", dependencies=[Depends(require_admin)])
     def disengage_kill_switch():
         orch = orch_provider()
         orch.risk_service.kill_switch.disengage()
+        orch.notifications.send(
+            NotificationLevel.WARNING,
+            "Kill switch disengaged",
+            "Circuit cleared — trading may resume.",
+            metadata={"source": "operator_api"},
+        )
+        publish_event("kill_switch", {"engaged": False})
         return {"engaged": False}
 
-    @router.get("/preflight")
+    @router.get("/preflight", dependencies=[Depends(require_read)])
     def get_preflight():
         orch = orch_provider()
         if orch.preflight_service is None:
@@ -212,7 +319,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             "timestamp": verdict.timestamp.isoformat(),
         }
 
-    @router.get("/readiness")
+    @router.get("/readiness", dependencies=[Depends(require_read)])
     def get_readiness():
         orch = orch_provider()
         checks: dict[str, Any] = {}
@@ -229,7 +336,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
 
     # --- operator workflow ---
 
-    @router.get("/workflow")
+    @router.get("/workflow", dependencies=[Depends(require_read)])
     def get_workflow():
         orch = orch_provider()
         session = orch.operator_session
@@ -243,7 +350,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             "history": session.history(),
         }
 
-    @router.post("/workflow/advance")
+    @router.post("/workflow/advance", dependencies=[Depends(require_operate)])
     def advance_workflow(req: WorkflowAdvanceRequest):
         orch = orch_provider()
         session = orch.operator_session
@@ -258,10 +365,20 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             context["strategy"] = req.strategy
         if req.session_id:
             context["session_id"] = req.session_id
+        if req.dry_run:
+            context["dry_run"] = True
         try:
             outcome = session.perform(step, actor=req.actor, **context)
         except WorkflowError as exc:
             raise HTTPException(409, str(exc)) from exc
+        publish_event(
+            "workflow",
+            {
+                "step": outcome.step.value,
+                "ok": outcome.ok,
+                "detail": outcome.detail,
+            },
+        )
         return {
             "step": outcome.step.value,
             "ok": outcome.ok,
@@ -270,9 +387,18 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             "current_step": session.current_step.value if session.current_step else None,
         }
 
+    # --- live trading verification (WP-2 controlled pilot) ---
+
+    @router.get("/live/check", dependencies=[Depends(require_read)])
+    def get_live_readiness():
+        orch = orch_provider()
+        if orch.live_readiness is None:
+            raise HTTPException(501, "Live readiness not configured")
+        return orch.live_readiness.check().to_dict()
+
     # --- strategy catalog (C3) ---
 
-    @router.get("/strategies")
+    @router.get("/strategies", dependencies=[Depends(require_read)])
     def list_catalog_strategies():
         orch = orch_provider()
         catalog = _catalog(orch)
@@ -290,7 +416,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             ]
         }
 
-    @router.post("/strategies")
+    @router.post("/strategies", dependencies=[Depends(require_operate)])
     def create_catalog_strategy(req: StrategyCreateRequest):
         orch = orch_provider()
         catalog = _catalog(orch)
@@ -304,7 +430,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             "status": created.status.value,
         }
 
-    @router.post("/strategies/compare")
+    @router.post("/strategies/compare", dependencies=[Depends(require_operate)])
     def compare_catalog_strategies(req: StrategyCompareRequest):
         orch = orch_provider()
         catalog = _catalog(orch)
@@ -317,7 +443,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             "metrics": comparison.metrics,
         }
 
-    @router.get("/strategies/{name}")
+    @router.get("/strategies/{name}", dependencies=[Depends(require_read)])
     def get_catalog_strategy(name: str):
         orch = orch_provider()
         catalog = _catalog(orch)
@@ -333,7 +459,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             "created_at": strategy.created_at.isoformat(),
         }
 
-    @router.get("/strategies/{name}/review")
+    @router.get("/strategies/{name}/review", dependencies=[Depends(require_read)])
     def review_catalog_strategy(name: str):
         orch = orch_provider()
         catalog = _catalog(orch)
@@ -341,7 +467,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             raise HTTPException(404, f"Strategy '{name}' not found")
         return catalog.review(name)
 
-    @router.post("/strategies/{name}/enable")
+    @router.post("/strategies/{name}/enable", dependencies=[Depends(require_operate)])
     def enable_catalog_strategy(name: str):
         orch = orch_provider()
         catalog = _catalog(orch)
@@ -351,7 +477,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             raise _lifecycle_error(exc) from exc
         return {"name": updated.name, "status": updated.status.value}
 
-    @router.post("/strategies/{name}/disable")
+    @router.post("/strategies/{name}/disable", dependencies=[Depends(require_operate)])
     def disable_catalog_strategy(name: str):
         orch = orch_provider()
         catalog = _catalog(orch)
@@ -361,7 +487,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             raise _lifecycle_error(exc) from exc
         return {"name": updated.name, "status": updated.status.value}
 
-    @router.post("/strategies/{name}/promote")
+    @router.post("/strategies/{name}/promote", dependencies=[Depends(require_operate)])
     def promote_catalog_strategy(name: str):
         orch = orch_provider()
         catalog = _catalog(orch)
@@ -371,7 +497,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             raise _lifecycle_error(exc) from exc
         return {"name": updated.name, "status": updated.status.value}
 
-    @router.post("/strategies/{name}/archive")
+    @router.post("/strategies/{name}/archive", dependencies=[Depends(require_operate)])
     def archive_catalog_strategy(name: str):
         orch = orch_provider()
         catalog = _catalog(orch)
@@ -381,7 +507,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             raise _lifecycle_error(exc) from exc
         return {"name": updated.name, "status": updated.status.value}
 
-    @router.post("/strategies/{name}/clone")
+    @router.post("/strategies/{name}/clone", dependencies=[Depends(require_operate)])
     def clone_catalog_strategy(name: str, req: StrategyCloneRequest):
         orch = orch_provider()
         catalog = _catalog(orch)
@@ -393,7 +519,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
 
     # --- session report (C4) ---
 
-    @router.get("/reports/session")
+    @router.get("/reports/session", dependencies=[Depends(require_read)])
     def get_session_report(fmt: str = "json"):
         orch = orch_provider()
         session = orch.operator_session

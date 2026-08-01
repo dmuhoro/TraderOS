@@ -21,9 +21,15 @@ from traderos.infrastructure.health import run_with_timeout
 from traderos.infrastructure.logging import setup_json_logging
 from traderos.infrastructure.monitoring import PrometheusMetricsService
 from traderos.infrastructure.rate_limiter import RateLimiter
+from traderos.interfaces.api import events
+from traderos.interfaces.api.security import auth_info
+from traderos.interfaces.api.security import require_admin
+from traderos.interfaces.api.security import require_operate
+from traderos.interfaces.api.security import require_read
 
 if TYPE_CHECKING:
     from fastapi import APIRouter
+    from fastapi import Depends
     from fastapi import FastAPI
     from fastapi import HTTPException
     from fastapi import Query
@@ -36,6 +42,7 @@ if TYPE_CHECKING:
 else:
     try:
         from fastapi import APIRouter
+        from fastapi import Depends
         from fastapi import FastAPI
         from fastapi import HTTPException
         from fastapi import Query
@@ -53,6 +60,7 @@ else:
         HTTPException = None  # type: ignore[assignment]
         Query = None  # type: ignore[assignment]
         Request = None  # type: ignore[assignment]
+        Depends = None  # type: ignore[assignment]
         CORSMiddleware = None  # type: ignore[assignment]
         Response = type("Response", (), {})  # type: ignore[assignment]
 
@@ -79,28 +87,11 @@ class PaperSessionResponse(BaseModel):  # type: ignore[valid-type,misc]
 
 
 _orch_cache: dict[str, TradingOrchestrator] = {}
-_api_key: str | None = None
 _metrics_service = PrometheusMetricsService()
 _rate_limiter = RateLimiter(
     max_requests=int(os.getenv("RATE_LIMIT_MAX", "100")), window_seconds=60.0
 )
 ORCHESTRATOR_READY_TIMEOUT = float(os.getenv("ORCHESTRATOR_READY_TIMEOUT", "5.0"))
-
-
-def _load_api_key() -> str | None:
-    global _api_key
-    if _api_key is None:
-        _api_key = os.getenv("TRADEROS_API_KEY") or None
-    return _api_key
-
-
-def _verify_api_key(request: Request) -> None:
-    key = _load_api_key()
-    if key is None:
-        return
-    header_key = request.headers.get("X-API-Key")
-    if header_key != key:
-        raise HTTPException(401, "Unauthorized: invalid or missing API key")
 
 
 def create_orchestrator(
@@ -123,6 +114,11 @@ def reset_orchestrator(mode: str | None = None) -> None:
         _orch_cache.pop(mode, None)
     else:
         _orch_cache.clear()
+
+
+def reset_rate_limiter() -> None:
+    """Clear per-IP request buckets. Used by tests and hot-reload tooling."""
+    _rate_limiter._buckets.clear()
 
 
 def ensure_fastapi() -> None:
@@ -206,16 +202,6 @@ def build_app() -> Any:
         response.headers["X-RateLimit-Remaining"] = str(_rate_limiter.remaining(client_ip))
         return response
 
-    @app.middleware("http")
-    async def _auth_middleware(request: Request, call_next):
-        if request.url.path == "/metrics":
-            return await call_next(request)
-        try:
-            _verify_api_key(request)
-        except HTTPException as exc:
-            return _error_response(exc.status_code, exc.detail)
-        return await call_next(request)
-
     router = APIRouter(prefix="/v1")
 
     @app.get("/metrics")
@@ -231,6 +217,13 @@ def build_app() -> Any:
         # Liveness: process is up and can answer requests. No dependency
         # initialization, so this can never stall (OT-010).
         return {"status": "alive"}
+
+    @router.get("/auth/me")
+    def get_auth_me(request: Request):
+        # Self-describing auth state for the login screen and ops tooling.
+        # Never requires a key; returns whether authentication is required
+        # and whether the presented key is valid.
+        return auth_info(request)
 
     @router.get("/health")
     def get_health():
@@ -249,7 +242,7 @@ def build_app() -> Any:
             "ready": True,
         }
 
-    @router.post("/backtest")
+    @router.post("/backtest", dependencies=[Depends(require_read)])
     def run_backtest(req: BacktestRequest):
         strat_cls = strategy_registry.get(req.strategy)
         if strat_cls is None:
@@ -290,24 +283,26 @@ def build_app() -> Any:
             "calmar_ratio": m.calmar_ratio,
         }
 
-    @router.post("/orchestrator/start")
+    @router.post("/orchestrator/start", dependencies=[Depends(require_admin)])
     def start_orchestrator():
         orch = create_orchestrator()
         orch.start()
+        events.publish_event("orchestrator", {"running": True, "mode": orch.mode.value})
         return {"status": "started", "mode": orch.mode.value}
 
-    @router.post("/orchestrator/stop")
+    @router.post("/orchestrator/stop", dependencies=[Depends(require_admin)])
     def stop_orchestrator():
         orch = create_orchestrator()
         orch.stop()
+        events.publish_event("orchestrator", {"running": False, "mode": orch.mode.value})
         return {"status": "stopped"}
 
-    @router.get("/orchestrator/status")
+    @router.get("/orchestrator/status", dependencies=[Depends(require_read)])
     def orchestrator_status():
         orch = create_orchestrator()
         return orch.get_status()
 
-    @router.post("/papertrade/session")
+    @router.post("/papertrade/session", dependencies=[Depends(require_operate)])
     def create_paper_session(req: CreatePaperSessionRequest | None = None):
         orch = create_orchestrator()
         if orch.paper is None:
@@ -327,7 +322,7 @@ def build_app() -> Any:
             capital=session.current_capital,
         )
 
-    @router.get("/papertrade/sessions")
+    @router.get("/papertrade/sessions", dependencies=[Depends(require_read)])
     def list_paper_sessions():
         orch = create_orchestrator()
         if orch.paper is None:
@@ -339,7 +334,7 @@ def build_app() -> Any:
             ]
         }
 
-    @router.get("/audit")
+    @router.get("/audit", dependencies=[Depends(require_read)])
     def get_audit(limit: int = Query(10, ge=1, le=100)):
         orch = create_orchestrator()
         return {
@@ -354,14 +349,14 @@ def build_app() -> Any:
             ]
         }
 
-    @router.get("/metrics")
+    @router.get("/metrics", dependencies=[Depends(require_read)])
     def get_metrics():
         orch = create_orchestrator()
         if not orch.running:
             return {"metrics": {}, "warning": "Orchestrator not running"}
         return {"metrics": orch.metrics.snapshot()}
 
-    @router.get("/manifest")
+    @router.get("/manifest", dependencies=[Depends(require_read)])
     def get_manifest(service: str | None = None):
         orch = create_orchestrator()
         return {
@@ -381,4 +376,22 @@ def build_app() -> Any:
     register_operator_endpoints(router, lambda: create_orchestrator())
 
     app.include_router(router)
+
+    # --- Finish Line Dashboard (static SPA) ---
+    from pathlib import Path
+
+    from fastapi.responses import RedirectResponse
+    from starlette.staticfiles import StaticFiles
+
+    _dashboard_dir = Path(__file__).parent / "dashboard"
+
+    @app.get("/", include_in_schema=False)
+    def get_dashboard_root():
+        return RedirectResponse(url="/dashboard/")
+
+    app.mount(
+        "/dashboard",
+        StaticFiles(directory=_dashboard_dir, html=True),
+        name="dashboard",
+    )
     return app

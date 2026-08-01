@@ -1,5 +1,32 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 16 (Programme C — Auth, Observability, Dashboard, Live Verification, Ops)
+
+### WP-3 — Auth / RBAC
+- **API-key authentication** (`infrastructure/auth.py` + `interfaces/api/security.py`): `TRADEROS_ADMIN_API_KEY`/`TRADEROS_OPERATOR_API_KEY`/`TRADEROS_VIEWER_API_KEY` (legacy `TRADEROS_API_KEY` → admin). Open-by-default: enforcement activates only when keys are configured.
+- **Role-scoped dependencies** `require_read`/`require_operate`/`require_admin` applied to every protected route; `GET /v1/auth/me` returns the authenticated principal. Health, `/metrics`, and the `/dashboard` static mount stay open.
+
+### WP-4 — Observability
+- **`EventBroker`** (`interfaces/api/events.py`): thread-safe bounded buffer (maxlen 50, drop-oldest) with blocking get; `get_broker`/`reset_broker`/`publish_event`.
+- **`/v1/events` SSE** endpoint: snapshot-first, 15 s keepalives, clean unsubscribe; testable `operator.event_stream(...)` async generator factored out of the route. Fixed a stream-blocking bug (`to_thread(sub.get, timeout=...)` → `sub.get(True, 15)`).
+- **Kill-switch alerting** via `NotificationLevel.CRITICAL`/`WARNING` with `metadata={"source": "operator_api"}`.
+- **Binance gating**: real crypto feed only when `data_collection.binance.enabled` and the collector is installed (default `enabled: false`); `server.reset_rate_limiter()` for deterministic tests.
+
+### WP-1 — Dashboard
+- **Static SPA** mounted at `/dashboard/` (root `/` 307-redirects there): API-key sign-in, live SSE event log, workflow advance, kill-switch, strategy catalog (create/enable/disable/promote/archive), positions/orders/trades tables, equity-curve canvas.
+- **Packaging**: `[tool.setuptools.package-data]` ships `*.html`/`*.js`/`*.css` in wheels.
+
+### WP-2 — Live-trading verification / dry-run
+- **`LiveReadinessService`** (`domain/services/live_readiness.py`): verdict over broker connectivity/balance, data feeds, kill-switch, live preflight, operator-session state; exposed via `GET /v1/live/check`.
+- **Workflow dry-run**: `dry_run: bool` on workflow advance lets operators rehearse the `controlled_live` transition without enabling live execution (`live_execution_enabled` surfaced in the verdict and gate result).
+
+### WP-5 — Ops polish
+- **`tests/conftest.py`** autouse rate-limiter reset → randomized-order full suite is deterministic.
+- Lint/typecheck cleanup: duplicate `WorkflowAdvanceRequest` fields removed (PIE794), unused imports removed (F401), redundant comparison simplified (reportUnnecessaryComparison).
+
+### Verification
+- **1031 tests passing, 1 skipped** (full suite, repeated runs), **86.80% coverage** (threshold 70%), **ruff 0 errors** and **pyright 0 errors** on all changed files. Sprint report: `sprints/SPRINT_16.md`.
+
 ## [Unreleased] - Sprint 15 (Deployment, Railway, Maintenance/Release)
 
 ### Deployment

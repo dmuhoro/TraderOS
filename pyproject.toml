@@ -106,3 +106,5 @@ include = [
     "src/traderos",
 ]
 exclude = ["tests", ".venv"]
+[tool.setuptools.package-data]
+"traderos.interfaces.api.dashboard" = ["*.html", "*.js", "*.css"]
