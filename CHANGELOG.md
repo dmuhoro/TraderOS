@@ -1,5 +1,24 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 18 (Coverage to 91.8% + Production Security Hardening)
+
+### WP-1 — Close the coverage gap (86.80% → 91.82%)
+- **Layer 1a — flagged modules to unit coverage**: `market_hours_engine` 38% → 98%, `webhook_notifier` 43% → 84%, `leader_election` 58% → 97%, `message_queue` 67% → 100%, `interfaces/api/main.py` 33% → 94%.
+- **Layer 1b — PostgreSQL-backed coverage** against the `traderos-pg-test` container (port 5433, `POSTGRES_TEST_DSN`): `observability_postgres` 35% → 99%, `postgres/base` 39% → 94%, `postgres/signals` 51% → 100%, `postgres/trades` 41% → 100%.
+- **Layer 1c — mop-up**: `sqlite/knowledge` 55% → 100% (incl. `get_neighbors` BFS), `in_memory/indicators` 67% → 100%, `v004` migration 69% → 100%, `migration_utils` 27% → 100%.
+- **Latent bugs fixed by the new tests**:
+  - `webhook_notifier.py` — `retry_with_backoff` raises `ServiceError`, which was never caught; webhook failures now surface as logged warnings instead of leaking.
+  - `market_hours_engine.py` — 24h sessions mis-handled when `open == close`; `FOREX_24_5`/`CRYPTO_24_7` conflated by structural `==` on the frozen dataclass (now identity checks); `next_open` never advanced past "after close" / weekends.
+- New test files: `test_market_hours_engine.py`, `test_webhook_notifier.py`, `test_observability_postgres_services.py`, `test_postgres_repositories.py`, `test_migration_v004.py`.
+
+### WP-2 — Production security hardening (fail-closed posture)
+- **`infrastructure/security_policy.py`** (new): `TRADEROS_ENV=production` now requires API keys and TLS and forbids CORS allow-all; development/CI stay open-by-default and frictionless. `SecurityPolicyError` is raised on violation; `check_security_posture()` produces a machine-readable `SecurityReport`.
+- **API entrypoint fails closed**: `interfaces/api/main.py` refuses to start the server in production until keys + TLS are configured.
+- **`traderos security audit`** CLI: reports auth/TLS/CORS/secret-rotation posture per environment, exits non-zero when insufficient (evidence for the pilot gate).
+
+### Verification
+- **1201 tests passing, 1 skipped** (full suite), **91.82% coverage** (threshold 70%), **ruff 0 errors** and **pyright 0 errors** on all changed files. Sprint report: `docs/sprints/SPRINT_18.md`.
+
 ## [Unreleased] - Sprint 17 (Pilot Readiness — Order Surface, Service Wiring, Security Hardening, Pilot CLI)
 
 ### WP-2 — Order surface
