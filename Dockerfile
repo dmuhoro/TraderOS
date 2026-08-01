@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+COPY --from=builder /root/.local /app/.local
+ENV PATH=/app/.local/bin:$PATH
 ENV PYTHONPATH=/app/src
 
 COPY . .
