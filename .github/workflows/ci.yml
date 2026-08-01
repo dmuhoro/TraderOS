@@ -158,15 +158,15 @@ jobs:
         env:
           DATABASE_URL: postgresql://traderos:traderos@localhost:5434/traderos
         run: |
-          docker run --rm --entrypoint traderos \
+          docker run --rm --network host --entrypoint traderos \
             -e DATABASE_URL="$DATABASE_URL" \
             traderos:ci db migrate
-          docker run --rm --entrypoint traderos \
+          docker run --rm --network host --entrypoint traderos \
             -e DATABASE_URL="$DATABASE_URL" \
             traderos:ci db check | grep "Schema version: 6"
       - name: Verify API container health
         run: |
-          docker run --rm -d --name traderos-api-smoke \
+          docker run --rm -d --network host --name traderos-api-smoke \
             -e DATABASE_URL="postgresql://traderos:traderos@localhost:5434/traderos" \
             -p 8099:8000 traderos:ci
           for i in $(seq 1 30); do
