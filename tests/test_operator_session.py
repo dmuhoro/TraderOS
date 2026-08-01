@@ -114,6 +114,21 @@ def _service(**kwargs) -> tuple[OperatorSessionService, InMemoryOperatorWorkflow
     return service, repo
 
 
+def _drive_to_controlled_live(service: OperatorSessionService) -> None:
+    for step in (
+        OperatorStep.START,
+        OperatorStep.PREFLIGHT,
+        OperatorStep.BROKER_CHECK,
+        OperatorStep.MARKET_DATA_CHECK,
+        OperatorStep.PAPER_TRADING,
+        OperatorStep.PERFORMANCE_REVIEW,
+        OperatorStep.STRATEGY_PROMOTION,
+    ):
+        context = {"strategy": "mean_reversion"} if step == OperatorStep.STRATEGY_PROMOTION else {}
+        outcome = service.perform(step, actor="operator", **context)
+        assert outcome.ok, f"{step.value}: {outcome.result}"
+
+
 class TestOperatorSessionService:
     def test_full_session_advances_through_all_steps(self) -> None:
         os.environ["LIVE_TRADING_CONFIRMED"] = "true"
@@ -233,6 +248,43 @@ class TestOperatorSessionService:
         outcome = service.perform(OperatorStep.CONTROLLED_LIVE)
         assert not outcome.ok
         assert "live preflight failed" in outcome.result
+
+    def test_controlled_live_dry_run_records_rehearsal(self) -> None:
+        os.environ["LIVE_TRADING_CONFIRMED"] = "true"
+        try:
+            service, _ = _service()
+            _drive_to_controlled_live(service)
+            outcome = service.perform(OperatorStep.CONTROLLED_LIVE, dry_run=True)
+            assert outcome.ok
+            assert "dry-run" in outcome.result
+            assert outcome.detail["dry_run"] is True
+            assert outcome.detail["live_execution_enabled"] is False
+            assert outcome.detail["live_trading_confirmed"] is True
+        finally:
+            os.environ.pop("LIVE_TRADING_CONFIRMED", None)
+
+    def test_controlled_live_without_dry_run_enables_live(self) -> None:
+        os.environ["LIVE_TRADING_CONFIRMED"] = "true"
+        try:
+            service, _ = _service()
+            _drive_to_controlled_live(service)
+            outcome = service.perform(OperatorStep.CONTROLLED_LIVE)
+            assert outcome.ok
+            assert "dry-run" not in outcome.result
+            assert outcome.detail["dry_run"] is False
+            assert outcome.detail["live_execution_enabled"] is True
+        finally:
+            os.environ.pop("LIVE_TRADING_CONFIRMED", None)
+
+    def test_controlled_live_dry_run_still_requires_confirmation(self) -> None:
+        os.environ.pop("LIVE_TRADING_CONFIRMED", None)
+        service, _ = _service()
+        _drive_to_controlled_live(service)
+        outcome = service.perform(OperatorStep.CONTROLLED_LIVE, dry_run=True)
+        assert not outcome.ok
+        assert "live preflight failed" in outcome.result
+        assert outcome.detail["dry_run"] is True
+        assert outcome.detail["live_execution_enabled"] is False
 
     def test_shutdown_stops_running_paper_sessions(self) -> None:
         os.environ["LIVE_TRADING_CONFIRMED"] = "true"

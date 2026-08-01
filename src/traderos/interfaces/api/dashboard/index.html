@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TraderOS — Finish Line Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">TraderOS</span>
+      <span class="sub">Finish Line Dashboard</span>
+    </div>
+    <div class="topbar-status">
+      <span id="orch-badge" class="badge badge-idle">orchestrator: idle</span>
+      <span id="mode-badge" class="badge">mode: -</span>
+      <span id="ks-badge" class="badge badge-ok">kill switch: closed</span>
+      <span id="role-badge" class="badge badge-hidden">role: -</span>
+      <div id="auth-box" class="auth-box">
+        <input id="key-input" type="password" placeholder="API key" autocomplete="off" />
+        <button id="login-btn" class="btn btn-primary">Sign in</button>
+        <button id="logout-btn" class="btn hidden">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="panel span-2" id="workflow-panel">
+      <h2>Operator workflow</h2>
+      <div class="workflow-meta">
+        <span>status: <b id="wf-status">idle</b></span>
+        <span>session: <b id="wf-session">-</b></span>
+      </div>
+      <div class="steps" id="wf-steps"></div>
+      <div class="row">
+        <input id="wf-actor" class="input" placeholder="actor (optional)" value="operator" />
+        <button id="wf-advance" class="btn btn-primary">Advance</button>
+        <span id="wf-result" class="inline-msg"></span>
+      </div>
+      <ol id="wf-history" class="history"></ol>
+    </section>
+
+    <section class="panel" id="portfolio-panel">
+      <h2>Portfolio</h2>
+      <div class="metrics">
+        <div class="metric"><span class="k">Equity</span><span class="v" id="pf-equity">-</span></div>
+        <div class="metric"><span class="k">Cash</span><span class="v" id="pf-cash">-</span></div>
+        <div class="metric"><span class="k">Positions value</span><span class="v" id="pf-posval">-</span></div>
+        <div class="metric"><span class="k">Total PnL</span><span class="v" id="pf-pnl">-</span></div>
+      </div>
+      <canvas id="equity-chart" height="140"></canvas>
+    </section>
+
+    <section class="panel" id="risk-panel">
+      <h2>Risk & readiness</h2>
+      <div class="metrics">
+        <div class="metric"><span class="k">Kill switch</span><span class="v" id="ks-state">-</span></div>
+        <div class="metric"><span class="k">Circuit</span><span class="v" id="ks-circuit">-</span></div>
+        <div class="metric"><span class="k">Failures</span><span class="v" id="ks-failures">-</span></div>
+        <div class="metric"><span class="k">Ready</span><span class="v" id="rd-ready">-</span></div>
+      </div>
+      <div class="row">
+        <button id="ks-engage" class="btn btn-danger">Engage kill switch</button>
+        <button id="ks-disengage" class="btn">Disengage</button>
+      </div>
+      <pre id="rd-checks" class="pre"></pre>
+      <div class="row">
+        <span class="k">Preflight:</span>
+        <span id="pf-check" class="inline-msg">-</span>
+      </div>
+    </section>
+
+    <section class="panel span-2" id="positions-panel">
+      <h2>Positions</h2>
+      <table>
+        <thead><tr><th>Market</th><th>Qty</th><th>Entry</th><th>Current</th><th>PnL</th><th>Realized</th></tr></thead>
+        <tbody id="positions-body"><tr><td colspan="6" class="empty">no positions</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel span-2" id="orders-panel">
+      <h2>Open orders</h2>
+      <table>
+        <thead><tr><th>Market</th><th>Side</th><th>Qty</th><th>Type</th><th>Status</th></tr></thead>
+        <tbody id="orders-body"><tr><td colspan="5" class="empty">no open orders</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel span-2" id="trades-panel">
+      <h2>Trades</h2>
+      <table>
+        <thead><tr><th>Time</th><th>Market</th><th>Side</th><th>Qty</th><th>Price</th><th>Status</th></tr></thead>
+        <tbody id="trades-body"><tr><td colspan="6" class="empty">no trades</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel span-2" id="strategies-panel">
+      <h2>Strategy catalog</h2>
+      <div class="row">
+        <input id="strat-name" class="input" placeholder="name" />
+        <select id="strat-template" class="input">
+          <option>moving_average_trend</option>
+          <option>volatility_breakout</option>
+          <option>mean_reversion</option>
+        </select>
+        <button id="strat-create" class="btn btn-primary">Create</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Template</th><th>Status</th><th>Version</th><th>Actions</th></tr></thead>
+        <tbody id="strategies-body"></tbody>
+      </table>
+    </section>
+
+    <section class="panel span-2" id="report-panel">
+      <h2>Session report</h2>
+      <div class="row">
+        <select id="report-fmt" class="input"><option value="json">JSON</option><option value="markdown">Markdown</option></select>
+        <button id="report-load" class="btn btn-primary">Load</button>
+      </div>
+      <pre id="report-body" class="pre">no session report yet</pre>
+    </section>
+
+    <section class="panel span-2" id="events-panel">
+      <h2>Live event log</h2>
+      <div id="event-log" class="log"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span id="conn-state">SSE: disconnected</span>
+    <span id="last-refresh">last refresh: -</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

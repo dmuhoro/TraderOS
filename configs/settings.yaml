@@ -15,6 +15,10 @@ data_collection:
     - "BTCUSDT"
     - "ETHUSDT"
   timeframe: "1h"
+  # Real crypto feed is only used when enabled AND the Binance collector is
+  # installed; otherwise crypto falls back to the deterministic mock collector.
+  binance:
+    enabled: false
   history_days: 30
 
 analysis:

@@ -26,6 +26,7 @@ from traderos.domain.services.broker_state_reconciliation_service import (
 )
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
+from traderos.domain.services.live_readiness import LiveReadinessService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.operator_session import OperatorSessionService
@@ -73,6 +74,7 @@ class TradingOrchestrator:
     operator_workflow: OperatorWorkflow | None = None
     strategy_catalog: StrategyCatalogService | None = None
     operator_session: OperatorSessionService | None = None
+    live_readiness: LiveReadinessService | None = None
     secret_rotator: SecretRotator | None = None
 
     def _pre_cycle_check(self) -> None:

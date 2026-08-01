@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from traderos.interfaces.api import security
 from traderos.interfaces.api import server
 
 importlib.reload(server)
@@ -13,8 +14,9 @@ importlib.reload(server)
 @pytest.fixture(autouse=True)
 def _clean_state():
     server._orch_cache.clear()
-    server._api_key = None
+    security.reset_authenticator()
     yield
+    security.reset_authenticator()
 
 
 def _make_client(**overrides):
@@ -32,14 +34,15 @@ class TestApiHealth:
         assert resp.json()["status"] == "ok"
 
     def test_get_health_with_api_key(self):
-        with patch.object(server, "_load_api_key", return_value="secret123"):
-            client = _make_client()
-            resp = client.get("/v1/health")
-            assert resp.status_code == 401
-            assert "error" in resp.json()
+        # /v1/health is a readiness probe for load balancers and stays open even
+        # when authentication is enabled, while protected routes demand a key.
+        from traderos.infrastructure.auth import APIKeyAuthenticator
 
-            resp = client.get("/v1/health", headers={"X-API-Key": "secret123"})
-            assert resp.status_code == 200
+        security.set_authenticator(APIKeyAuthenticator(admin_keys=("secret123",)))
+        client = _make_client()
+        assert client.get("/v1/health").status_code == 200
+        assert client.get("/v1/health", headers={"X-API-Key": "secret123"}).status_code == 200
+        assert client.get("/v1/strategies").status_code == 401
 
 
 class TestApiStrategies:
@@ -129,17 +132,16 @@ class TestApiAudit:
             assert "entries" in resp.json()
 
     def test_get_audit_with_api_key(self):
+        from traderos.infrastructure.auth import APIKeyAuthenticator
         from traderos.infrastructure.config.config_loader import Config
 
         cfg = Config(db_path=":memory:", log_level="CRITICAL")
-        with (
-            patch.object(server, "_load_api_key", return_value="secret123"),
-            patch.object(server, "create_orchestrator") as mock_fn,
-        ):
+        with patch.object(server, "create_orchestrator") as mock_fn:
             from traderos.application.factory import build_orchestrator
 
             orch = build_orchestrator(mode="paper", config=cfg)
             mock_fn.return_value = orch
+            security.set_authenticator(APIKeyAuthenticator(admin_keys=("secret123",)))
             client = _make_client()
             resp = client.get("/v1/audit")
             assert resp.status_code == 401
@@ -189,16 +191,14 @@ class TestApiManifest:
 
 class TestApiPrometheusMetrics:
     def test_prometheus_metrics_endpoint(self):
-        with patch.object(server, "_load_api_key", return_value=None):
-            client = _make_client()
-            resp = client.get("/metrics")
-            assert resp.status_code in (200, 501)
+        client = _make_client()
+        resp = client.get("/metrics")
+        assert resp.status_code in (200, 501)
 
 
 class TestApiRateLimit:
     def test_rate_limit_headers(self):
-        with patch.object(server, "_load_api_key", return_value=None):
-            client = _make_client()
-            resp = client.get("/v1/health")
-            assert resp.status_code == 200
-            assert "X-RateLimit-Remaining" in resp.headers
+        client = _make_client()
+        resp = client.get("/v1/health")
+        assert resp.status_code == 200
+        assert "X-RateLimit-Remaining" in resp.headers

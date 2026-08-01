@@ -16,6 +16,7 @@ from traderos.domain.services.broker_state_reconciliation_service import (
 )
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
+from traderos.domain.services.live_readiness import LiveReadinessService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.operator_session import OperatorSessionService
@@ -145,11 +146,23 @@ def build_orchestrator(
     if isinstance(crypto, list):
         symbols.extend(crypto)
 
+    # WP-4: a real market-data feed is used only when explicitly enabled via
+    # config (data_collection.binance.enabled) AND the collector is available.
+    # Defaults to the deterministic mock collector so CI/tests never touch the
+    # network (Constitution §2 Principle 6: Test Before Trust).
+    binance_enabled = bool(cfg.get("data_collection.binance.enabled", False))
+    crypto_collector_type = (
+        CollectorType.BINANCE
+        if binance_enabled and collector_registry.get(CollectorType.BINANCE) is not None
+        else CollectorType.MOCK
+    )
+
     symbol_map: dict[uuid.UUID, str] = {}
     data_market_ids: list[uuid.UUID] = []
     for symbol in symbols:
         mid = uuid.uuid5(uuid.NAMESPACE_DNS, f"traderos/{symbol}")
-        data_ingestion.add_source(mid, symbol, CollectorType.MOCK)
+        source_type = crypto_collector_type if symbol in crypto else CollectorType.MOCK
+        data_ingestion.add_source(mid, symbol, source_type)
         symbol_map[mid] = symbol
         data_market_ids.append(mid)
 
@@ -229,6 +242,15 @@ def build_orchestrator(
         live_mode=trading_mode == TradingMode.LIVE,
     )
 
+    live_readiness = LiveReadinessService(
+        broker=broker,
+        data_ingestion=data_ingestion,
+        preflight=preflight_service,
+        kill_switch=risk_service.kill_switch,
+        operator_session=operator_session,
+        live_execution_enabled=trading_mode == TradingMode.LIVE,
+    )
+
     if market_ids is not None:
         mids = market_ids
     elif data_market_ids:
@@ -263,6 +285,7 @@ def build_orchestrator(
         operator_workflow=operator_workflow,
         strategy_catalog=strategy_catalog,
         operator_session=operator_session,
+        live_readiness=live_readiness,
         secret_rotator=_build_secret_rotator(),
     )
     return orch

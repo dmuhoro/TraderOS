@@ -254,13 +254,25 @@ class OperatorSessionService:
             return StepOutcome(
                 OperatorStep.CONTROLLED_LIVE, True, "preflight not configured — skipped"
             )
+        dry_run = bool(context.get("dry_run", False))
         verdict = self.preflight.check(live_mode=True)
+        detail: dict[str, Any] = {
+            "dry_run": dry_run,
+            "live_execution_enabled": not dry_run,
+            **verdict.checks,
+        }
         if verdict.passed:
-            return StepOutcome(OperatorStep.CONTROLLED_LIVE, True, "live preflight passed")
+            message = (
+                "live preflight passed (dry-run — live execution disabled)"
+                if dry_run
+                else "live preflight passed"
+            )
+            return StepOutcome(OperatorStep.CONTROLLED_LIVE, True, message, detail=detail)
         return StepOutcome(
             OperatorStep.CONTROLLED_LIVE,
             False,
             f"live preflight failed: {'; '.join(verdict.failures)}",
+            detail=detail,
         )
 
     def _gate_shutdown(self, context: dict[str, Any]) -> StepOutcome:

@@ -108,6 +108,48 @@ class TestOperatorApiWorkflow:
         resp = client.post("/v1/workflow/advance", json={"step": "not_a_step"})
         assert resp.status_code == 400
 
+    def test_dry_run_controlled_live_via_api(self, client: TestClient, monkeypatch) -> None:
+        monkeypatch.setenv("LIVE_TRADING_CONFIRMED", "true")
+        orch = server.create_orchestrator()
+        orch.broker_reconciliation.reconcile()
+        for step in (
+            "start",
+            "preflight",
+            "broker_check",
+            "market_data_check",
+            "paper_trading",
+            "performance_review",
+        ):
+            resp = client.post("/v1/workflow/advance", json={"step": step})
+            assert resp.status_code == 200, (step, resp.text)
+            assert resp.json()["ok"] is True, (step, resp.text)
+        promoted = client.post(
+            "/v1/workflow/advance",
+            json={"step": "strategy_promotion", "strategy": "mean_reversion"},
+        )
+        assert promoted.status_code == 200
+        assert promoted.json()["ok"] is True
+        controlled = client.post(
+            "/v1/workflow/advance",
+            json={"step": "controlled_live", "dry_run": True},
+        )
+        assert controlled.status_code == 200
+        body = controlled.json()
+        assert body["ok"] is True
+        assert body["detail"]["dry_run"] is True
+        assert body["detail"]["live_execution_enabled"] is False
+        assert "dry-run" in body["result"]
+
+    def test_live_check_endpoint(self, client: TestClient) -> None:
+        resp = client.get("/v1/live/check")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["dry_run"] is True
+        assert body["live_execution_enabled"] is False
+        assert "broker_connected" in body["checks"]
+        assert body["checks"]["operator_session"] is False
+        assert body["ready"] is False
+
 
 class TestOperatorApiStrategies:
     def test_create_get_enable_disable(self, client: TestClient) -> None:
