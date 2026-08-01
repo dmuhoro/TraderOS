@@ -8,7 +8,7 @@ PG = "postgres"
 
 
 def _serial(backend: str) -> str:
-    return "SERIAL" if backend == PG else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    return "SERIAL PRIMARY KEY" if backend == PG else "INTEGER PRIMARY KEY AUTOINCREMENT"
 
 
 def _ref(backend: str) -> str:
@@ -167,36 +167,12 @@ def up(conn, backend: str = "sqlite"):
     """)
 
     cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS strategies (
-            id {s},
-            name TEXT UNIQUE,
-            description TEXT,
-            params_json TEXT,
-            created_at {dt} DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS backtest_results (
-            id {s},
-            strategy_id {ref},
-            symbol TEXT,
-            start_date TEXT,
-            end_date TEXT,
-            metrics_json TEXT,
-            equity_curve_json TEXT,
-            timestamp {dt} DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (strategy_id) REFERENCES strategies(id)
-        )
-    """)
-
-    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS risk_limits (
             id {s},
             max_drawdown REAL,
             max_position_size REAL,
             max_correlation REAL,
-            is_active {bl} DEFAULT 1
+            is_active {bl} DEFAULT TRUE
         )
     """)
 
@@ -218,8 +194,6 @@ def down(conn, backend: str = "sqlite"):
         "research_tests",
         "research_results",
         "lessons",
-        "strategies",
-        "backtest_results",
         "risk_limits",
     ]
     for table in tables:
