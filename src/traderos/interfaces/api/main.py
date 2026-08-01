@@ -12,7 +12,8 @@ def main() -> None:
 
     ssl_keyfile = os.getenv("SSL_KEYFILE")
     ssl_certfile = os.getenv("SSL_CERTFILE")
-    kwargs: dict = {"host": "0.0.0.0", "port": 8000}
+    port = int(os.getenv("PORT", "8000"))
+    kwargs: dict = {"host": "0.0.0.0", "port": port}
     if ssl_keyfile and ssl_certfile:
         kwargs["ssl_keyfile"] = ssl_keyfile
         kwargs["ssl_certfile"] = ssl_certfile
