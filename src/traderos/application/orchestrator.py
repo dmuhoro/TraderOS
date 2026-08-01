@@ -37,6 +37,7 @@ from traderos.domain.services.reconciliation_service import OrderReconciliationS
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_management import StrategyCatalogService
+from traderos.infrastructure.secrets import SecretRotator
 
 
 @dataclass
@@ -72,6 +73,7 @@ class TradingOrchestrator:
     operator_workflow: OperatorWorkflow | None = None
     strategy_catalog: StrategyCatalogService | None = None
     operator_session: OperatorSessionService | None = None
+    secret_rotator: SecretRotator | None = None
 
     def _pre_cycle_check(self) -> None:
         if self.preflight_service is not None:
@@ -131,8 +133,12 @@ class TradingOrchestrator:
 
     def start(self) -> None:
         self._daemon_controller.start()
+        if self.secret_rotator is not None:
+            self.secret_rotator.start()
 
     def stop(self) -> None:
+        if self.secret_rotator is not None:
+            self.secret_rotator.stop()
         self._daemon_controller.stop()
 
     def run_cycle(
@@ -144,4 +150,7 @@ class TradingOrchestrator:
         self._daemon_controller.run_forever(interval_seconds, shutdown_timeout)
 
     def get_status(self) -> dict[str, Any]:
-        return self._daemon_controller.get_status()
+        status = self._daemon_controller.get_status()
+        if self.secret_rotator is not None:
+            status["secret_rotation"] = self.secret_rotator.stats
+        return status

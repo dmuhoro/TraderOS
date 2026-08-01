@@ -63,6 +63,8 @@ from traderos.infrastructure.repositories.sqlite import SQLiteSignalRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteStrategyRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteTradeRepository
 from traderos.infrastructure.run_manifest import RunManifestService as InMemoryManifestService
+from traderos.infrastructure.secrets import EnvSecretProvider
+from traderos.infrastructure.secrets import SecretRotator
 
 PG_BACKEND = "postgres"
 
@@ -261,8 +263,15 @@ def build_orchestrator(
         operator_workflow=operator_workflow,
         strategy_catalog=strategy_catalog,
         operator_session=operator_session,
+        secret_rotator=_build_secret_rotator(),
     )
     return orch
+
+
+def _build_secret_rotator() -> SecretRotator:
+    rotator = SecretRotator()
+    rotator.add_provider(EnvSecretProvider())
+    return rotator
 
 
 def _sync_strategy_registry(db: Any | None, backend: str = "sqlite") -> None:

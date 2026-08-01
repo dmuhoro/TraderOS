@@ -6,7 +6,19 @@ import os
 import sys
 from datetime import UTC
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from typing import Any
+
+LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(10 * 1024 * 1024)))
+LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))
+
+
+def _file_handler(path: str) -> logging.Handler:
+    return RotatingFileHandler(
+        path,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+    )
 
 
 class JsonFormatter(logging.Formatter):
@@ -30,7 +42,7 @@ def setup_json_logging() -> None:
     log_file = os.getenv("LOG_FILE")
     handler: logging.Handler
     if log_file:
-        handler = logging.FileHandler(log_file)
+        handler = _file_handler(log_file)
     else:
         handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
@@ -50,7 +62,7 @@ class StructuredLogger:
 
         handler: logging.Handler
         if log_file:
-            handler = logging.FileHandler(log_file)
+            handler = _file_handler(log_file)
         else:
             handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(formatter)
