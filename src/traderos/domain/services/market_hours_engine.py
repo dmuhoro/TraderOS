@@ -15,6 +15,8 @@ class MarketSession:
 
     def contains(self, dt: datetime) -> bool:
         t = dt.time()
+        if self.open == self.close:
+            return True
         if self.open <= self.close:
             return self.open <= t <= self.close
         return t >= self.open or t <= self.close
@@ -38,6 +40,10 @@ class MarketHoursEngine:
         session = self._calendar.get(symbol)
         if session is None:
             return True
+        if session is CRYPTO_24_7:
+            return True
+        if session is FOREX_24_5:
+            return now.weekday() < 5
         if now.weekday() >= 5:
             return False
         return session.contains(now)
@@ -47,16 +53,12 @@ class MarketHoursEngine:
         session = self._calendar.get(symbol)
         if session is None:
             return now
-        if session == FOREX_24_5 or session == CRYPTO_24_7:
+        if session is FOREX_24_5 or session is CRYPTO_24_7:
             return now
-        candidate = now
-        for _ in range(7):
-            if candidate.weekday() >= 5:
-                candidate += timedelta(days=1)
-                continue
-            market_open = datetime.combine(candidate.date(), session.open, tzinfo=UTC)
-            if candidate < market_open:
-                return market_open
+        candidate = datetime.combine(now.date(), session.open, tzinfo=UTC)
+        if now > candidate:
+            candidate += timedelta(days=1)
+        while candidate.weekday() >= 5:
             candidate += timedelta(days=1)
         return candidate
 
@@ -65,7 +67,7 @@ class MarketHoursEngine:
         session = self._calendar.get(symbol)
         if session is None:
             return timedelta(seconds=0)
-        if session == FOREX_24_5 or session == CRYPTO_24_7:
+        if session is FOREX_24_5 or session is CRYPTO_24_7:
             return timedelta(seconds=0)
         market_close = datetime.combine(now.date(), session.close, tzinfo=UTC)
         if now > market_close:

@@ -325,3 +325,113 @@ class TestSQLiteKnowledgeEdgeRepository(RepositoryContractTests[KnowledgeEdge]):
 
     def make_entity(self):
         return _knowledge_edge()
+
+
+class TestSQLiteKnowledgeNodeFunctional:
+    def make_node(self, label="Alpha", node_type="concept", content="body", embedding=None):
+        return KnowledgeNode(label=label, node_type=node_type, content=content, embedding=embedding)
+
+    def test_get_by_label(self) -> None:
+        repo = SQLiteKnowledgeNodeRepository(_db())
+        a = self.make_node(label="Alpha")
+        b = self.make_node(label="Beta")
+        repo.add(a)
+        repo.add(b)
+        assert [n.id for n in repo.get_by_label("Alpha")] == [a.id]
+        assert repo.get_by_label("Missing") == []
+
+    def test_get_by_type(self) -> None:
+        repo = SQLiteKnowledgeNodeRepository(_db())
+        a = self.make_node(node_type="concept")
+        b = self.make_node(node_type="rule")
+        repo.add(a)
+        repo.add(b)
+        assert [n.id for n in repo.get_by_type("concept")] == [a.id]
+        assert repo.get_by_type("absent") == []
+
+    def test_search_matches_label_and_content(self) -> None:
+        repo = SQLiteKnowledgeNodeRepository(_db())
+        by_label = self.make_node(label="momentum entry")
+        by_content = self.make_node(content="references momentum regime")
+        other = self.make_node()
+        repo.add(by_label)
+        repo.add(by_content)
+        repo.add(other)
+        assert len(repo.search("momentum")) == 2
+
+    def test_embedding_roundtrip(self) -> None:
+        repo = SQLiteKnowledgeNodeRepository(_db())
+        node = self.make_node(embedding=[0.1, 0.2, 0.3])
+        repo.add(node)
+        loaded = repo.get(node.id)
+        assert loaded is not None
+        assert loaded.embedding == [0.1, 0.2, 0.3]
+
+
+class TestSQLiteKnowledgeEdgeFunctional:
+    def make_edge(self, source=None, target=None, relationship="related", weight=1.0):
+        return KnowledgeEdge(
+            source_id=source or uuid.uuid4(),
+            target_id=target or uuid.uuid4(),
+            relationship=relationship,
+            weight=weight,
+        )
+
+    def test_get_by_source_and_target(self) -> None:
+        repo = SQLiteKnowledgeEdgeRepository(_db())
+        src = uuid.uuid4()
+        a = self.make_edge(source=src)
+        b = self.make_edge(target=src)
+        repo.add(a)
+        repo.add(b)
+        assert [e.id for e in repo.get_by_source(src)] == [a.id]
+        assert [e.id for e in repo.get_by_target(src)] == [b.id]
+
+    def test_get_neighbors_depth_one(self) -> None:
+        db = _db()
+        nodes = SQLiteKnowledgeNodeRepository(db)
+        edges = SQLiteKnowledgeEdgeRepository(db)
+        center = self.make_edge()
+        left = self.make_edge()
+        right = self.make_edge(target=center.source_id)
+        n_center = KnowledgeNode(
+            label="center", node_type="concept", content="c", id=center.source_id
+        )
+        n_left = KnowledgeNode(label="left", node_type="concept", content="l", id=center.target_id)
+        n_right = KnowledgeNode(label="right", node_type="concept", content="r", id=right.source_id)
+        for n in (n_center, n_left, n_right):
+            nodes.add(n)
+        edges.add(center)
+        edges.add(left)
+        edges.add(right)
+        result = edges.get_neighbors(center.source_id, depth=1)
+        labels = {n.label for n in result}
+        assert labels == {"left", "right"}
+
+    def test_get_neighbors_depth_two(self) -> None:
+        db = _db()
+        nodes = SQLiteKnowledgeNodeRepository(db)
+        edges = SQLiteKnowledgeEdgeRepository(db)
+        a = KnowledgeNode(label="a", node_type="concept", content="a")
+        b = KnowledgeNode(label="b", node_type="concept", content="b")
+        c = KnowledgeNode(label="c", node_type="concept", content="c")
+        nodes.add(a)
+        nodes.add(b)
+        nodes.add(c)
+        edges.add(KnowledgeEdge(source_id=a.id, target_id=b.id, relationship="rel"))
+        edges.add(KnowledgeEdge(source_id=b.id, target_id=c.id, relationship="rel"))
+        labels = {n.label for n in edges.get_neighbors(a.id, depth=2)}
+        assert labels == {"b", "c"}
+
+    def test_get_neighbors_no_neighbors_returns_empty(self) -> None:
+        db = _db()
+        nodes = SQLiteKnowledgeNodeRepository(db)
+        edges = SQLiteKnowledgeEdgeRepository(db)
+        isolated = KnowledgeNode(label="iso", node_type="concept", content="x")
+        nodes.add(isolated)
+        assert edges.get_neighbors(isolated.id) == []
+
+    def test_get_neighbors_returns_none_for_missing_nodes(self) -> None:
+        db = _db()
+        edges = SQLiteKnowledgeEdgeRepository(db)
+        assert edges.get_neighbors(uuid.uuid4()) == []

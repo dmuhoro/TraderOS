@@ -5,6 +5,7 @@ import logging
 import os
 from typing import Any
 
+from traderos.domain.exceptions import ServiceError
 from traderos.infrastructure.retry import retry_with_backoff
 
 try:
@@ -64,5 +65,5 @@ class WebhookNotifier:
 
         try:
             retry_with_backoff(_do_webhook, max_retries=2)
-        except (_URLError, OSError):
+        except (_URLError, OSError, ServiceError):
             log.warning("Webhook POST failed")
