@@ -61,6 +61,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_daemon.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
 
     p_validate = sub.add_parser("validate", help="Validate configuration and environment")
+
+    p_pilot = sub.add_parser("pilot", help="Controlled-pilot readiness and dry-run checks")
+    p_pilot_sub = p_pilot.add_subparsers(dest="pilot_cmd")
+    p_pilot_readiness = p_pilot_sub.add_parser(
+        "readiness", help="Run the live-readiness gate (no orders placed)"
+    )
+    p_pilot_readiness.add_argument(
+        "--mode",
+        default="paper",
+        choices=["paper", "live", "backtest"],
+        help="Orchestrator mode used for the check (default: paper)",
+    )
+    p_pilot_dryrun = p_pilot_sub.add_parser(
+        "dry-run",
+        help="Rehearse the operator workflow end to end without live orders",
+    )
+    p_pilot_dryrun.add_argument(
+        "--mode",
+        default="paper",
+        choices=["paper", "live", "backtest"],
+        help="Orchestrator mode used for the check (default: paper)",
+    )
     p_validate.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
 
     p_db = sub.add_parser("db", help="Database management commands")
@@ -262,6 +284,88 @@ def cmd_validate(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_pilot(args: argparse.Namespace) -> None:
+    """Controlled-pilot gates: readiness verification and dry-run rehearsal.
+
+    ``readiness`` runs the live-readiness check (never places an order) and
+    exits 0 only when every verifiable precondition passes.
+    ``dry-run`` rehearses the operator workflow end to end with
+    ``dry_run=True`` so live execution stays disabled throughout.
+    """
+    from traderos.application.factory import build_orchestrator
+    from traderos.domain.services.operator_workflow import OperatorStep
+
+    mode = getattr(args, "mode", "paper")
+    orch = build_orchestrator(mode=mode)
+
+    if args.pilot_cmd == "readiness":
+        if orch.live_readiness is None:
+            print("Live readiness service is not configured.")
+            sys.exit(1)
+        verdict = orch.live_readiness.check()
+        if args.json:
+            print(json.dumps(verdict.to_dict(), indent=2, default=str))
+        else:
+            print("Controlled-pilot readiness:")
+            for name, ok in sorted(verdict.checks.items()):
+                status = "PASS" if ok else "FAIL"
+                print(f"  [{status}] {name}")
+            for reason in verdict.reasons:
+                print(f"  FAIL: {reason}")
+            mode_line = (
+                "LIVE execution ENABLED"
+                if verdict.live_execution_enabled
+                else "dry-run (live execution disabled)"
+            )
+            print(f"Verdict: {'READY' if verdict.ready else 'NOT READY'} ({mode_line})")
+        sys.exit(0 if verdict.ready else 1)
+
+    if args.pilot_cmd == "dry-run":
+        if orch.operator_session is None:
+            print("Operator workflow service is not configured.")
+            sys.exit(1)
+        session = orch.operator_session
+        outcomes = []
+        blocked = False
+        while True:
+            step = session.workflow.next_step()
+            if step is None:
+                break
+            if step is OperatorStep.STRATEGY_PROMOTION:
+                session.workflow.advance(
+                    step, actor="pilot-dry-run", result="skipped (operator decision)"
+                )
+                if session.repository is not None:
+                    session.repository.save(session.workflow)
+                outcomes.append(
+                    None if args.json else "SKIP: strategy promotion requires operator decision"
+                )
+                continue
+            outcome = session.perform(step, actor="pilot-dry-run", dry_run=True)
+            outcomes.append(outcome)
+            if not args.json:
+                status = "PASS" if outcome.ok else "FAIL"
+                print(f"  [{status}] {step.value}: {outcome.result}")
+            if not outcome.ok:
+                blocked = True
+                break
+        if args.json:
+            print(
+                json.dumps(
+                    [
+                        {
+                            "step": o.step.value if o else "strategy_promotion",
+                            "ok": o.ok if o else None,
+                            "result": o.result if o else "skipped (operator decision)",
+                        }
+                        for o in outcomes
+                    ],
+                    indent=2,
+                )
+            )
+        sys.exit(0 if not blocked and all(o is None or o.ok for o in outcomes) else 1)
+
+
 def cmd_db(args: argparse.Namespace) -> None:
     cfg = Config.load()
     conn = get_connection(cfg)
@@ -329,6 +433,8 @@ def main() -> None:
         cmd_db(args)
     elif args.command == "validate":
         sys.exit(cmd_validate(args))
+    elif args.command == "pilot":
+        cmd_pilot(args)
     else:
         parser.print_help()
 

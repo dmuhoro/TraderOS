@@ -161,6 +161,48 @@ class TestCliMainDispatch:
         assert "Hello" in output
 
 
+class TestCliPilot:
+    def _run_pilot(self, cmd: str, json: bool) -> str:
+        from traderos.application.factory import build_orchestrator
+
+        orch = build_orchestrator(mode="paper")
+        ns = argparse.Namespace(pilot_cmd=cmd, mode="paper", json=json)
+        out = StringIO()
+        with (
+            patch("traderos.interfaces.cli.main.build_orchestrator", return_value=orch),
+            patch("sys.stdout", out),
+        ):
+            try:
+                cli_main.cmd_pilot(ns)
+            except SystemExit:
+                pass
+        return out.getvalue()
+
+    def test_pilot_readiness_text(self):
+        output = self._run_pilot("readiness", json=False)
+        assert "Controlled-pilot readiness" in output
+        assert "[PASS]" in output
+        assert "broker_connected" in output
+
+    def test_pilot_readiness_json(self):
+        output = self._run_pilot("readiness", json=True)
+        data = json.loads(output)
+        assert "checks" in data
+        assert "ready" in data
+        assert isinstance(data["checks"], dict)
+
+    def test_pilot_dry_run_text(self):
+        output = self._run_pilot("dry-run", json=False)
+        assert "preflight" in output
+        assert "[PASS]" in output or "[FAIL]" in output
+
+    def test_pilot_dry_run_json(self):
+        output = self._run_pilot("dry-run", json=True)
+        data = json.loads(output)
+        assert isinstance(data, list)
+        assert all("step" in row and "ok" in row for row in data)
+
+
 class TestCliEdgeCases:
     def test_paper_not_available(self):
         from traderos.application.factory import build_orchestrator
