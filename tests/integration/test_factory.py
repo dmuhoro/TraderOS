@@ -9,6 +9,7 @@ from traderos.domain.services.paper_trading_service import PaperTradingService
 from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.signal_service import SignalService
 from traderos.infrastructure.config.config_loader import Config
+from traderos.infrastructure.secrets import SecretRotator
 
 
 class TestServiceFactory:
@@ -56,6 +57,22 @@ class TestServiceFactory:
         status = orch.get_status()
         assert status["mode"] == "paper"
         assert status["running"] is False
+
+    def test_secret_rotator_wired(self) -> None:
+        orch = build_orchestrator(mode="paper")
+        assert isinstance(orch.secret_rotator, SecretRotator)
+        status = orch.get_status()
+        assert "secret_rotation" in status
+        assert status["secret_rotation"]["total_secrets"] >= 0
+
+    def test_secret_rotator_lifecycle(self) -> None:
+        orch = build_orchestrator(mode="paper")
+        assert orch.secret_rotator is not None
+        orch.start()
+        assert orch.secret_rotator._bg_thread is not None
+        assert orch.secret_rotator._bg_thread.is_alive()
+        orch.stop()
+        assert not orch.secret_rotator._bg_thread.is_alive()
 
     def test_all_services_wired(self) -> None:
         orch = build_orchestrator(mode="paper")

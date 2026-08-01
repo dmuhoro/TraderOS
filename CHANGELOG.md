@@ -1,5 +1,19 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 15 (Deployment, Railway, Maintenance/Release)
+
+### Deployment
+- **Compose stack** (`docker-compose.yml` rewritten): `postgres` (16-alpine, healthchecked), `traderos-api` (PG-backed, healthchecked via `/v1/healthz`), `traderos-daemon` (paper mode, 60s interval), `postgres-test` (test profile). `docker compose config -q` clean.
+- **PostgreSQL migrations-on-boot**: fresh-PG path fixed end-to-end — v001 `SERIAL PRIMARY KEY`, `BOOLEAN DEFAULT TRUE`, obsolete legacy `strategies`/`backtest_results` tables removed; v006 `_serial(backend)` + unified legacy strategy rebuild; `db check` cursor fix. Fresh PG migrates to Schema version 6.
+- **Railway**: Dockerfile `VOLUME` removed (unsupported by Railway) in favor of `railway.toml` volumes (`/app/data`, `/app/exports`), healthcheck `/v1/healthz`, `startCommand`. API binds `$PORT` (default 8000). Deployment live at `traderos-production.up.railway.app` with `Postgres-gKbz` service and `DATABASE_URL` wired.
+- **CI `deploy-check` job**: compose validation, fresh-PG migration smoke (Schema version 6), API container health smoke.
+
+### Maintenance / Release
+- **Single version source**: `pyproject.toml` (`1.1.0`) is authoritative; dead `VERSION` file removed; `settings.yaml` synced; CI `version-check` job guards drift.
+- **`release.yml`**: tag-triggered (assert tag == package version, full test gate, sdist/wheel, GHCR image with semver tags, GitHub Release from CHANGELOG section).
+- **Secret rotation**: `SecretRotator` (env provider) wired into the orchestrator lifecycle and surfaced in `get_status()`.
+- **Retention**: `order_events` journal purged via `applied_at` in `purge_old_entries`; file logging uses `RotatingFileHandler` (`LOG_MAX_BYTES`, `LOG_BACKUP_COUNT`).
+
 ## [Unreleased] - Sprint 14 (Programme C — Commercial Surface)
 
 ### C2 — Enforced operator workflow
