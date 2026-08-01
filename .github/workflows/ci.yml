@@ -168,12 +168,12 @@ jobs:
         run: |
           docker run --rm -d --network host --name traderos-api-smoke \
             -e DATABASE_URL="postgresql://traderos:traderos@localhost:5434/traderos" \
-            -p 8099:8000 traderos:ci
+            traderos:ci
           for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/v1/healthz || true)
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/v1/healthz || true)
             if [ "$code" = "200" ]; then break; fi
             sleep 2
           done
           test "$code" = "200"
-          curl -sf http://localhost:8099/v1/healthz
+          curl -sf http://localhost:8000/v1/healthz
           docker rm -f traderos-api-smoke
