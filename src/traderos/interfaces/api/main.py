@@ -10,8 +10,16 @@ def main() -> None:
     ensure_fastapi()
     import uvicorn
 
+    from traderos.infrastructure.auth import APIKeyAuthenticator
+    from traderos.infrastructure.security_policy import assert_production_policy
+
     ssl_keyfile = os.getenv("SSL_KEYFILE")
     ssl_certfile = os.getenv("SSL_CERTFILE")
+    assert_production_policy(
+        authenticator=APIKeyAuthenticator.from_env(),
+        ssl_keyfile=ssl_keyfile,
+        ssl_certfile=ssl_certfile,
+    )
     port = int(os.getenv("PORT", "8000"))
     kwargs: dict = {"host": "0.0.0.0", "port": port}
     if ssl_keyfile and ssl_certfile:

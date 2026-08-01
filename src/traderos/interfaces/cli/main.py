@@ -85,6 +85,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_validate.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
 
+    p_security = sub.add_parser("security", help="Deployment security posture commands")
+    p_security_sub = p_security.add_subparsers(dest="security_cmd")
+    p_security_sub.add_parser("audit", help="Audit the deployment security posture")
+
     p_db = sub.add_parser("db", help="Database management commands")
     p_db_sub = p_db.add_subparsers(dest="db_cmd")
 
@@ -366,6 +370,28 @@ def cmd_pilot(args: argparse.Namespace) -> None:
         sys.exit(0 if not blocked and all(o is None or o.ok for o in outcomes) else 1)
 
 
+def cmd_security(args: argparse.Namespace) -> None:
+    """Audit the deployment security posture.
+
+    Reports authentication, TLS, CORS and secret-rotation state against the
+    policy for the active environment (``TRADEROS_ENV``). Exits non-zero when
+    the posture is insufficient; production runs fail closed.
+    """
+    from traderos.infrastructure.security_policy import check_security_posture
+
+    report = check_security_posture()
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(f"Security posture (environment: {report.environment}):")
+        for finding in report.findings:
+            status = "PASS" if finding.ok else "FAIL"
+            print(f"  [{status}] {finding.check}: {finding.detail}")
+        verdict = "SECURE" if report.all_ok else "INSUFFICIENT"
+        print(f"Verdict: {verdict}")
+    sys.exit(0 if report.all_ok else 1)
+
+
 def cmd_db(args: argparse.Namespace) -> None:
     cfg = Config.load()
     conn = get_connection(cfg)
@@ -435,6 +461,8 @@ def main() -> None:
         sys.exit(cmd_validate(args))
     elif args.command == "pilot":
         cmd_pilot(args)
+    elif args.command == "security":
+        cmd_security(args)
     else:
         parser.print_help()
 
