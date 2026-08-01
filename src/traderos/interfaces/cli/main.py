@@ -276,8 +276,9 @@ def cmd_db(args: argparse.Namespace) -> None:
             print(f"Rolled back to version {ver}")
         elif args.db_cmd == "check":
             try:
-                cur = conn.execute("SELECT 1")
-                cur.fetchone()
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    cur.fetchone()
                 ver = get_current_version(conn)
                 print(f"Database OK. Schema version: {ver}")
             except Exception as e:

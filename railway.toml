@@ -1,0 +1,14 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/v1/healthz"
+healthcheckTimeout = 120
+startCommand = "traderos-api"
+
+[[deploy.volumes]]
+mountPath = "/app/data"
+
+[[deploy.volumes]]
+mountPath = "/app/exports"

@@ -9,6 +9,7 @@ FROM python:3.14-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     sqlite3 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -19,11 +20,11 @@ ENV PYTHONPATH=/app/src
 COPY . .
 
 RUN groupadd -r traderos && useradd -r -g traderos -d /app traderos && \
-    chown -R traderos:traderos /app
+    chown -R traderos:traderos /app && \
+    mkdir -p /app/data /app/exports && \
+    chown traderos:traderos /app/data /app/exports
 
 USER traderos
-
-VOLUME ["/app/data", "/app/exports"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD traderos health || exit 1
