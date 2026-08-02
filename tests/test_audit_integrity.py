@@ -87,6 +87,7 @@ print(compute_audit_hash("id1","action","actor","r","d","2026-01-01T00:00:00","p
             capture_output=True,
             text=True,
             timeout=10,
+            check=False,
         )
         assert proc.returncode == 0, f"seed={seed} stderr={proc.stderr}"
         results.add(proc.stdout.strip())

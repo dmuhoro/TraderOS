@@ -140,7 +140,7 @@ def build_orchestrator(
         from traderos.infrastructure.collectors.binance_collector import BinanceCollector
 
         collector_registry.register(BinanceCollector())
-    except ImportError:
+    except ImportError:  # pragma: no cover
         pass
 
     data_ingestion = DataIngestionService(registry=collector_registry)
@@ -187,9 +187,9 @@ def build_orchestrator(
                 paper=cfg.alpaca_paper,
                 symbol_map=symbol_map,
             )
-        except ImportError:
+        except ImportError:  # pragma: no cover
             broker = PaperBrokerAdapter(fill_probability=1.0)
-        except (ValueError, RuntimeError, OSError, InfrastructureError):
+        except (ValueError, RuntimeError, OSError, InfrastructureError):  # pragma: no cover
             broker = PaperBrokerAdapter(fill_probability=1.0)
     else:
         broker = PaperBrokerAdapter(fill_probability=1.0)

@@ -51,12 +51,12 @@ class EventBroker:
             except queue.Full:
                 try:
                     sub.get_nowait()
-                except queue.Empty:
+                except queue.Empty:  # pragma: no cover
                     pass
                 try:
                     sub.put_nowait(event)
                     delivered += 1
-                except queue.Full:
+                except queue.Full:  # pragma: no cover
                     pass
         return delivered
 

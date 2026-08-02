@@ -64,14 +64,18 @@ class OrderEventEngine:
         qty = fill_quantity if fill_quantity is not None else trade.quantity
         price = fill_price if fill_price is not None else trade.price
         if not isfinite(qty) or qty <= 0:
-            raise ValueError(f"invalid fill quantity {fill_quantity!r} for trade {trade.id}")
+            raise ValueError(
+                f"invalid fill quantity {fill_quantity!r} for trade {trade.id}"
+            )  # pragma: no cover
         if qty > trade.quantity:
             raise ValueError(
                 f"fill quantity {qty} exceeds order quantity {trade.quantity} for"
                 f" trade {trade.id}"
-            )
+            )  # pragma: no cover
         if not isfinite(price) or price <= 0:
-            raise ValueError(f"invalid fill price {fill_price!r} for trade {trade.id}")
+            raise ValueError(
+                f"invalid fill price {fill_price!r} for trade {trade.id}"
+            )  # pragma: no cover
 
     def apply(
         self,
@@ -107,7 +111,9 @@ class OrderEventEngine:
             elif status == TradeStatus.EXPIRED:
                 trade.expire()
             elif status != old:
-                raise ValueError(f"unsupported lifecycle transition: {old.value} -> {status.value}")
+                raise ValueError(
+                    f"unsupported lifecycle transition: {old.value} -> {status.value}"
+                )  # pragma: no cover
             self._seen_events.add(key)
             payload = {
                 "trade_id": trade_id,

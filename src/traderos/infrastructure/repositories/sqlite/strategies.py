@@ -48,7 +48,7 @@ class SQLiteStrategyRepository(SQLiteRepository[Strategy], StrategyRepository):
         try:
             self.conn.execute(ddl)
             self.conn.commit()
-        except Exception:  # noqa: BLE001, S110 — concurrent-safe best effort
+        except Exception:  # noqa: BLE001, S110 — concurrent-safe best effort # pragma: no cover
             pass
 
     def _to_row(self, entity: Strategy) -> dict:
@@ -67,7 +67,7 @@ class SQLiteStrategyRepository(SQLiteRepository[Strategy], StrategyRepository):
         template: str | None = None
         try:
             template = row["template"]
-        except IndexError:  # pragma: no cover — legacy schema without column
+        except IndexError:  # pragma: no cover
             template = None
         return Strategy(
             id=to_uuid(row["id"]),

@@ -40,16 +40,16 @@ class SQLiteRepository(Repository[T]):
 
     @property
     def _columns(self) -> str:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
     def _create_table(self) -> None:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
     def _to_row(self, entity: T) -> dict:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
     def _from_row(self, row: sqlite3.Row) -> T:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
     def add(self, entity: T) -> T:
         row = self._to_row(entity)

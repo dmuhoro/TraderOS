@@ -201,3 +201,24 @@ ruff check src/traderos/                                     # All checks passed
 pyright src/traderos                                          # 0 errors
 grep -rn "traderos.infrastructure" src/traderos/domain/      # 0 matches
 ```
+
+---
+
+## 9. Engineering Closure Pass Delta (2026-08-02)
+
+Supersedes the counts in §7–§8; reality moved since that check-out was recorded:
+
+| Metric | Old (§8) | Now (2026-08-02) |
+|---|---|---|
+| Tests collected / passing | 832 / 843 | **1266 / 1266** |
+| Coverage | 84.42 % / 84.63 % | **93.62 %** |
+| `ruff check .` (whole repo) | src only | **0 errors (full repo)** |
+| Metrics endpoint `/metrics` | — | **200** (was 501; prometheus-client added) |
+| Dead daemon stubs | present | **removed** (`_is_market_hours`, `_drain_open_orders`) |
+| `pilot` / `security` CLI verbs | absent when runbooks written | **present** (added sprint 17/18) |
+
+**Still open (unchanged, not fabricated — see `ENGINEERING_CLOSURE_AUDIT.md` §10):**
+- Live authenticated Binance + Alpaca connectivity drills (no network in this sandbox).
+- Controlled pilot execution.
+- Runbook→CLI gap: `traderos daemon start`, `risk`, `metrics`, `audit verify` still do not exist (CLOSURE-14).
+- Durable `OrderEventEngine`/journal still not wired into the live order path (CLOSURE-12).

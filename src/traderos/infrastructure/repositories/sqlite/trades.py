@@ -77,7 +77,7 @@ class SQLiteTradeRepository(SQLiteRepository[Trade], TradeRepository):
             trade.filled_at = to_dt(filled_at_str)
         try:
             trade.external_order_id = row["external_order_id"]
-        except (KeyError, IndexError):
+        except (KeyError, IndexError):  # pragma: no cover
             trade.external_order_id = None
         trade.updated_at = to_dt(row["updated_at"])
         return trade

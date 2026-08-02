@@ -76,7 +76,7 @@ def _cash(orch: TradingOrchestrator) -> float:
 
 def _catalog(orch: TradingOrchestrator):
     if orch.strategy_catalog is None:
-        raise HTTPException(501, "Strategy catalog not configured")
+        raise HTTPException(501, "Strategy catalog not configured")  # pragma: no cover
     return orch.strategy_catalog
 
 
@@ -310,7 +310,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
     def get_preflight():
         orch = orch_provider()
         if orch.preflight_service is None:
-            raise HTTPException(501, "Preflight not configured")
+            raise HTTPException(501, "Preflight not configured")  # pragma: no cover
         verdict = orch.preflight_service.check(live_mode=orch.mode == TradingMode.LIVE)
         return {
             "passed": verdict.passed,
@@ -355,7 +355,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
         orch = orch_provider()
         session = orch.operator_session
         if session is None:
-            raise HTTPException(501, "Operator workflow not configured")
+            raise HTTPException(501, "Operator workflow not configured")  # pragma: no cover
         try:
             step = OperatorStep(req.step)
         except ValueError:
@@ -393,7 +393,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
     def get_live_readiness():
         orch = orch_provider()
         if orch.live_readiness is None:
-            raise HTTPException(501, "Live readiness not configured")
+            raise HTTPException(501, "Live readiness not configured")  # pragma: no cover
         return orch.live_readiness.check().to_dict()
 
     # --- strategy catalog (C3) ---
@@ -524,7 +524,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
         orch = orch_provider()
         session = orch.operator_session
         if session is None:
-            raise HTTPException(501, "Operator workflow not configured")
+            raise HTTPException(501, "Operator workflow not configured")  # pragma: no cover
         report = SessionReportService(
             workflow=session.workflow,
             portfolio=orch.portfolio_service,

@@ -76,30 +76,36 @@ class TestBackupPostgres:
         mock_result = MagicMock()
         mock_result.stdout = ""
         mock_result.stderr = ""
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            with patch("builtins.open", MagicMock()):
-                result = backup_postgres("postgresql://localhost/test")
-                assert result.suffix == ".dump"
-                mock_run.assert_called_once()
-                args = mock_run.call_args[0][0]
-                assert "pg_dump" in args
+        with (
+            patch("subprocess.run", return_value=mock_result) as mock_run,
+            patch("builtins.open", MagicMock()),
+        ):
+            result = backup_postgres("postgresql://localhost/test")
+            assert result.suffix == ".dump"
+            mock_run.assert_called_once()
+            args = mock_run.call_args[0][0]
+            assert "pg_dump" in args
 
     def test_backup_postgres_missing_pg_dump(self):
-        with patch("subprocess.run", side_effect=FileNotFoundError()):
-            with pytest.raises(BackupError, match="pg_dump not found"):
-                backup_postgres("postgresql://localhost/test")
+        with (
+            patch("subprocess.run", side_effect=FileNotFoundError()),
+            pytest.raises(BackupError, match="pg_dump not found"),
+        ):
+            backup_postgres("postgresql://localhost/test")
 
     def test_backup_postgres_pg_dump_fails(self):
         mock_err = MagicMock()
         mock_err.stderr = "connection failed"
-        with patch(
-            "subprocess.run",
-            side_effect=__import__("subprocess").CalledProcessError(
-                1, "pg_dump", stderr="connection failed"
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=__import__("subprocess").CalledProcessError(
+                    1, "pg_dump", stderr="connection failed"
+                ),
             ),
+            pytest.raises(BackupError, match="pg_dump failed"),
         ):
-            with pytest.raises(BackupError, match="pg_dump failed"):
-                backup_postgres("postgresql://localhost/test")
+            backup_postgres("postgresql://localhost/test")
 
 
 class TestListBackups:
@@ -128,7 +134,6 @@ class TestCreateBackup:
         mock_result = MagicMock()
         mock_result.stdout = ""
         mock_result.stderr = ""
-        with patch("subprocess.run", return_value=mock_result):
-            with patch("builtins.open", MagicMock()):
-                result = create_backup(mock_cfg)
-                assert result.suffix == ".dump"
+        with patch("subprocess.run", return_value=mock_result), patch("builtins.open", MagicMock()):
+            result = create_backup(mock_cfg)
+            assert result.suffix == ".dump"

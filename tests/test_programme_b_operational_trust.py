@@ -795,7 +795,9 @@ def test_binance_default_connector_requires_websockets():
         conn = _DefaultWebSocketConnector()("wss://stream.binance.com:9443")
     except RuntimeError as exc:
         assert "websockets" in str(exc)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
+        # Network-dependent test: if the Binance endpoint is unreachable from the
+        # test sandbox, skip rather than fail the suite.
         pytest.skip(f"Binance endpoint unreachable in this environment: {exc}")
     else:
         conn.close()
