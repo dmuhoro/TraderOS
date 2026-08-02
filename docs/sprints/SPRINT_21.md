@@ -7,7 +7,7 @@ and prove the two last live-dependency drills against **real** networks and
 Postgres (L4). No feature work, no new abstractions, no fabrication:
 everything green and evidence-only.
 
-**Reference docs:** `docs/engineering/AUDIT_GROUND_TRUTH.md`,
+**Reference docs:** `docs/AUDIT_GROUND_TRUTH.md`,
 `docs/engineering/FINISH_LINE_DASHBOARD.md`,
 `docs/engineering/STRATEGIC_COMPLETION_BLUEPRINT.md` (OT-001/OT-004, R-01/R-02).
 

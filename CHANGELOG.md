@@ -1,5 +1,29 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 22 (Postgres reproducibility — environment-independent CI signal)
+
+### Postgres reproducibility programme (2026-08-02)
+- **Root cause fixed (test-harness only, no `src/` changes):** an independent
+  cold-environment audit against `d52f0bd` found 51 test errors, 100% from one
+  cause (Postgres unreachable at `localhost:5433`, no skip guard) and zero
+  application-logic defects. A short-timeout reachability probe now guards the
+  Postgres-backed modules so they **skip** (honest reason, visibly not a pass)
+  when no Postgres is reachable — and **run for real** when one is.
+- **Guarded:** `tests/test_postgres_repositories.py`,
+  `tests/test_observability_postgres.py`,
+  `tests/test_observability_postgres_services.py`, and
+  `TestV004Postgres` in `tests/test_migration_v004.py`
+  (its sqlite tests still run without Postgres).
+- **CI:** verified (not assumed) `ci.yml`'s `test` job provisions the Postgres
+  service and documented it, so CI exercises the pass path, not the skip path.
+- **Evidence (both environments, 0 failures/0 errors, only skips differ):**
+  - WITH Postgres → `1274 passed, 1 skipped` (`docs/evidence/2026-08-02_postgres_with_pg.log`);
+  - WITHOUT Postgres → `1219 passed, 56 skipped` (`docs/evidence/2026-08-02_postgres_without_pg.log`).
+- **Governance:** merged `docs/engineering/AUDIT_GROUND_TRUTH.md` verbatim into
+  canonical `docs/AUDIT_GROUND_TRUTH.md` (§7 delta + appendix), deleted the
+  redundant copy, repointed internal links; `NEXT_STEPS_TO_COMPLETION.md`
+  marks WP-N1 DONE, folds WP-N0, closes WP-N2.
+
 ## [Unreleased] - Sprint 21 (Order-Survivability: durable journal wire-up L1-L4)
 
 ### Order-Survivability Sprint (2026-08-02)

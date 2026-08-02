@@ -84,6 +84,19 @@ def pg_conn():
     conn.close()
 
 
+def _pg_reachable(dsn: str, timeout: int = 3) -> bool:
+    try:
+        conn = psycopg2.connect(dsn, connect_timeout=timeout)
+        conn.close()
+        return True
+    except psycopg2.Error:
+        return False
+
+
+@pytest.mark.skipif(
+    not _pg_reachable(PG_DSN),
+    reason=f"Postgres not reachable at {PG_DSN} — skipped, not passed",
+)
 class TestV004Postgres:
     def test_up_adds_column_when_missing(self, pg_conn) -> None:
         with pg_conn.cursor() as cur:

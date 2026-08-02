@@ -9,7 +9,7 @@ migration-rollback drills with checksums and integrity checks; update the
 governance docs **evidence-only**. No feature work, no new abstractions.
 
 **Reference docs:** `docs/engineering/NEXT_STEPS_TO_COMPLETION.md`,
-`docs/engineering/AUDIT_GROUND_TRUTH.md` §10, `docs/engineering/FINISH_LINE_DASHBOARD.md`.
+`docs/AUDIT_GROUND_TRUTH.md` §10, `docs/engineering/FINISH_LINE_DASHBOARD.md`.
 
 ---
 
