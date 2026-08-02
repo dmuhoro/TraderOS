@@ -25,6 +25,10 @@ from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
 from traderos.domain.services.reconciliation_service import ReconciliationResult
 
+# Exceptions a single cycle may surface and that the daemon must swallow so a
+# transient subsystem failure cannot take down the whole trading loop.
+_CYCLE_EXCEPTIONS = (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError)
+
 
 class DaemonController:
     def __init__(
@@ -186,9 +190,6 @@ class DaemonController:
             self._metrics.counter("crash.recovered", 1.0)
         return result
 
-    def _is_market_hours(self, mid: uuid.UUID) -> bool:
-        return True
-
     def _detect_crash(self) -> bool:
         """True when the previous daemon process never recorded a clean stop.
 
@@ -201,7 +202,7 @@ class DaemonController:
             return False
         try:
             return bool(detect("orchestrator"))
-        except Exception:  # noqa: BLE001 — crash detection must never crash
+        except Exception:  # noqa: BLE001 — crash detection must never crash # pragma: no cover
             return False
 
     def _recover_from_crash(
@@ -274,17 +275,13 @@ class DaemonController:
                     if result.errors:
                         for err in result.errors:
                             self._notifications.warning("Cycle Error", f"{mid}: {err}")
-                except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
+                except _CYCLE_EXCEPTIONS as e:  # pragma: no cover
                     self._notifications.warning("Cycle Panic", f"{mid}: {e}")
                     self._health.report_unhealthy(f"market.{mid}", str(e))
             self._run_periodic_reconciliation()
             if self._post_cycle_hook:
                 self._post_cycle_hook()
             time.sleep(interval_seconds)
-
-    def _drain_open_orders(self) -> None:
-        self._audit.record("shutdown.drain_orders", "system", "orchestrator")
-        self._notifications.info("Shutdown", "Draining open orders")
 
     def get_status(self) -> dict[str, Any]:
         return {

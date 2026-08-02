@@ -505,3 +505,23 @@ SDK, multi-tenancy, RBAC, pricing/billing, alerting integrations, advanced repor
 | OT-001…OT-011 | ✅ from OPERATIONAL_TRUST_REPORT (22/100) |
 | No `modify_order` anywhere | ✅ grep across BrokerAdapter/Port/Alpaca/Paper/RateLimited |
 | `StreamTransport` has no implementations | ✅ protocol-only in `market_stream.py` |
+
+---
+
+## 21. Engineering Closure Pass Delta (2026-08-02)
+
+Since the §20 audit-claim table (Programme A baseline) the repository advanced materially. Updated reality:
+
+| Claim (2026-08-02) | Value |
+|---|---|
+| Tests | **1266 passed / 1266** |
+| Coverage | **93.62 %** |
+| `ruff check .` (whole repo) | **0 errors** (was src-only) |
+| `pip-audit` | 0 known vulnerabilities |
+| `bandit -r src/traderos -lll` | 0 High |
+| `/metrics` | 200 (prometheus-client added) |
+| Architecture | ports & adapters clean, no violations, pyright strict-clean |
+
+**Programme status:** A (core correctness) ✅ · B (operational trust, OT-001…OT-011) ✅ code+tests with declared live unknowns R-01/R-02 · C (commercial surface) ✅ shipped · D (release/closure) **in progress**.
+
+**Forward view:** the next programme is **Live Pilot Enablement** (`CLOSURE-12 → 15/16 → 08` per `ENGINEERING_CLOSURE_AUDIT.md` §10). Remaining open items are the live-connectivity drills, replay wiring, runbook parity, and the controlled pilot — none are speculative; each is tracked with a priority in the closure backlog.

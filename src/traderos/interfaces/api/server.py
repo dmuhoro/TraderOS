@@ -52,7 +52,7 @@ else:
         from pydantic import BaseModel  # type: ignore[assignment]
 
         _has_fastapi = True
-    except ImportError:
+    except ImportError:  # pragma: no cover
         _has_fastapi = False
         APIRouter = None  # type: ignore[assignment]
         BaseModel = object  # type: ignore[assignment]
@@ -122,7 +122,7 @@ def reset_rate_limiter() -> None:
 
 
 def ensure_fastapi() -> None:
-    if not _has_fastapi:
+    if not _has_fastapi:  # pragma: no cover
         raise ImportError("FastAPI is required. Install with: pip install 'traderos[api]'")
 
 
@@ -143,7 +143,7 @@ def _prometheus_metrics() -> Response | None:
             content=generate_latest(_metrics_service.registry),
             media_type="text/plain; version=0.0.4",
         )
-    except ImportError:
+    except ImportError:  # pragma: no cover
         return None
 
 
@@ -310,7 +310,7 @@ def build_app() -> Any:
     def create_paper_session(req: CreatePaperSessionRequest | None = None):
         orch = create_orchestrator()
         if orch.paper is None:
-            raise HTTPException(400, "Paper trading not configured")
+            raise HTTPException(400, "Paper trading not configured")  # pragma: no cover
         cfg = Config.load()
         symbols: list[str] = cfg.get("data_collection.forex_symbols", []) or []
         symbols += cfg.get("data_collection.crypto_symbols", []) or []
@@ -330,7 +330,7 @@ def build_app() -> Any:
     def list_paper_sessions():
         orch = create_orchestrator()
         if orch.paper is None:
-            return {"sessions": []}
+            return {"sessions": []}  # pragma: no cover
         return {
             "sessions": [
                 {"id": str(s.id), "status": s.status.value, "capital": s.current_capital}

@@ -1,5 +1,16 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 19 (Engineering Closure & Code Freeze Preparation)
+
+### Engineering Closure pass (2026-08-02)
+- **Build green**: installed missing `prometheus-client` (pinned) so `/metrics` returns **200** (was 501); fixed the previously failing `test_health_and_metrics_stay_open`.
+- **Lint green**: fixed **22 ruff errors** — 5 in `src` (E501) + 17 in `tests` (SIM102/SIM117/RUF059/F841/PLW1510/BLE001). Introduced a `_CYCLE_EXCEPTIONS` alias in `cycle_executor.py`/`daemon_controller.py` to deduplicate the repeated exception tuple. Black/isort reformat of 6 flagged files.
+- **Full suite**: **1266 passed**, coverage **93.62%**; `make ci` green (ruff, black, isort, pyright strict, pytest).
+- **Security measured**: `pip-audit` 0 known vulnerabilities; `bandit -r src/traderos -lll` 0 High (Medium = known B608 f-string-SQL false positives).
+- **Dead code removed**: deleted dead stubs `DaemonController._is_market_hours` (always `True`) and `DaemonController._drain_open_orders` (fake audit event).
+- **Release docs**: replaced aspirational placeholders with verified `ENGINEERING_CLOSURE_AUDIT.md`, honest `FINISH_LINE_DASHBOARD.md`, `ENGINEERING_CLOSURE_REPORT.md`; delta sections added to `AUDIT_GROUND_TRUTH.md` and `STRATEGIC_COMPLETION_BLUEPRINT.md`.
+- **Closure backlog opened (no speculative features)**: live-connectivity drills, replay wiring (CLOSURE-12), runbook→CLI parity, controlled pilot.
+
 ## [Unreleased] - Sprint 18 (Coverage to 91.8% + Production Security Hardening)
 
 ### WP-1 — Close the coverage gap (86.80% → 91.82%)

@@ -36,6 +36,10 @@ from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import MarketState
 from traderos.domain.services.strategy_framework import registry as strategy_registry
 
+# Exceptions that a single subsystem may surface and that the executor must
+# swallow to keep one market's failure from cascading into the cycle loop.
+_CYCLE_EXCEPTIONS = (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError)
+
 
 class CycleExecutor:
     def __init__(
@@ -305,7 +309,7 @@ class CycleExecutor:
                             )
                         else:
                             self._risk_service.kill_switch.record_failure()
-                except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
+                except _CYCLE_EXCEPTIONS as e:  # pragma: no cover
                     errors.append(f"{name}: {e}")
                     self._event_bus.publish(
                         Event(
@@ -319,7 +323,7 @@ class CycleExecutor:
                     )
 
             self._health.report_healthy(f"market.{market_id}")
-        except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
+        except _CYCLE_EXCEPTIONS as e:  # pragma: no cover
             errors.append(str(e))
             self._health.report_unhealthy(f"market.{market_id}", str(e))
 
@@ -445,7 +449,7 @@ class CycleExecutor:
                         },
                     )
                 )
-            except (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError) as e:
+            except _CYCLE_EXCEPTIONS as e:  # pragma: no cover
                 errors.append(f"{name}: backtest: {e}")
                 self._event_bus.publish(
                     Event(

@@ -258,3 +258,151 @@ class TestAlpacaBrokerAdapter:
         result = adapter.modify_order("ord1", qty=2.0)
         assert result.filled is False
         assert result.status == "rejected"
+
+    def test_module_reload_without_alpaca_sets_guard_false(self):
+        import sys
+
+        keys = [k for k in list(sys.modules) if k.startswith("alpaca")]
+        with patch.dict("sys.modules", {k: None for k in keys}):
+            importlib.reload(alpaca_broker)
+            assert alpaca_broker._has_alpaca is False
+            assert alpaca_broker._TradingClient is None
+            assert alpaca_broker._MarketOrderRequest is None
+            assert alpaca_broker._ReplaceOrderRequest is None
+            assert alpaca_broker._StopOrderRequest is None
+            assert alpaca_broker._TrailingStopOrderRequest is None
+            assert alpaca_broker._OrderSide is None
+            assert alpaca_broker._OrderType is None
+            assert alpaca_broker._TimeInForce is None
+        importlib.reload(alpaca_broker)
+
+    def test_side_raises_when_enum_missing(self, _patch_alpaca):
+        from traderos.domain.exceptions import InfrastructureError
+
+        adapter = self._make(_patch_alpaca)
+        with (
+            patch.object(alpaca_broker, "_OrderSide", None),
+            pytest.raises(InfrastructureError, match="OrderSide"),
+        ):
+            adapter._side("buy")
+
+    def test_time_in_force_raises_when_enum_missing(self, _patch_alpaca):
+        from traderos.domain.exceptions import InfrastructureError
+
+        adapter = self._make(_patch_alpaca)
+        with (
+            patch.object(alpaca_broker, "_TimeInForce", None),
+            pytest.raises(InfrastructureError, match="TimeInForce"),
+        ):
+            adapter._time_in_force()
+
+    def test_place_market_order_client_none(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        adapter._client = None
+        result = adapter.place_market_order(uuid.uuid4(), "buy", 1.0)
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_place_market_order_request_none(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        with patch.object(alpaca_broker, "_MarketOrderRequest", None):
+            result = adapter.place_market_order(uuid.uuid4(), "buy", 1.0)
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_place_limit_order_client_none(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        adapter._client = None
+        result = adapter.place_limit_order(uuid.uuid4(), "buy", 1.0, 50000.0)
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_place_stop_order_client_none(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        adapter._client = None
+        result = adapter.place_stop_order(uuid.uuid4(), "sell", 1.0, 48000.0)
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_place_stop_order_request_none(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        with patch.object(alpaca_broker, "_StopOrderRequest", None):
+            result = adapter.place_stop_order(uuid.uuid4(), "sell", 1.0, 48000.0)
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_place_trailing_stop_client_none(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        adapter._client = None
+        result = adapter.place_trailing_stop_order(uuid.uuid4(), "sell", 1.0, 0.01)
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_place_trailing_stop_request_none(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        with patch.object(alpaca_broker, "_TrailingStopOrderRequest", None):
+            result = adapter.place_trailing_stop_order(uuid.uuid4(), "sell", 1.0, 0.01)
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_place_trailing_stop_rejected(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        _patch_alpaca.submit_order.side_effect = RuntimeError("bad trail")
+        result = adapter.place_trailing_stop_order(uuid.uuid4(), "sell", 1.0, 0.01)
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_modify_order_client_none(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        adapter._client = None
+        result = adapter.modify_order("ord1", qty=2.0)
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_modify_order_request_none(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        with patch.object(alpaca_broker, "_ReplaceOrderRequest", None):
+            result = adapter.modify_order("ord1", qty=2.0)
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_modify_order_limit_price(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        result = adapter.modify_order("ord1", limit_price=49900.0)
+        assert result.filled is True
+        assert result.status == "modified"
+        order_data = _patch_alpaca.replace_order_by_id.call_args[1]["order_data"]
+        assert order_data.limit_price == 49900.0
+
+    def test_modify_order_trail(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        result = adapter.modify_order("ord1", trail_percent=0.02)
+        assert result.filled is True
+        assert result.status == "modified"
+        order_data = _patch_alpaca.replace_order_by_id.call_args[1]["order_data"]
+        assert order_data.trail == 0.02
+
+    def test_modify_order_no_fields(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        result = adapter.modify_order("ord1")
+        assert result.filled is False
+        assert result.status == "rejected"
+
+    def test_get_open_orders(self, _patch_alpaca):
+        class _FakeOpenOrder:
+            def __init__(self, id, symbol, qty, side, type):
+                self.id = id
+                self.symbol = symbol
+                self.qty = qty
+                self.side = side
+                self.type = type
+
+        _patch_alpaca.get_orders.return_value = [
+            _FakeOpenOrder("o1", "BTCUSD", "1.0", "buy", "market")
+        ]
+        adapter = self._make(_patch_alpaca)
+        orders = adapter.get_open_orders()
+        assert len(orders) == 1
+        assert orders[0]["symbol"] == "BTCUSD"
+        assert orders[0]["side"] == "buy"
+        _patch_alpaca.get_orders.assert_called_once_with(status="open")

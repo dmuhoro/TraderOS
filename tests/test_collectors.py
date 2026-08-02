@@ -71,6 +71,14 @@ class TestBinanceCollector:
         assert BinanceCollector().validate_symbol("BTCUSDT") is True
         assert BinanceCollector().validate_symbol("") is False
 
+    def test_fetch_historical_returns_empty_on_url_error(self) -> None:
+        from unittest.mock import patch
+        from urllib.error import URLError
+
+        with patch("urllib.request.urlopen", side_effect=URLError("boom")):
+            collector = BinanceCollector()
+            assert collector.fetch_historical("BTCUSDT", "1h", limit=1) == []
+
     def test_fetch_historical_returns_parsed_data(self) -> None:
         import json
         from unittest.mock import patch

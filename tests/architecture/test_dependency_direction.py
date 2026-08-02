@@ -27,13 +27,16 @@ def _extract_infra_imports(filepath: Path) -> list[tuple[int, str]]:
                     "traderos.infrastructure."
                 ):
                     violations.append((node.lineno, f"import {alias.name}"))
-        elif isinstance(node, ast.ImportFrom):
-            if node.module and (
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and (
                 node.module.startswith("traderos.infrastructure")
                 or node.module.startswith("traderos.infrastructure.")
-            ):
-                names = ", ".join(a.name for a in node.names)
-                violations.append((node.lineno, f"from {node.module} import {names}"))
+            )
+        ):
+            names = ", ".join(a.name for a in node.names)
+            violations.append((node.lineno, f"from {node.module} import {names}"))
     return violations
 
 
@@ -64,7 +67,7 @@ class TestDomainDoesNotImportInfrastructure:
             f"but got {len(violations)}: {violations}. "
             "If you fixed the fixture, restore the deliberate violation!"
         )
-        line_no, imp = violations[0]
+        _line_no, imp = violations[0]
         assert (
             "infrastructure" in imp
         ), f"Expected violation to mention 'infrastructure', got: {imp}"
