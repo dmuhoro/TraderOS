@@ -112,7 +112,7 @@ class MeanReversion(StrategyBase):
         bb_upper = state.indicators.get("bb_upper_20")
         bb_lower = state.indicators.get("bb_lower_20")
         close = state.indicators.get("close")
-        if bb_upper is None or bb_lower is None or close is None:
+        if bb_upper is None or bb_lower is None or close is None or bb_upper == 0 or bb_lower == 0:
             return None
         multiplier = self._param("confidence_multiplier", 5.0)
         if close > bb_upper:

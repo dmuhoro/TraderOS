@@ -5,6 +5,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 from decimal import Decimal
@@ -126,6 +127,7 @@ class BacktestingService:
         position_qty = 0.0
         equity_curve: list[tuple[datetime, float]] = []
         steps: list[BacktestStep] = []
+        filled_orders = 0
 
         for i, candle in enumerate(candles):
             if time.monotonic() - start_time > max_duration_seconds:
@@ -139,14 +141,27 @@ class BacktestingService:
                 "low": float(candle.ohlcv.low),
                 "volume": float(candle.ohlcv.volume),
                 "sma_20": 0.0,
+                "sma_50": 0.0,
+                "bb_upper_20": 0.0,
+                "bb_mid_20": 0.0,
+                "bb_lower_20": 0.0,
                 "atr_14": 0.0,
             }
             if i >= 1:
-                prev_highs = [float(c.ohlcv.high) for c in candles[max(0, i - 19) : i + 1]]
-                prev_lows = [float(c.ohlcv.low) for c in candles[max(0, i - 19) : i + 1]]
+                prev_highs = [float(c.ohlcv.high) for c in candles[max(0, i - 49) : i + 1]]
+                prev_lows = [float(c.ohlcv.low) for c in candles[max(0, i - 49) : i + 1]]
                 prev_closes = [float(c.ohlcv.close) for c in candles[max(0, i - 19) : i + 1]]
-                sma = sum(prev_closes) / len(prev_closes)
-                indicators["sma_20"] = sma
+                sma20 = sum(prev_closes) / len(prev_closes)
+                indicators["sma_20"] = sma20
+                indicators["bb_mid_20"] = sma20
+                if len(prev_closes) >= 2:
+                    variance = sum((c - sma20) ** 2 for c in prev_closes) / len(prev_closes)
+                    std = variance**0.5
+                    indicators["bb_upper_20"] = sma20 + 2 * std
+                    indicators["bb_lower_20"] = sma20 - 2 * std
+                prev_closes_50 = [float(c.ohlcv.close) for c in candles[max(0, i - 49) : i + 1]]
+                if len(prev_closes_50) >= 1:
+                    indicators["sma_50"] = sum(prev_closes_50) / len(prev_closes_50)
                 if len(prev_closes) >= 14:
                     tr_values = []
                     for j in range(len(prev_closes) - 1):
@@ -172,6 +187,7 @@ class BacktestingService:
                 order = self.execution.create_market_order(market_id, side, qty)
                 fill_result = self.execution.process_market_order(order, float(candle.ohlcv.close))
                 if fill_result.filled:
+                    filled_orders += 1
                     fill_price = fill_result.fill_price
                     if side == "buy":
                         position_qty += fill_result.fill_quantity
@@ -191,7 +207,7 @@ class BacktestingService:
                 )
             )
 
-        metrics = self.compute_metrics(equity_curve)
+        metrics = replace(self.compute_metrics(equity_curve), total_trades=filled_orders)
         result = BacktestResult(
             strategy_id=uuid.uuid4(),
             market_id=market_id,
