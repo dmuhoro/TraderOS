@@ -19,6 +19,7 @@ class MismatchType(Enum):
     DUPLICATE_BROKER_STATE = "duplicate_broker_state"
     BROKER_FAILURE = "broker_failure"
     UNKNOWN_STATE = "unknown_state"
+    UNCONFIRMED_INTENT = "unconfirmed_intent"
 
 
 @dataclass
@@ -75,6 +76,7 @@ class BrokerStateReconciliationService:
         self,
         local_positions: list[dict] | None = None,
         local_orders: list[dict] | None = None,
+        journal_pending: list[dict] | None = None,
     ) -> BrokerReconciliationResult:
         errors: list[str] = []
         mismatches: list[MismatchDetail] = []
@@ -205,6 +207,17 @@ class BrokerStateReconciliationService:
                     )
                 )
             seen_ord_ids.add(oid)
+
+        for intent in journal_pending or []:
+            mismatches.append(
+                MismatchDetail(
+                    MismatchType.UNCONFIRMED_INTENT,
+                    f"Journal contains order intent {intent.get('id', '?')} that "
+                    "never reached broker confirmation — do not accept orders until "
+                    "a human resolves broker-side truth",
+                    severity=2,
+                )
+            )
 
         if self._reconciled_at is not None:
             elapsed = (datetime.now(UTC) - self._reconciled_at).total_seconds()

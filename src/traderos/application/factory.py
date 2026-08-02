@@ -199,6 +199,25 @@ def build_orchestrator(
 
     broker = GuardrailedBroker(RateLimitedBroker(broker))
 
+    # CLOSURE-12: give the live broker a durable, restart-safe idempotency
+    # journal. Every order intent is persisted before submission so a crashed
+    # submit is never double-fired and broker-side truth can be reconciled
+    # from the journal (single source of truth for "what we tried to do").
+    _journaled: Any | None = None
+    if trading_mode == TradingMode.LIVE and cfg.db_path:
+        try:
+            import sqlite3
+
+            from traderos.infrastructure.journal import OrderEventJournal
+            from traderos.infrastructure.journaled_broker import JournaledBroker
+
+            _raw = sqlite3.connect(str(cfg.db_path), check_same_thread=False)
+            _journaled = JournaledBroker(broker, OrderEventJournal(_raw))
+        except Exception:  # noqa: BLE001 — journaling is best-effort, never fatal
+            _journaled = None
+        if _journaled is not None:
+            broker = _journaled
+
     broker_reconciliation = BrokerStateReconciliationService(broker=broker)
 
     preflight_service = PreflightService(

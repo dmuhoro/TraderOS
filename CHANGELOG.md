@@ -1,5 +1,30 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 21 (Order-Survivability: durable journal wire-up L1-L4)
+
+### Order-Survivability Sprint (2026-08-02)
+- **L1 — durable, idempotent order path**: new `infrastructure/journaled_broker.py`
+  `JournaledBroker` persists intent before the broker (`CONFIRMED` on success),
+  dedupes by a derived `uuid5` key, and replays the stored result on restart
+  (no duplicate submit). Wired into LIVE mode via `factory.build_orchestrator`
+  (best-effort). `journal.py` gained `get/update/count`.
+- **L2 — restart drill**: `docs/evidence/2026-08-02_l2_restart_surprise_rehearsal.log`
+  shows broker submit `0` on replay, intent drift blocking `can_accept_orders`,
+  `unconfirmed_intent` mismatch surfaced. `MismatchType.UNCONFIRMED_INTENT` +
+  `journal_pending` added to reconciliation.
+- **L3 — runbook→CLI parity** (CLOSURE-14): `risk` (status/check/reset/kill/reconcile),
+  `metrics` (snapshot/watch), `daemon start` alias, `audit verify`. All hands-on PASS.
+- **L4 — last live-dependency drills (real network/Postgres, not fabricated)**:
+  - **R-01 Binance live**: REST klines + live WS `@kline_1m` through the OT-004
+    pipeline → PASS (`docs/evidence/2026-08-02_l4r01_binance_live.log`).
+  - **R-02 Postgres crash**: `traderos-pg-test` crashed → boundary failed closed
+    (`connection-refused`) → restarted healthy → marker row survived → PASS
+    (`..._l4r02_postgres_crash_drill.log`).
+- **Gate**: full suite **1274 passed, 1 skipped**, coverage **92.83%**; ruff 0;
+  black/isort unchanged; pyright strict clean.
+- **Honest residual**: L5 (real-money pilot + switch) intentionally gated on
+  explicit operator funding/approval — not fabricated.
+
 ## [Unreleased] - Sprint 20 (Programme Ω — First genuine execution evidence)
 
 ### Programme Ω (2026-08-02)

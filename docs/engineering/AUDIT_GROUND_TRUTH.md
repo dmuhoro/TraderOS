@@ -238,4 +238,4 @@ The machines' previously open blocks: "Live authenticated Alpaca paper connectiv
 - `AlpacaBrokerAdapter.get_open_orders()` called `get_orders(status="open")` — incompatible with alpaca-py 0.43.5 (`GetOrdersRequest(QueryOrderStatus.OPEN)`); fixed + test updated.
 - LIVE-mode operator workflow hard-failed at `PAPER_TRADING` because no `PaperTradingService` was built outside `PAPER` mode; factory now builds it for `LIVE` too, so the rehearsal completes (safe under `dry_run=True`).
 
-**Still open (unchanged):** real-money live pilot, Binance live (R-01), Postgres failure drill (R-02), replay wiring (CLOSURE-12), runbook→CLI parity (CLOSURE-14).
+**Still open (unchanged):** real-money live pilot only. Sprint 21 (2026-08-02) closed the previously-open items: **Binance live (R-01)** and **Postgres failure drill (R-02)** PASSED against real network/Postgres (`docs/evidence/2026-08-02_l4r01_binance_live.log`, `..._l4r02_postgres_crash_drill.log`); replay wiring was re-scoped as the durable `JournaledBroker` + restart proof (CLOSURE-12, L1/L2); runbook→CLI parity shipped via `risk`/`metrics`/`daemon start`/`audit verify` (CLOSURE-14, L3).

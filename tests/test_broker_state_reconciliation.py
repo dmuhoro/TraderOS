@@ -289,3 +289,24 @@ class TestBrokerStateReconciliationService:
         assert MismatchType.BROKER_ONLY_ORDER in types_found
         assert MismatchType.LOCAL_ONLY_ORDER in types_found
         assert result.failed
+
+    def test_unconfirmed_journal_intent_blocks_order_acceptance(self) -> None:
+        svc = BrokerStateReconciliationService(broker=_ReconcilableBroker())
+        journal_pending = [{"id": "order-mid-buy-2.0-place_market_order-hash", "status": "intent"}]
+        result = svc.reconcile(journal_pending=journal_pending)
+        assert not svc.startup_reconciled
+        assert not svc.can_accept_orders
+        assert result.has_mismatches
+        assert any(m.mismatch_type == MismatchType.UNCONFIRMED_INTENT for m in result.mismatches)
+
+    def test_no_journal_pending_keeps_reconcile_clean(self) -> None:
+        svc = BrokerStateReconciliationService(broker=_ReconcilableBroker())
+        local_positions = [{"symbol": "BTC/USD", "qty": 1.0, "current_price": 50000.0}]
+        local_orders = [
+            {"id": "ord-1", "symbol": "BTC/USD", "qty": 0.5, "side": "buy", "type": "limit"}
+        ]
+        result = svc.reconcile(
+            local_positions=local_positions, local_orders=local_orders, journal_pending=None
+        )
+        assert svc.can_accept_orders
+        assert not result.has_mismatches
