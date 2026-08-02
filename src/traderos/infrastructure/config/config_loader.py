@@ -88,6 +88,7 @@ class Config:
 
         kwargs["_raw_settings"] = settings
         instance = cls(**kwargs)
+        instance._ensure_runtime_dirs()
         instance.validate()
         return instance
 
@@ -100,6 +101,20 @@ class Config:
             else:
                 return default
         return value if value is not None else default
+
+    def _ensure_runtime_dirs(self) -> None:
+        """Create the runtime directories the config expects so a fresh
+        install (or operator) works without a manual `mkdir`. The database
+        directory is the core first-run blocker; `data` and `exports` are the
+        documented ride-along runtime dirs. `:memory:` databases need no dir."""
+        targets = [self.data_dir, self.exports_dir]
+        if self.db_path != ":memory:":
+            db_dir = os.path.dirname(self.db_path)
+            if db_dir:
+                targets.append(db_dir)
+        for d in targets:
+            if d:
+                os.makedirs(d, exist_ok=True)
 
     def validate(self) -> None:
         errors: list[str] = []

@@ -1,5 +1,20 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 20 (Programme Ω — First genuine execution evidence)
+
+### Programme Ω (2026-08-02)
+- **Bootstrap fix**: `Config.load()` now auto-creates runtime dirs (`data_dir`, `exports_dir`, `db_path` dir), so `pilot dry-run` works from a genuinely fresh checkout (`test_load_creates_missing_db_directory` regression test).
+- **First real execution evidence** (all logged under `docs/evidence/2026-08-02_*.log`, secrets redacted):
+  - **Alpaca paper dry-run rehearsal** against a **real paper account**: connected with `alpaca-py 0.43.5`, reconciled broker state (`can_accept_orders=True`, real balance 100,000), operator workflow `READY` with live execution disabled (`dry_run=True`), exit **0**.
+  - **Backup → restore drill**: SHA-256 round-trip equal (`b91b07a…`), marker row preserved, `PRAGMA integrity_check` ok.
+  - **Migration rollback drill**: schema 6 → 3 → 6 with integrity `ok` at each step.
+- **Real defects surfaced & fixed by the genuine run**:
+  - `AlpacaBrokerAdapter.get_open_orders()` used an incompatible `get_orders(status="open")` call → now `GetOrdersRequest(QueryOrderStatus.OPEN)` (alpaca-py 0.43.5 API); test mock + assertion updated.
+  - `factory.py` built `PaperTradingService` only in `PAPER` mode, so the LIVE-mode operator workflow hard-failed at the paper gate; now built for `LIVE` too (harmless under `dry_run=True`), letting the rehearsal complete.
+- **Governance**, evidence-only: `NEXT_STEPS_TO_COMPLETION.md` Ω trackers → DONE; `FINISH_LINE_DASHBOARD.md` Deployment Readiness 72→74 + PRI note; `AUDIT_GROUND_TRUTH.md` §10 delta.
+- **Gate**: full suite **1266 passed, 1 skipped**; `ruff check .` 0 errors; black/isort/pyright strict clean.
+- **Honest residual (still open, not fabricated)**: real-money live pilot, Binance live (R-01), Postgres failure drill (R-02), durable journal wire-up (CLOSURE-12), runbook→CLI parity (CLOSURE-14).
+
 ## [Unreleased] - Sprint 19 (Engineering Closure & Code Freeze Preparation)
 
 ### Engineering Closure pass (2026-08-02)

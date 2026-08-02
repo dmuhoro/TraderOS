@@ -43,6 +43,9 @@ def _build_mock_alpaca():
         BUY = "buy"
         SELL = "sell"
 
+    class FakeQueryOrderStatus:
+        OPEN = "open"
+
     class FakeTimeInForce:
         DAY = "day"
 
@@ -70,7 +73,11 @@ def _build_mock_alpaca():
     class FakeReplaceOrderRequest(_FakeRequest):
         pass
 
+    class FakeGetOrdersRequest(_FakeRequest):
+        pass
+
     enums.OrderSide = FakeOrderSide
+    enums.QueryOrderStatus = FakeQueryOrderStatus
     enums.TimeInForce = FakeTimeInForce
     enums.OrderType = FakeOrderType
     requests.LimitOrderRequest = FakeLimitOrderRequest
@@ -78,6 +85,7 @@ def _build_mock_alpaca():
     requests.StopOrderRequest = FakeStopOrderRequest
     requests.TrailingStopOrderRequest = FakeTrailingStopOrderRequest
     requests.ReplaceOrderRequest = FakeReplaceOrderRequest
+    requests.GetOrdersRequest = FakeGetOrdersRequest
 
     client.TradingClient = MagicMock()
 
@@ -405,4 +413,5 @@ class TestAlpacaBrokerAdapter:
         assert len(orders) == 1
         assert orders[0]["symbol"] == "BTCUSD"
         assert orders[0]["side"] == "buy"
-        _patch_alpaca.get_orders.assert_called_once_with(status="open")
+        called = _patch_alpaca.get_orders.call_args[0][0]
+        assert called.status == "open"

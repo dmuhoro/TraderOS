@@ -14,7 +14,9 @@ try:
     from alpaca.trading.client import TradingClient as _TradingClient
     from alpaca.trading.enums import OrderSide as _OrderSide
     from alpaca.trading.enums import OrderType as _OrderType
+    from alpaca.trading.enums import QueryOrderStatus as _QueryOrderStatus
     from alpaca.trading.enums import TimeInForce as _TimeInForce
+    from alpaca.trading.requests import GetOrdersRequest as _GetOrdersRequest
     from alpaca.trading.requests import MarketOrderRequest as _MarketOrderRequest
     from alpaca.trading.requests import ReplaceOrderRequest as _ReplaceOrderRequest
     from alpaca.trading.requests import StopOrderRequest as _StopOrderRequest
@@ -31,6 +33,8 @@ except ImportError:
     _OrderSide = None  # type: ignore[assignment]
     _OrderType = None  # type: ignore[assignment]
     _TimeInForce = None  # type: ignore[assignment]
+    _GetOrdersRequest = None  # type: ignore[assignment]
+    _QueryOrderStatus = None  # type: ignore[assignment]
 
 
 class AlpacaBrokerAdapter(BrokerAdapter):
@@ -272,7 +276,9 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         ]
 
     def get_open_orders(self) -> list[dict]:
-        orders = self._client.get_orders(status="open")
+        if _GetOrdersRequest is None or _QueryOrderStatus is None:
+            raise ImportError("alpaca-py is required. Install with: pip install alpaca-py")
+        orders = self._client.get_orders(_GetOrdersRequest(status=_QueryOrderStatus.OPEN))
         return [
             {
                 "id": str(o.id),

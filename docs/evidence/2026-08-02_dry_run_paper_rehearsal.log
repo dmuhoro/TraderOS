@@ -1,0 +1,18 @@
+=== Dry-run rehearsal — REAL Alpaca paper account ===
+ts_start: 2026-08-02T17:17:10Z
+mode=live paper=true dry_run=True live_confirmed=true
+--- broker reconciliation (REAL Alpaca paper) ---
+matched_positions: 0 errors: [] mismatches: 0
+can_accept_orders: True
+account_balance: 100000.00
+--- operator dry-run workflow (dry_run=True) ---
+  [PASS] paper_trading: paper trading ready (0 session(s))
+  [PASS] performance_review: reviewed 4 strategy(ies); ranking: ma_fast, mean_reversion, moving_average_trend, volatility_breakout
+  [SKIP] strategy_promotion: operator decision required
+  [PASS] controlled_live: live preflight passed (dry-run — live execution disabled)
+  [PASS] shutdown: shutdown complete (0 session(s) stopped)
+  [PASS] session_report: session report generated
+RESULT: READY (workflow fully exercised)
+dryrun_exit: 0
+ts_end: 2026-08-02T17:17:12Z
+elapsed_seconds: 2.51

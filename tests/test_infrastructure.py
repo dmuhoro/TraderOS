@@ -54,6 +54,16 @@ class TestConfigV2:
         assert config.db_path == "/tmp/test.db"
         assert config.log_level == "DEBUG"
 
+    def test_load_creates_missing_db_directory(self, monkeypatch, tmp_path) -> None:
+        """A fresh checkout with no `database/` dir must load without a manual
+        mkdir — previously `Config.load()` raised ConfigError here (bootstrap)."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("DB_PATH", str(tmp_path / "database" / "market.db"))
+        config = Config.load()
+        assert config.db_path == str(tmp_path / "database" / "market.db")
+        assert (tmp_path / "database").is_dir()
+
 
 class TestErrorHierarchy:
     def test_base_exception(self) -> None:

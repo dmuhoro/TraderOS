@@ -222,3 +222,20 @@ Supersedes the counts in §7–§8; reality moved since that check-out was recor
 - Controlled pilot execution.
 - Runbook→CLI gap: `traderos daemon start`, `risk`, `metrics`, `audit verify` still do not exist (CLOSURE-14).
 - Durable `OrderEventEngine`/journal still not wired into the live order path (CLOSURE-12).
+
+## 10. Programme Ω Delta (2026-08-02) — first genuine execution evidence
+
+The machines' previously open blocks: "Live authenticated Alpaca paper connectivity drill" and "backup/restore/rollback under real commands & checksums" are now **DONE**, exercised for real on 2026-08-02. Raw records: `docs/evidence/2026-08-02_*.log`.
+
+| Programme Ω item | Result | Verified detail |
+|---|---|---|
+| `Config.load()` from fresh dir | **FIXED** | auto-creates runtime dirs (regression: `test_load_creates_missing_db_directory`); previously `ConfigError` |
+| Alpaca **paper** dry-run rehearsal (real account) | **DONE** | account `***`, equity 100,000; reconcile 0–position/order, `can_accept_orders=True`; operator workflow **READY** (prefight → broker_check → market_data → paper_trading → performance_review → SKIP strategy-promotion → controlled_live dry-run → shutdown → session_report), exit **0** |
+| Backup → restore | **DONE** | SHA-256 round-trip equal (`b91b07a…` == `b91b07a…`); marker row preserved; integrity `ok` |
+| Migration rollback | **DONE** | 6 → 3 (tables 24 → 21) → 6 (24), integrity `ok` each |
+
+**Real defects surfaced & fixed by the genuine run:**
+- `AlpacaBrokerAdapter.get_open_orders()` called `get_orders(status="open")` — incompatible with alpaca-py 0.43.5 (`GetOrdersRequest(QueryOrderStatus.OPEN)`); fixed + test updated.
+- LIVE-mode operator workflow hard-failed at `PAPER_TRADING` because no `PaperTradingService` was built outside `PAPER` mode; factory now builds it for `LIVE` too, so the rehearsal completes (safe under `dry_run=True`).
+
+**Still open (unchanged):** real-money live pilot, Binance live (R-01), Postgres failure drill (R-02), replay wiring (CLOSURE-12), runbook→CLI parity (CLOSURE-14).
