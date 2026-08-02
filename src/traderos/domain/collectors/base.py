@@ -11,6 +11,7 @@ from typing import TypeVar
 
 class CollectorType(Enum):
     BINANCE = "binance"
+    ALPACA = "alpaca"
     YFINANCE = "yfinance"
     MOCK = "mock"
 

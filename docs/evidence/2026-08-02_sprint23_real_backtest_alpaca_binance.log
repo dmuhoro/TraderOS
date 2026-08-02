@@ -1,0 +1,35 @@
+=== Sprint 23 real-data backtest drill host=2026-08-02T20:44:33Z ===
+db=/tmp/traderos_sprint23_evidence.db
+
+[alpaca] BTC/USD: live=60 recall=60 ts_identical=True ohlc_identical=True stored=60
+   period 2026-07-31 09:00:00+00:00 .. 2026-08-02 20:00:00+00:00
+[binance] BTCUSDT: live=60 recall=60 ts_identical=True ohlc_identical=True stored=60
+   period 2026-07-31 09:00:00+00:00 .. 2026-08-02 20:00:00+00:00
+
+--- CLI backtest strategy=volatility_breakout source=alpaca ---
+Source: alpaca
+Symbol: BTC/USD  Timeframe: 1h  Candles: 600
+Period: 2026-07-08 -> 2026-08-02
+Total Return: 6.2302
+Sharpe: -0.6162
+Sortino: -0.6176
+Max DD: 2.3132
+Win Rate: 0.4324
+Profit Factor: 0.1406
+Total Trades: 146
+Expectancy/bar: -2.3731
+Steps: 600
+
+--- CLI backtest strategy=volatility_breakout source=binance ---
+Source: binance
+Symbol: BTCUSDT  Timeframe: 1h  Candles: 600
+Period: 2026-07-08 -> 2026-08-02
+Total Return: 5.5450
+Sharpe: -1.4314
+Sortino: -1.4399
+Max DD: 2.4373
+Win Rate: 0.4290
+Profit Factor: 0.2821
+Total Trades: 138
+Expectancy/bar: -0.4505
+Steps: 600

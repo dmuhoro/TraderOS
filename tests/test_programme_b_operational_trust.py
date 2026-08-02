@@ -104,8 +104,8 @@ class FakePGConn:
 def test_pg_migration_runs_without_conn_execute():
     conn = FakePGConn()
     migrate(conn)
-    assert conn.versions == [1, 2, 3, 4, 5, 6]
-    assert get_current_version(conn) == 6
+    assert conn.versions == [1, 2, 3, 4, 5, 6, 7]
+    assert get_current_version(conn) == 7
     assert conn.commits > 0
     assert not hasattr(conn, "execute")
     creates = [s for s, _ in conn.statements if "CREATE TABLE" in s]
@@ -116,7 +116,7 @@ def test_pg_migration_runs_without_conn_execute():
 def test_pg_migration_down_path():
     conn = FakePGConn()
     migrate(conn)
-    assert conn.versions == [1, 2, 3, 4, 5, 6]
+    assert conn.versions == [1, 2, 3, 4, 5, 6, 7]
     migrate(conn, target_version=3)
     assert conn.versions == [1, 2, 3]
     assert get_current_version(conn) == 3
@@ -140,7 +140,7 @@ def test_sqlite_down_removes_version_marker_before_down_runs():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     migrate(conn)
-    assert get_current_version(conn) == 6
+    assert get_current_version(conn) == 7
     assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='order_events'").fetchone()
 
     v005 = importlib.import_module(

@@ -4,7 +4,6 @@ import argparse
 import json
 import sys
 import uuid
-from datetime import UTC
 from importlib.metadata import version
 from typing import Any
 
@@ -35,7 +34,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_backtest = sub.add_parser("backtest", help="Run a backtest")
     p_backtest.add_argument("strategy", help="Strategy name")
-    p_backtest.add_argument("--candles", type=int, default=50, help="Number of candles")
+    p_backtest.add_argument("--candles", type=int, default=500, help="Number of candles")
+    p_backtest.add_argument(
+        "--source",
+        default="synthetic",
+        choices=["synthetic", "binance", "alpaca"],
+        help="Historical data source (default: synthetic)",
+    )
+    p_backtest.add_argument(
+        "--symbol",
+        default="",
+        help="Provider symbol, e.g. BTCUSDT (binance) or BTC/USD (alpaca)",
+    )
+    p_backtest.add_argument(
+        "--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h", "1d"]
+    )
+    p_backtest.add_argument(
+        "--no-cache", action="store_true", help="Bypass the durable candle cache"
+    )
 
     p_paper = sub.add_parser("papertrade", help="Paper trading commands")
     p_paper_sub = p_paper.add_subparsers(dest="paper_cmd")
@@ -154,38 +170,77 @@ def cmd_backtest(args: argparse.Namespace) -> None:
         print(f"Unknown strategy: {args.strategy}")
         return
     strat = strat_cls()
-    from datetime import datetime
-    from decimal import Decimal
 
-    from traderos.domain.entities import OHLCV
-    from traderos.domain.entities import Candle
-    from traderos.domain.entities import Timeframe
+    source = getattr(args, "source", "synthetic")
+    timeframe = getattr(args, "timeframe", "1h")
+    symbol = getattr(args, "symbol", "")
+    if not symbol and source != "synthetic":
+        symbol = {"binance": "BTCUSDT", "alpaca": "BTC/USD"}.get(source, symbol)
 
-    mid = uuid.uuid4()
-    candles: list[Candle] = []
-    for i in range(args.candles):
-        candles.append(
-            Candle(
-                market_id=mid,
-                ohlcv=OHLCV(
-                    open=Decimal(str(100 + i)),
-                    high=Decimal(str(101 + i)),
-                    low=Decimal(str(99 + i)),
-                    close=Decimal(str(100 + i)),
-                    volume=Decimal(1000),
-                ),
-                timestamp=datetime(2024, 1, 1, tzinfo=UTC),
-                timeframe=Timeframe.DAY_1,
-            )
-        )
+    if source == "synthetic":
+        from traderos.domain.services.backtesting_service import synthetic_candles
+
+        mid = uuid.uuid4()
+        candles = synthetic_candles(count=args.candles, market_id=mid)
+    else:
+        candles = _historical_candles_for_backtest(args)
+
     svc = BacktestingService(execution=ExecutionService())
+    mid = candles[0].market_id
     result, steps = svc.run(strat, candles, mid)
     m = result.metrics
+    print(f"Source: {source}")
+    print(f"Symbol: {symbol or 'n/a'}  Timeframe: {timeframe}  Candles: {len(candles)}")
+    print(f"Period: {result.period_start.date()} -> {result.period_end.date()}")
     print(f"Total Return: {m.total_return:.4f}")
     print(f"Sharpe: {m.sharpe_ratio:.4f}")
+    print(f"Sortino: {m.sortino_ratio:.4f}")
     print(f"Max DD: {m.max_drawdown:.4f}")
     print(f"Win Rate: {m.win_rate:.4f}")
+    print(f"Profit Factor: {m.profit_factor:.4f}")
+    print(f"Total Trades: {m.total_trades}")
+    print(f"Expectancy/bar: {m.expectancy:.4f}")
     print(f"Steps: {len(steps)}")
+
+
+def _historical_candles_for_backtest(args: argparse.Namespace) -> list:
+    from traderos.domain.services.historical_data import HistoricalDataService
+    from traderos.infrastructure.collectors.alpaca_collector import AlpacaCollector
+    from traderos.infrastructure.collectors.binance_collector import BinanceCollector
+    from traderos.infrastructure.config.config_loader import Config
+    from traderos.infrastructure.database.connection import get_connection
+    from traderos.infrastructure.database.migration_manager import migrate
+    from traderos.infrastructure.repositories.sqlite.historical_candles import (
+        SQLiteHistoricalCandleRepository,
+    )
+
+    source = getattr(args, "source", "synthetic")
+    timeframe = getattr(args, "timeframe", "1h")
+    default_symbols = {"binance": "BTCUSDT", "alpaca": "BTC/USD"}
+    symbol = getattr(args, "symbol", "") or default_symbols.get(source, "")
+
+    cache = None
+    try:
+        cfg = Config.load()
+        conn = get_connection(cfg)
+        migrate(conn, target_version=7)
+        conn.commit()
+        cache = SQLiteHistoricalCandleRepository(conn)
+    except Exception:
+        cache = None
+
+    collectors: dict[str, Any] = {
+        "binance": BinanceCollector(),
+        "alpaca": AlpacaCollector(),
+    }
+    service = HistoricalDataService(cache=cache, collectors=collectors)
+    return service.get_candles(
+        source,
+        timeframe,
+        symbol,
+        limit=args.candles,
+        use_cache=not getattr(args, "no_cache", False),
+    )
 
 
 def cmd_paper(args: argparse.Namespace) -> None:
