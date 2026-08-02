@@ -41,3 +41,22 @@ evidence in `docs/evidence/`. No simulated `PASS`. A correctly-labelled
 | Ω-5 | Governance evidence-only update | **DONE** | this file + `AUDIT_GROUND_TRUTH.md` §Δ + `FINISH_LINE_DASHBOARD.md`
 
 > Status cells are updated only from actual evidence (Task 4); never from aspiration.
+
+---
+
+## Postgres-reproducibility & audit-consolidation programme (2026-08-02)
+
+Single, focused follow-on programme: make the full test suite pass identically
+with **or** without a reachable Postgres, so the CI "green" signal is
+unambiguous in any environment. Scoped by directive to `tests/`, the CI
+workflow, and governance docs only — no new services/ports/abstractions.
+
+| ID | Work package | Status | Evidence |
+|----|--------------|--------|----------|
+| WP-N1 | Postgres-reproducibility: reachability guard + honest skip | **DONE** | `docs/evidence/2026-08-02_postgres_with_pg.log` (with PG: **1274 passed, 1 skipped, 0 fail/err**); `docs/evidence/2026-08-02_postgres_without_pg.log` (without PG: **1219 passed, 56 skipped, 0 fail/err**). 55 Postgres-backing tests skip (not silently pass) when PG is unreachable; CI (`ci.yml` test job) provisions PG so the pass path runs for real |
+| WP-N0 | Prior claim "passes only with Postgres" (single-environment) | **FOLDED** | Not reproducible → superseded by WP-N1; removed from coming claims. No single-environment result is treated as sufficient evidence |
+| WP-N2 | Audit-doc consolidation | **CLOSED** | `docs/engineering/AUDIT_GROUND_TRUTH.md` merged verbatim into canonical `docs/AUDIT_GROUND_TRUTH.md` (new §7 delta + appendix), redundant file deleted, internal links repointed; the task-4 cross-check is in that §7 |
+
+**Self-check (Task 4):** every claim above survives a cold checkout **both** with
+and without a reachable Postgres — both attached runs show 0 failures, 0
+errors; only the skip count differs.

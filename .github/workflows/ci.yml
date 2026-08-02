@@ -52,6 +52,12 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    # Postgres is intentionally provisioned here (declared, not assumed): the
+    # port-5433 service below matches tests' default POSTGRES_TEST_DSN
+    # (localhost:5433), so the Postgres-backed tests RUN for real in CI. The
+    # reachability guard in those test modules only SKIPS when a Postgres is
+    # genuinely unreachable (e.g. local dev without a container), so this CI
+    # job exercises the "pass" path, not the "skip" path.
     services:
       postgres:
         image: postgres:16

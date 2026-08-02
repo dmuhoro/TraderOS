@@ -3,7 +3,7 @@
 **Period:** 2026-08-01
 **Objective:** Close the remaining coverage gap across the flagged low-coverage modules (86.80% → 91.82%) and harden the production security posture so the deployment fails closed — authentication and TLS become mandatory under `TRADEROS_ENV=production`, with a `traderos security audit` CLI as verifiable evidence. Built in layers (1a unit → 1b PostgreSQL → 1c mop-up → Layer 2 security), each gated by the full suite, then the sprint record + CHANGELOG + push.
 
-**Reference docs:** `docs/engineering/AUDIT_GROUND_TRUTH.md`, `docs/engineering/STRATEGIC_COMPLETION_BLUEPRINT.md`, `docs/runbooks/PILOT_READINESS.md`, `docs/runbooks/CONTROLLED_PILOT.md`.
+**Reference docs:** `docs/AUDIT_GROUND_TRUTH.md`, `docs/engineering/STRATEGIC_COMPLETION_BLUEPRINT.md`, `docs/runbooks/PILOT_READINESS.md`, `docs/runbooks/CONTROLLED_PILOT.md`.
 
 ---
 

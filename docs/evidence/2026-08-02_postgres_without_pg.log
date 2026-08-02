@@ -1,0 +1,7 @@
+=== Postgres-reproducibility evidence — WITHOUT Postgres reachable ===
+ts_start: 2026-08-02T19:42:16Z
+dsn: host=localhost port=5433 dbname=traderos_test user=traderos password=traderos
+pg_ctr: exited
+cmd: ~/.local/bin/pytest -q --no-header
+================ 1219 passed, 56 skipped, 99 warnings in 29.69s ================
+ts_end: 2026-08-02T19:42:48Z

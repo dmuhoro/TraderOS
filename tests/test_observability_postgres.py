@@ -15,6 +15,21 @@ DSN = os.environ.get(
 )
 
 
+def _pg_reachable(dsn: str, timeout: int = 3) -> bool:
+    try:
+        conn = psycopg2.connect(dsn, connect_timeout=timeout)
+        conn.close()
+        return True
+    except psycopg2.Error:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _pg_reachable(DSN),
+    reason=f"Postgres not reachable at {DSN} — skipped, not passed",
+)
+
+
 @pytest.fixture
 def pg_conn():
     conn = psycopg2.connect(DSN)
