@@ -1,0 +1,9 @@
+=== R-02 Postgres crash-recovery drill (CLOSURE-17 / R-02) ===
+ts_start: 2026-08-02T18:58:14Z
+container: traderos-pg-test (port 5433, dedicated test fixture)
+1. CRASH (docker stop): container state = exited
+   during-outage connect = connection-refused(OperationalError)
+3. RESTART: health = healthy
+4. RECOVERED: marker-post-crash: ('survives-crash',)
+RESULT: PASS
+ts_end: 2026-08-02T18:58:21Z

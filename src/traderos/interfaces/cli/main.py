@@ -6,6 +6,7 @@ import sys
 import uuid
 from datetime import UTC
 from importlib.metadata import version
+from typing import Any
 
 from traderos.application.factory import build_orchestrator
 from traderos.domain.exceptions import ConfigError
@@ -43,8 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("health", help="System health status")
 
-    p_audit = sub.add_parser("audit", help="View audit trail")
+    p_audit = sub.add_parser("audit", help="View audit trail / verify chain")
     p_audit.add_argument("--limit", type=int, default=10, help="Number of entries")
+    p_audit.add_argument(
+        "verify", nargs="?", default=None, const="verify", help="Verify the audit chain"
+    )
 
     p_notify = sub.add_parser("notify", help="Send a test notification")
     p_notify.add_argument(
@@ -57,8 +61,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_regime.add_argument("market_id", type=str, help="Market UUID")
 
     p_daemon = sub.add_parser("daemon", help="Run the trading daemon")
+    p_daemon.add_argument("action", nargs="?", default="run", choices=["run", "start"])
     p_daemon.add_argument("--interval", type=int, default=60, help="Cycle interval in seconds")
     p_daemon.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
+
+    p_risk = sub.add_parser("risk", help="Risk / kill-switch controls (ADR-007)")
+    p_risk_sub = p_risk.add_subparsers(dest="risk_cmd")
+    for _cmd in ("status", "check", "reset", "kill", "reconcile"):
+        _p = p_risk_sub.add_parser(_cmd, help=f"Risk: {_cmd}")
+        _p.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
+
+    p_metrics = sub.add_parser("metrics", help="Metrics controls")
+    p_metrics_sub = p_metrics.add_subparsers(dest="metrics_cmd")
+    p_metrics_sub.add_parser("snapshot", help="Print a metrics snapshot")
+    p_metrics_watch = p_metrics_sub.add_parser("watch", help="Run cycles and print metrics")
+    p_metrics_watch.add_argument("--cycles", type=int, default=3, help="Number of cycles")
+    p_metrics_watch.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
 
     p_validate = sub.add_parser("validate", help="Validate configuration and environment")
 
@@ -223,6 +241,87 @@ def cmd_audit(args: argparse.Namespace) -> None:
         return
     for e in entries:
         print(f"  [{e.timestamp.isoformat()}] {e.action} by {e.actor} on {e.resource}")
+
+
+def cmd_audit_verify(args: argparse.Namespace) -> None:
+    svc = AuditService()
+    ok = svc.verify_chain()
+    print("Audit chain verification:", "PASS" if ok else "FAIL")
+    sys.exit(0 if ok else 1)
+
+
+def cmd_risk(args: argparse.Namespace) -> None:
+    orch = build_orchestrator(mode=getattr(args, "mode", "paper"))
+    kill = orch.risk_service.kill_switch
+    if args.risk_cmd == "status":
+        verdict = orch.risk_service.can_trade([])
+        acc = (
+            orch.broker_reconciliation.can_accept_orders
+            if orch.broker_reconciliation is not None
+            else False
+        )
+        halted = not verdict.allowed
+        print("Kill switch:", "OPEN (trading halted)" if halted else "closed")
+        print("Order acceptance (reconciled):", "allowed" if acc else "blocked")
+        return
+    if args.risk_cmd == "check":
+        verdict = orch.risk_service.can_trade([])
+        detail = verdict.reason or "no blocking conditions"
+        print(f"Risk check: {'PASS' if verdict.allowed else 'FAIL'} ({detail})")
+        sys.exit(0 if verdict.allowed else 1)
+        return
+    if args.risk_cmd == "reset":
+        kill.reset()
+        print("Kill switch reset (ADR-007 manual-reset semantics)")
+        return
+    if args.risk_cmd == "kill":
+        kill.record_failure()
+        print("Kill switch engaged (orders rejected until explicit reset)")
+        return
+    if args.risk_cmd == "reconcile":
+        if orch.broker_reconciliation is None:
+            print("Broker reconciliation not available")
+            sys.exit(1)
+        pending = _pending_from_broker(orch)
+        res = orch.broker_reconciliation.reconcile(journal_pending=pending)
+        accepted = orch.broker_reconciliation.can_accept_orders
+        print(f"Reconciliation mismatches: {len(res.mismatches)}")
+        print(f"Order acceptance: {'allowed' if accepted else 'blocked'}")
+        sys.exit(0 if accepted else 1)
+        return
+    parser = build_parser()
+    parser.parse_args([args.command, "--help"])
+
+
+def _pending_from_broker(orch: Any) -> list[dict] | None:
+    pending = getattr(orch.broker, "pending", None)
+    return pending() if pending is not None else None
+
+
+def cmd_metrics(args: argparse.Namespace) -> None:
+    orch = build_orchestrator(mode=getattr(args, "mode", "paper"))
+    if args.metrics_cmd == "snapshot":
+        data = orch.metrics.snapshot()
+        if args.json:
+            print(json.dumps(data, indent=2, default=str))
+            return
+        print("Metrics snapshot:")
+        for name, value in sorted(data.items()):
+            print(f"  {name} = {value}")
+        return
+    if args.metrics_cmd == "watch":
+        mids = orch.market_ids or []
+        for _ in range(max(1, args.cycles)):
+            for mid in mids:
+                close = orch.data_ingestion.get_latest_close(mid) if orch.data_ingestion else None
+                result = orch.run_cycle(mid, close if close else 100.0)
+                print(
+                    f"cycle={result.market_id} trades={result.trades} "
+                    f"duration_ms={result.duration_ms:.0f} errors={len(result.errors)}"
+                )
+        return
+    parser = build_parser()
+    parser.parse_args(["metrics", "--help"])
 
 
 def cmd_notify(args: argparse.Namespace) -> None:
@@ -448,7 +547,10 @@ def main() -> None:
     elif args.command == "health":
         cmd_health(args)
     elif args.command == "audit":
-        cmd_audit(args)
+        if getattr(args, "verify", None) == "verify":
+            cmd_audit_verify(args)
+        else:
+            cmd_audit(args)
     elif args.command == "notify":
         cmd_notify(args)
     elif args.command == "signal":
@@ -461,6 +563,10 @@ def main() -> None:
         sys.exit(cmd_validate(args))
     elif args.command == "pilot":
         cmd_pilot(args)
+    elif args.command == "risk":
+        cmd_risk(args)
+    elif args.command == "metrics":
+        cmd_metrics(args)
     elif args.command == "security":
         cmd_security(args)
     else:

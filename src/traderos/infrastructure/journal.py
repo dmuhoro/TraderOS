@@ -22,6 +22,7 @@ _TABLE = "order_events"
 class OrderEventJournal:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
+        self.conn.row_factory = sqlite3.Row
         self.conn.execute(f"""
             CREATE TABLE IF NOT EXISTS {_TABLE} (
                 id TEXT PRIMARY KEY,
@@ -45,6 +46,23 @@ class OrderEventJournal:
     def load_event_ids(self) -> set[str]:
         rows = self.conn.execute(f"SELECT id FROM {_TABLE}").fetchall()
         return {r["id"] for r in rows}
+
+    def get(self, event_id: str) -> dict[str, Any] | None:
+        """Return ``{status, payload}`` for a recorded event, else ``None``."""
+        row = self.conn.execute(
+            f"SELECT status, payload FROM {_TABLE} WHERE id = ?", (event_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {"status": row["status"], "payload": json.loads(row["payload"])}
+
+    def update(self, event_id: str, status: str, payload: dict[str, Any]) -> None:
+        """Update an existing durable record (durable intent confirmations)."""
+        self.conn.execute(
+            f"UPDATE {_TABLE} SET status = ?, payload = ? WHERE id = ?",
+            (status, json.dumps(payload, default=str), event_id),
+        )
+        self.conn.commit()
 
     def record(self, event_id: str, trade_id: str, status: str, payload: dict[str, Any]) -> None:
         self.conn.execute(

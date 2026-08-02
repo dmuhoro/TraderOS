@@ -1,0 +1,8 @@
+=== R-01 Live Binance drill (OT-001) ===
+ts_start: 2026-08-02T18:57:41Z
+1. BinanceCollector (REST) klines: 5
+   last candle: OHLC=63388.01000000,63388.01000000,63388.00000000,63388.00000000 vol=0.38290000 ts=2026-08-02T18:57:00+00:00 symbol=BTCUSDT
+2. Live WebSocket @kline_1m: received + validated (OT-004)
+   symbol=BTCUSDT price=63388.00000000 validated=True
+RESULT: PASS
+ts_end: 2026-08-02T18:57:53Z

@@ -99,6 +99,17 @@ class DaemonController:
         self._notifications.info("Orchestrator Stopped")
         self._run_manifest.record("orchestrator", "stop")
 
+    def _journal_pending(self) -> list[dict] | None:
+        broker = getattr(self, "_broker", None)
+        pending = getattr(broker, "pending", None)
+        if pending is None:
+            return None
+        try:
+            items = pending()
+        except Exception:  # noqa: BLE001 — journal access is best-effort, never fatal
+            return None
+        return items if items else None
+
     def _run_startup_reconciliation(
         self,
         local_positions: list[dict] | None = None,
@@ -110,6 +121,7 @@ class DaemonController:
         result = self._broker_reconciliation.reconcile(
             local_positions=local_positions,
             local_orders=local_orders,
+            journal_pending=self._journal_pending(),
         )
         return self._handle_reconciliation_result(result)
 
@@ -123,6 +135,7 @@ class DaemonController:
         result = self._broker_reconciliation.reconcile(
             local_positions=local_positions,
             local_orders=local_orders,
+            journal_pending=self._journal_pending(),
         )
         self._handle_reconciliation_result(result)
 

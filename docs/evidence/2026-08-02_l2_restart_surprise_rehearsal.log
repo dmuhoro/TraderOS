@@ -1,0 +1,11 @@
+=== L2 Drill — durable order survives restart; broker surprise blocks ===
+ts_start: 2026-08-02T18:29:26Z
+A.submit: FillResult(filled=True, fill_quantity=2.0, fill_price=100.0, remaining=0.0, status='filled', order_id='ext-1') broker_calls@A: 1
+RESTART: broker.calls@B = 0 (must be 0 => no double-submit)
+      replayed: ext-1 filled
+pending_drift: 1 a23353c5-4993-5aa0-a...
+reconcile.mismatches: ['unconfirmed_intent']
+can_accept_orders (drift): False (must be False)
+journal_sha: 59f8ba55467cdf73 orig: 85265673dec22ae9
+RESULT: PASS
+ts_end: 2026-08-02T18:29:26Z
