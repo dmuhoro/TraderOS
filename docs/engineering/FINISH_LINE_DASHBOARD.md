@@ -1,7 +1,7 @@
 # TraderOS — Finish Line Dashboard
 
-**Generated:** 2026-08-02 · **HEAD:** `e1a936b` · **Branch:** `main`
-**Method:** every index derives from measured evidence in `ENGINEERING_CLOSURE_AUDIT.md` (test suite, toolchain, security scans). Supersedes the earlier 99%/PRI-100 dashboard, which overstated readiness.
+**Generated:** 2026-08-02 · **HEAD:** `e1a936b` → Programme Ω drill commit · **Branch:** `main`
+**Method:** every index derives from measured evidence in `ENGINEERING_CLOSURE_AUDIT.md` (test suite, toolchain, security scans) plus the Programme Ω execution records in `docs/evidence/`. Supersedes the earlier 99%/PRI-100 dashboard, which overstated readiness.
 
 ---
 
@@ -10,7 +10,7 @@
 | Index | Value | Basis |
 |---|---:|---|
 | **Overall Completion %** | **96 %** | Programmes A (core correctness) + B (operational trust) + C (commercial surface) delivered; D (release/closure) in progress |
-| **Production Readiness Index (PRI)** | **74 / 100** | Architecture + security + deployability strong; live-connectivity drill & replay wiring open |
+| **Production Readiness Index (PRI)** | **74 / 100** | Architecture + security + deployability strong; **real Alpaca paper dry-run delivered**; replay wiring & real-money live pilot open |
 | **Operational Trust Index (OTI)** | **78 / 100** | 11/15 invariants PROVEN, 4 PARTIAL (market-hours gate hardened, heartbeat, replay, live env) |
 | **Commercial Readiness Index (CRI)** | **65 / 100** | operator workflow, RBAC, dashboard, SSE observability, session reports shipped; pilot/onboarding/payment pending |
 
@@ -20,7 +20,7 @@
 |---|---:|---|
 | **Architecture Health** | 95 | ports & adapters clean; no dependency violations; ruff/pyright strict-clean |
 | **Core Loop Integrity** | 95 | 1266 tests green; cycle/daemon invariants pinned; 93.62 % coverage |
-| **Deployment Readiness** | 72 | Docker + compose + Railway + CI configured; **no live environment drill yet** |
+| **Deployment Readiness** | 74 | Docker + compose + Railway + CI configured; **live backup→restore + rollback + Alpaca paper dry-run drills performed** |
 
 ## 3. Trajectory
 
@@ -36,7 +36,7 @@
 
 ## 4. Indices detail
 
-- **PRI 74** = Architecture/Security/Deployability strong, minus the declared live-env unknowns (R-01 Binance live, R-02 Postgres failure, live Alpaca contract). Target ≥70 met *on a code+tests basis*; full 90+ requires the live drills.
+- **PRI 74** = Architecture/Security/Deployability strong. Programme Ω (2026-08-02) delivered the first **real** execution evidence: an **Alpaca paper** dry-run reconciled with the **real paper account**, operator workflow `READY` (exit 0); backup→restore with equal SHA-256 round-trip; and 6→3→6 migration rollback (integrity `ok`). The residual open items are those not provable without operator-controlled real-money trading: replay wiring (CLOSURE-12), the real-money live pilot, Binance live (R-01) and the Postgres failure drill (R-02). Target ≥70 met now on a code+tests+bootstrap+drills basis; full 90+ requires the real-money live pilot.
 - **OTI 78** = the 11 OT findings are closed as code+test+evidence (OT-001…OT-011); PARTIAL reserved for the four items legitimately not provable in an offline sandbox.
 - **CRI 65** = every Programme C deliverable shipped; a human can sign in and operate. Gap: no charged/live pilot, no onboarding productization.
 

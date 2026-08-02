@@ -208,7 +208,7 @@ def build_orchestrator(
     )
 
     paper: PaperTradingService | None = None
-    if trading_mode == TradingMode.PAPER:
+    if trading_mode in (TradingMode.PAPER, TradingMode.LIVE):
         paper = PaperTradingService(
             broker=broker,
             signal_service=signal_service,

@@ -1,0 +1,15 @@
+=== Task 3 — Backup -> Restore drill (populated DB) ===
+ts_start: 2026-08-02T17:22:24Z
+Migrations up to date. Schema version: 6
+orig: marker_rows: [('drill_marker', '9.9.9')] sha256: b91b07a074c2f6eb8e3b70da30782e3f49ff691ca2d63746b68f75570d4c3bde
+--- backup ---
+Backup created: /tmp/opencode/bd/backups/sqlite_20260802_172225.sqlite.gz
+backup_file: /tmp/opencode/bd/backups/sqlite_20260802_172225.sqlite.gz
+backup_sha256: 385df30096d635e1444758596e384457a534141e44113a7e9923a0f4adab849b  size: 3638
+--- simulate data loss ---
+live_db_deleted: yes
+--- restore ---
+Database restored: /tmp/opencode/bd/db/trader.db
+restore_exit: 0
+restored: marker: [('drill_marker', '9.9.9')] integrity: ok sha256: b91b07a074c2f6eb8e3b70da30782e3f49ff691ca2d63746b68f75570d4c3bde
+ts_end: 2026-08-02T17:22:26Z

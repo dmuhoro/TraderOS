@@ -1,0 +1,14 @@
+=== Task 3 — Rollback drill (deployment-equivalent) ===
+ts_start: 2026-08-02T17:21:53Z
+Migrations up to date. Schema version: 6
+migrate_exit: 0
+after_migrate: schema_version: 6 integrity: ok tables: 24
+--- rollback --target 3 (prior migration state) ---
+Rolled back to version 3
+rollback_exit: 0
+after_rollback: schema_version: 3 integrity: ok tables: 21
+--- forward migrate to latest (restore deployed state) ---
+Migrations up to date. Schema version: 6
+remigrate_exit: 0
+after_remigrate: schema_version: 6 integrity: ok tables: 24
+ts_end: 2026-08-02T17:21:55Z
