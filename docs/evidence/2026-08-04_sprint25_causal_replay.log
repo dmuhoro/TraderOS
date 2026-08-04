@@ -1,0 +1,11 @@
+REPLAY LOG — 06:30 -> 08:00 (6 cycles, market 415c1e5f-9305-47c5-b500-a025f4563291)
+DB: /tmp/tmpu4oirohd.db  |  audit chain valid: True
+
+[2026-08-04T16:49:30.570697+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=16.0 @ 100.0 pnl=open
+[2026-08-04T16:49:30.575114+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=15.68627451 @ 102.0 pnl=open
+[2026-08-04T16:49:30.579139+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=15.38461538 @ 104.0 pnl=open
+[2026-08-04T16:49:30.582656+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill sell qty=15.09433962 @ 106.0 pnl=90.5660
+[2026-08-04T16:49:30.586381+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=14.81481481 @ 108.0 pnl=open
+[2026-08-04T16:49:30.590203+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill sell qty=14.54545455 @ 110.0 pnl=118.1750
+
+SUMMARY: fills=6 blocked=0 unfilled=0 total_realized_pnl=208.74

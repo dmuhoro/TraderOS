@@ -1,5 +1,61 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 26 (Evidence-backed live-ops hardening)
+
+### Supervision + unclean-shutdown alerting (2026-08-04)
+- `SupervisionService` wired into `DaemonController` and `Orchestrator`
+  (`factory.py` provisions a `JsonlHeartbeatStore` under `data_dir`). A forced
+  process kill now surfaces a **CRITICAL "Unclean Process Death"** alert; clean
+  shutdown and fresh-heartbeat cases stay silent. Data-gap crossings also emit
+  CRITICAL.
+- Proof: `tests/test_supervision.py` forced-kill subprocess drill.
+
+### Causal trade replay (2026-08-04)
+- `CycleExecutor` now records a signal_id-keyed causal chain
+  (`signal.generated`, `decision.made`, `order.placed`, `trade.fill`) into the
+  SQLite audit hash-chain.
+- New `ReplayService.replay_day(start, end)` reconstructs each chain and
+  computes FIFO realized PnL (long/short lot matching).
+- Proof: `tests/test_replay_service.py` +
+  `scripts/evidence/run_causal_replay.py` — 6 real-path cycles,
+  `total_realized_pnl=208.74`, chain integrity verified
+  (`docs/evidence/2026-08-04_sprint25_causal_replay.log`).
+
+### Forced-disconnect soak + idempotency fix (2026-08-04)
+- 300-cycle soak through the real submission path with dropped acks, journal
+  restarts, and reconciliation (`scripts/evidence/run_paper_soak.py`).
+  **Found a real bug:** `JournaledBroker._submit` keyed the journal by request
+  shape (`market/side/qty/method`), so repeating requests collided → phantom
+  duplicate trades (60 trades vs 50 broker orders in the first run).
+- **Fix:** a caller-owned `client_order_id` (uuid per decision) is now the
+  authoritative journal/idempotency key, threaded through `CycleExecutor →
+  ports → BrokerAdapter → AlpacaBrokerAdapter → JournaledBroker →
+  BrokerRateLimiter → OrderGuardrail → PaperTradingService`. Recorded in
+  `decision.made`/`order.placed` audit detail.
+- Post-fix soak: PASS — 300=300=300 orders/confirmations/trades, pending=0,
+  restart adds exactly 1 new order with no re-submits, 0 reconcile errors.
+- Proof: `tests/test_soak_disconnect_drill.py` +
+  `docs/evidence/2026-08-04_sprint25_paper_soak.log`.
+
+### Secret hygiene proofs (2026-08-04)
+- `tests/test_secret_hygiene.py`: no Alpaca key literals in tracked files;
+  `TRADING_MODE=live` without credentials raises `ConfigError`; observability
+  tables never persist secret values.
+
+### Live-run governance (2026-08-04)
+- `docs/engineering/LIVE_RUN_POLICY.md`: six red-lines, kill-authority table,
+  research/paper/live env separation, credential policy, pilot terms, and a
+  GO/NO-GO definition (six empirically demonstrated conditions; NO-GO default).
+- `scripts/governance/sign_release.py`: HMAC-SHA256 release signing (env key,
+  never persisted; paper-key warning in drills; fail-closed verify).
+- `scripts/governance/live_gate.py`: fail-closed CI gate — in `live` mode
+  requires secret conformance, credentials, `LIVE_TRADING_CONFIRMED`, the
+  allowlist gate, a valid release signature, and `GO_CONDITIONS_MET`.
+- Proof: `tests/test_live_gate_governance.py` (9 tests: round-trip, tamper
+  rejection, missing-key/artifact fail-closed, live blocked without GO,
+  allowlist enforced).
+- Full suite `1328 passed, 1 skipped`; ruff clean; pyright 0 errors.
+
 ## [Unreleased] - Sprint 25 (Idempotent order submission at the Alpaca boundary)
 
 ### Idempotent submit under retry (2026-08-04)

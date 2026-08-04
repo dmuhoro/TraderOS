@@ -50,7 +50,12 @@ class BrokerPort(Protocol):
     """Common contract for paper and live brokers."""
 
     def place_market_order(
-        self, market_id: uuid.UUID, side: str, quantity: float, close_price: float | None = None
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        close_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> Any: ...
     def place_limit_order(
         self,

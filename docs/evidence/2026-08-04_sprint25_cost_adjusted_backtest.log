@@ -1,0 +1,28 @@
+=== Sprint 25 G-01 cost-adjusted backtest drill host=2026-08-04 ===
+
+Real data: Alpaca BTC/USD 1h, 500 candles
+  period 2026-04-06 -> 2026-04-27
+
+=== strategy: moving_average_trend ===
+  no-cost : total_return=23.7736 trades=25
+  costed  : total_return=23.1449 trades=25 max_dd=1.2361 sharpe=0.5364
+  walk-forward (5 folds, costed): mean_fold_return=1.2840 positive_folds=2/5 mean_sharpe=-0.5723 folds=[3.7492, -0.4614, 3.1322, 0.0, 0.0]
+  EDGE PROVEN: NO
+
+=== strategy: volatility_breakout ===
+  no-cost : total_return=23.5312 trades=195
+  costed  : total_return=20.3220 trades=195 max_dd=0.6816 sharpe=1.4893
+  walk-forward (5 folds, costed): mean_fold_return=-5.5343 positive_folds=4/5 mean_sharpe=1.3414 folds=[1.8531, 4.9277, 0.6196, -35.1207, 0.0486]
+  EDGE PROVEN: NO
+
+=== strategy: mean_reversion ===
+  no-cost : total_return=-1.7318 trades=59
+  costed  : total_return=-1.8341 trades=59 max_dd=2.3605 sharpe=-0.9213
+  walk-forward (5 folds, costed): mean_fold_return=-0.0746 positive_folds=3/5 mean_sharpe=0.4938 folds=[-0.4703, -0.2058, 0.1466, 0.0747, 0.0818]
+  EDGE PROVEN: NO
+
+EDGE VERDICT (G-01 exit test is cost-adjusted walk-forward):
+  A positive mean fold return across ALL 5 out-of-sample folds after
+  full costs is the only acceptable proof of an edge for a real-capital
+  pilot. No strategy above passes that bar, so the honest outcome is
+  PILOT = DATA-VALIDATION ONLY, no PnL claim.

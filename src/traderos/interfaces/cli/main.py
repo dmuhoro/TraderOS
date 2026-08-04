@@ -52,6 +52,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_backtest.add_argument(
         "--no-cache", action="store_true", help="Bypass the durable candle cache"
     )
+    p_backtest.add_argument(
+        "--slippage-bps",
+        type=float,
+        default=5.0,
+        help="Side-aware market-impact slippage in basis points (default 5.0)",
+    )
+    p_backtest.add_argument(
+        "--fee-bps",
+        type=float,
+        default=0.0,
+        help="Commission/fee in basis points of traded notional (default 0.0)",
+    )
+    p_backtest.add_argument(
+        "--min-fee",
+        type=float,
+        default=0.0,
+        help="Minimum fee per order in currency units (default 0.0)",
+    )
 
     p_paper = sub.add_parser("papertrade", help="Paper trading commands")
     p_paper_sub = p_paper.add_subparsers(dest="paper_cmd")
@@ -185,13 +203,23 @@ def cmd_backtest(args: argparse.Namespace) -> None:
     else:
         candles = _historical_candles_for_backtest(args)
 
-    svc = BacktestingService(execution=ExecutionService())
+    svc = BacktestingService(
+        execution=ExecutionService(
+            slippage_bps=getattr(args, "slippage_bps", 5.0),
+            fee_bps=getattr(args, "fee_bps", 0.0),
+            min_fee=getattr(args, "min_fee", 0.0),
+        )
+    )
     mid = candles[0].market_id
     result, steps = svc.run(strat, candles, mid)
     m = result.metrics
     print(f"Source: {source}")
     print(f"Symbol: {symbol or 'n/a'}  Timeframe: {timeframe}  Candles: {len(candles)}")
     print(f"Period: {result.period_start.date()} -> {result.period_end.date()}")
+    print(
+        f"Cost model: slippage {getattr(args, 'slippage_bps', 5.0)}bps "
+        f"fee {getattr(args, 'fee_bps', 0.0)}bps"
+    )
     print(f"Total Return: {m.total_return:.4f}")
     print(f"Sharpe: {m.sharpe_ratio:.4f}")
     print(f"Sortino: {m.sortino_ratio:.4f}")

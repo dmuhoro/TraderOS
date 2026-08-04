@@ -72,7 +72,7 @@ def _provenance(direction: str = "long", confidence: float = 0.8) -> SignalProve
 
 
 class _NoOrderIdBroker(BrokerAdapter):
-    def place_market_order(self, market_id, side, quantity, close_price=None):
+    def place_market_order(self, market_id, side, quantity, close_price=None, client_order_id=None):
         price = close_price if close_price is not None else 100.0
         return FillResult(True, quantity, price, 0.0, "filled", "")
 
@@ -106,7 +106,7 @@ class _NoOrderIdBroker(BrokerAdapter):
 
 
 class _OrderedBroker(_NoOrderIdBroker):
-    def place_market_order(self, market_id, side, quantity, close_price=None):
+    def place_market_order(self, market_id, side, quantity, close_price=None, client_order_id=None):
         price = close_price if close_price is not None else 100.0
         return FillResult(True, quantity, price, 0.0, "filled", "ord-1")
 

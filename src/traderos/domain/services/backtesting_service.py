@@ -10,6 +10,7 @@ from datetime import UTC
 from datetime import datetime
 from decimal import Decimal
 from typing import NamedTuple
+from typing import TypedDict
 
 from traderos.domain.entities import OHLCV
 from traderos.domain.entities import BacktestResult
@@ -28,6 +29,17 @@ class BacktestStep(NamedTuple):
     equity: float
     order: Order | None
     fill_price: float | None
+
+
+class WalkForwardReport(TypedDict):
+    fold_returns: list[float]
+    sharpe: list[float]
+    max_drawdowns: list[float]
+    trades: list[int]
+    mean_fold_return: float
+    positive_folds: float
+    mean_sharpe: float
+    mean_max_drawdown: float
 
 
 def synthetic_candles(
@@ -122,12 +134,20 @@ class BacktestingService:
         market_id: uuid.UUID,
         max_duration_seconds: int = 300,
     ) -> tuple[BacktestResult, list[BacktestStep]]:
+        """Cost-realistic, latency-aware backtest.
+
+        Fills happen on the **next** candle's open after a signal (no
+        same-bar look-ahead), and every fill pays side-aware slippage plus the
+        configured fee. A signal on the final candle is never filled — it is
+        dropped, exactly like a real market order that never executes.
+        """
         start_time = time.monotonic()
         cash = self.initial_capital
         position_qty = 0.0
         equity_curve: list[tuple[datetime, float]] = []
         steps: list[BacktestStep] = []
         filled_orders = 0
+        pending: list[Order] = []
 
         for i, candle in enumerate(candles):
             if time.monotonic() - start_time > max_duration_seconds:
@@ -135,6 +155,22 @@ class BacktestingService:
                 raise TimeoutError(
                     f"Backtest exceeded {max_duration_seconds}s ({remaining} candles remaining)"
                 )
+            executed_this_bar: list[float] = []
+            open_price = float(candle.ohlcv.open)
+            for order in pending:
+                fill_result = self.execution.process_market_order(order, open_price)
+                if fill_result.filled:
+                    filled_orders += 1
+                    executed_this_bar.append(fill_result.fill_price)
+                    if order.side == "buy":
+                        position_qty += fill_result.fill_quantity
+                        cash -= fill_result.fill_quantity * fill_result.fill_price
+                    else:
+                        position_qty -= fill_result.fill_quantity
+                        cash += fill_result.fill_quantity * fill_result.fill_price
+                    cash -= fill_result.fee
+            pending = []
+
             indicators: dict[str, float] = {
                 "close": float(candle.ohlcv.close),
                 "high": float(candle.ohlcv.high),
@@ -180,21 +216,13 @@ class BacktestingService:
             signal = strategy.evaluate(state)
             order: Order | None = None
             fill_price: float | None = None
-
             if signal is not None:
                 side = "buy" if signal.direction == "long" else "sell"
                 qty = signal.confidence * 10
                 order = self.execution.create_market_order(market_id, side, qty)
-                fill_result = self.execution.process_market_order(order, float(candle.ohlcv.close))
-                if fill_result.filled:
-                    filled_orders += 1
-                    fill_price = fill_result.fill_price
-                    if side == "buy":
-                        position_qty += fill_result.fill_quantity
-                        cash -= fill_result.fill_quantity * fill_result.fill_price
-                    else:
-                        position_qty -= fill_result.fill_quantity
-                        cash += fill_result.fill_quantity * fill_result.fill_price
+                pending.append(order)
+            if executed_this_bar:
+                fill_price = executed_this_bar[0]
 
             current_value = cash + position_qty * float(candle.ohlcv.close)
             equity_curve.append((candle.timestamp, current_value))
@@ -217,3 +245,68 @@ class BacktestingService:
             period_end=candles[-1].timestamp,
         )
         return result, steps
+
+    def walk_forward(
+        self,
+        strategy: StrategyBase,
+        candles: list[Candle],
+        market_id: uuid.UUID,
+        n_splits: int = 5,
+        warmup: int = 50,
+        max_duration_seconds: int = 300,
+    ) -> WalkForwardReport:
+        """Anchored, rolling out-of-sample evaluation.
+
+        The series is split into ``n_splits`` contiguous folds. Each fold is
+        evaluated with a ``warmup``-candle prefix so indicator warm-up is not
+        an artifact (a strategy may need 20–50 bars before it can fire), but
+        only the fold itself counts toward the metrics. Folds never leak
+        future data into the evaluated region, and the warmup region is never
+        scored. An edge that only exists in-sample is not an edge.
+        """
+        if len(candles) < n_splits * 2:
+            raise ValueError(
+                f"walk_forward needs at least {n_splits * 2} candles, got {len(candles)}"
+            )
+        totals: list[float] = []
+        sharpe: list[float] = []
+        draws: list[float] = []
+        trades: list[int] = []
+        fold_size = len(candles) // n_splits
+        for fold in range(n_splits):
+            lo = fold * fold_size
+            hi = lo + fold_size if fold < n_splits - 1 else len(candles)
+            fold_candles = candles[lo:hi]
+            if len(fold_candles) < 2:
+                continue
+            window = candles[max(0, lo - warmup) : hi]
+            _, steps = self.run(
+                strategy,
+                window,
+                market_id,
+                max_duration_seconds=max_duration_seconds,
+            )
+            fold_start = fold_candles[0].timestamp
+            fold_steps = [s for s in steps if s.timestamp >= fold_start]
+            if not fold_steps:
+                totals.append(0.0)
+                sharpe.append(0.0)
+                draws.append(0.0)
+                trades.append(0)
+                continue
+            sub_metrics = self.compute_metrics([(s.timestamp, s.equity) for s in fold_steps])
+            fold_trades = len([s for s in fold_steps if s.fill_price is not None])
+            totals.append(sub_metrics.total_return)
+            sharpe.append(sub_metrics.sharpe_ratio)
+            draws.append(sub_metrics.max_drawdown)
+            trades.append(fold_trades)
+        return {
+            "fold_returns": totals,
+            "sharpe": sharpe,
+            "max_drawdowns": draws,
+            "trades": trades,
+            "mean_fold_return": sum(totals) / len(totals) if totals else 0.0,
+            "positive_folds": float(len([t for t in totals if t > 0])),
+            "mean_sharpe": sum(sharpe) / len(sharpe) if sharpe else 0.0,
+            "mean_max_drawdown": sum(draws) / len(draws) if draws else 0.0,
+        }

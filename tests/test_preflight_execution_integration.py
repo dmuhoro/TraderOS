@@ -28,7 +28,7 @@ class _BrokerSpy:
         self.place_market_order_called = False
         self.calls: list = []
 
-    def place_market_order(self, market_id, side, quantity, close_price=None):
+    def place_market_order(self, market_id, side, quantity, close_price=None, client_order_id=None):
         self.place_market_order_called = True
         self.calls.append((market_id, side, quantity))
         from traderos.domain.adapters.broker_adapter import FillResult
@@ -173,7 +173,7 @@ class _SlowToggleBrokerSpy(_BrokerSpy):
     Simulates the broker itself refusing when kill switch trips during submission.
     """
 
-    def place_market_order(self, market_id, side, quantity, close_price=None):
+    def place_market_order(self, market_id, side, quantity, close_price=None, client_order_id=None):
         raise RuntimeError("Broker rejected order: kill switch engaged")
 
 

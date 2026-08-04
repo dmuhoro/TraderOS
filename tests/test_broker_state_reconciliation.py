@@ -7,7 +7,7 @@ from traderos.domain.services.broker_state_reconciliation_service import Mismatc
 
 
 class _ReconcilableBroker:
-    def place_market_order(self, market_id, side, quantity, close_price=None):
+    def place_market_order(self, market_id, side, quantity, close_price=None, client_order_id=None):
         return None
 
     def place_limit_order(self, market_id, side, quantity, price, close_price=None):
@@ -27,7 +27,7 @@ class _ReconcilableBroker:
 
 
 class _FailingBroker:
-    def place_market_order(self, market_id, side, quantity, close_price=None):
+    def place_market_order(self, market_id, side, quantity, close_price=None, client_order_id=None):
         return None
 
     def place_limit_order(self, market_id, side, quantity, price, close_price=None):
@@ -93,7 +93,9 @@ class TestBrokerStateReconciliationService:
 
     def test_empty_broker_reconciles(self) -> None:
         class _EmptyBroker:
-            def place_market_order(self, market_id, side, quantity, close_price=None):
+            def place_market_order(
+                self, market_id, side, quantity, close_price=None, client_order_id=None
+            ):
                 return None
 
             def place_limit_order(self, market_id, side, quantity, price, close_price=None):
