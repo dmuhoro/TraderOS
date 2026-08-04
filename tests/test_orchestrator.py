@@ -32,7 +32,7 @@ class _BacktestStrat(StrategyBase):
 
 
 class MockBroker(BrokerAdapter):
-    def place_market_order(self, market_id, side, quantity, close_price=None):
+    def place_market_order(self, market_id, side, quantity, close_price=None, client_order_id=None):
         return FillResult(True, quantity, 100.0, 0.0, "filled", "ord1")
 
     def place_limit_order(self, market_id, side, quantity, price, close_price=None):

@@ -101,6 +101,9 @@ class RiskService:
     persistent_kill_switch: PersistentKillSwitch | None = None
     max_positions_total: int = 10
     daily_loss_pct: float = DEFAULT_DAILY_LOSS_PCT
+    max_gross_exposure: float = 1.0
+    allowed_markets: frozenset[uuid.UUID] = frozenset()
+    max_data_staleness_seconds: float = 300.0
     audit: AuditPort | None = None
     metrics: MetricsPort | None = None
 
@@ -138,12 +141,18 @@ class RiskService:
         quantity: float,
         price: float,
         equity: float,
+        existing_gross_exposure: float = 0.0,
+        last_candle_at: datetime | None = None,
+        now: datetime | None = None,
     ) -> TradeVerdict:
         """Per-order fail-closed gate at the live submission boundary.
 
-        Refuses an order when the daily loss budget is exhausted or when the
-        order notional breaches ``max_position_size`` against current equity.
-        An unconfigured daily loss limit defaults to a conservative share of
+        Refuses an order when the daily loss budget is exhausted, when the
+        market is not on the configured allowlist, when market data is stale
+        (data-gap circuit breaker), when the order notional breaches
+        ``max_position_size`` of equity, or when adding the order would push
+        total gross exposure past ``max_gross_exposure`` of equity. An
+        unconfigured daily loss limit defaults to a conservative share of
         equity (``daily_loss_pct``), never unlimited.
         """
         if equity <= 0:
@@ -160,6 +169,21 @@ class RiskService:
                 side,
                 f"Daily loss limit reached: {realized:.2f} >= {daily_limit:.2f}",
             )
+        if self.allowed_markets and market_id not in self.allowed_markets:
+            return self._block_order(
+                market_id,
+                side,
+                f"Market {market_id} is not on the configured allowlist",
+            )
+        if last_candle_at is not None and now is not None:
+            staleness = (now - last_candle_at).total_seconds()
+            if staleness > self.max_data_staleness_seconds:
+                return self._block_order(
+                    market_id,
+                    side,
+                    f"Market data stale: last candle {staleness:.0f}s old "
+                    f"(threshold {self.max_data_staleness_seconds:.0f}s)",
+                )
         notional = quantity * price
         cap = equity * self.max_position_size
         if notional > cap:
@@ -168,6 +192,22 @@ class RiskService:
                 side,
                 f"Order notional {notional:.2f} exceeds max_position_size "
                 f"({self.max_position_size} of equity = {cap:.2f})",
+            )
+        gross_cap = equity * self.max_gross_exposure
+        total_exposure = existing_gross_exposure + notional
+        if existing_gross_exposure > gross_cap:
+            return self._block_order(
+                market_id,
+                side,
+                f"Portfolio gross exposure {existing_gross_exposure:.2f} already "
+                f"exceeds cap ({self.max_gross_exposure} of equity = {gross_cap:.2f})",
+            )
+        if total_exposure > gross_cap:
+            return self._block_order(
+                market_id,
+                side,
+                f"Order would push gross exposure to {total_exposure:.2f}, "
+                f"over cap ({self.max_gross_exposure} of equity = {gross_cap:.2f})",
             )
         verdict = self.kill_switch.can_trade()
         if not verdict.allowed:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from collections.abc import Callable
@@ -24,6 +25,7 @@ from traderos.domain.services.backtesting_service import synthetic_candles
 from traderos.domain.services.breakout_detection import BreakoutDetectionService
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
+from traderos.domain.services.flatten_service import FlattenService
 from traderos.domain.services.knowledge_graph_service import KnowledgeGraphService
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.portfolio_service import PortfolioService
@@ -64,6 +66,7 @@ class CycleExecutor:
         backtest: BacktestingService | None = None,
         knowledge_graph: KnowledgeGraphService | None = None,
         research: ResearchService | None = None,
+        flatten_service: FlattenService | None = None,
     ) -> None:
         self._mode = mode
         self._signal_service = signal_service
@@ -85,6 +88,21 @@ class CycleExecutor:
         self._backtest = backtest
         self._knowledge_graph = knowledge_graph
         self._research = research
+        self._flatten_service = flatten_service
+
+    def _record_causal(
+        self,
+        action: str,
+        market_id: uuid.UUID,
+        actor: str,
+        signal_id: str = "",
+        **fields: object,
+    ) -> None:
+        payload: dict[str, object] = {"market_id": str(market_id)}
+        if signal_id:
+            payload["signal_id"] = signal_id
+        payload.update(fields)
+        self._audit.record(action, actor, "strategy", json.dumps(payload, default=str))
 
     def run(
         self, market_id: uuid.UUID, close_price: float, candle_time: datetime | None = None
@@ -118,6 +136,35 @@ class CycleExecutor:
             candles: list = []
             if self._data_ingestion is not None:
                 candles = self._data_ingestion.fetch_candles(market_id, limit=100)
+
+            # G-03 data-gap circuit breaker: a live loop must never trade on
+            # stale (or absent) market data. Enforced at the real submission
+            # path boundary — only when a data feed is actually wired in.
+            data_gap_error: str | None = None
+            if self._mode == TradingMode.LIVE and self._data_ingestion is not None:
+                now_ts = candle_time or datetime.now(UTC)
+                if not candles:
+                    data_gap_error = f"{market_id}: no market data — trading blocked"
+                else:
+                    last_ts = candles[-1].timestamp
+                    stale_seconds = (now_ts - last_ts).total_seconds()
+                    threshold = self._risk_service.max_data_staleness_seconds
+                    if stale_seconds > threshold:
+                        data_gap_error = (
+                            f"{market_id}: market data stale {stale_seconds:.0f}s "
+                            f"(threshold {threshold:.0f}s) — trading blocked"
+                        )
+            if data_gap_error is not None:
+                errors.append(data_gap_error)
+                self._health.report_unhealthy(f"market.{market_id}", data_gap_error)
+                self._metrics.counter("risk.data_gap_blocked")
+                self._notifications.critical("Market Data Gap", data_gap_error)
+                self._event_bus.publish(
+                    Event(
+                        "risk.data_gap_blocked",
+                        {"market_id": str(market_id), "reason": data_gap_error},
+                    )
+                )
 
             sma_20 = close_price
             sma_50 = close_price
@@ -211,6 +258,15 @@ class CycleExecutor:
                     if provenance is None:
                         continue
                     signals_count += 1
+                    self._record_causal(
+                        "signal.generated",
+                        market_id,
+                        name,
+                        signal_id=str(provenance.signal.id),
+                        strategy=name,
+                        direction=result.direction,
+                        confidence=result.confidence,
+                    )
                     self._event_bus.publish(
                         Event(
                             "signal.generated",
@@ -224,6 +280,8 @@ class CycleExecutor:
                     )
 
                     for signal in [provenance.signal]:
+                        if data_gap_error is not None:
+                            continue
                         if self._preflight_service is not None:
                             pf = self._preflight_service.check(
                                 live_mode=self._mode == TradingMode.LIVE
@@ -235,7 +293,19 @@ class CycleExecutor:
                         positions = self._portfolio_service.get_summary(0).open_positions
                         verdict = self._risk_service.can_trade(positions)
                         if not verdict.allowed:
-                            errors.append(f"{name}: {verdict.reason}")
+                            if (
+                                self._flatten_service is not None
+                                and self._risk_service.kill_switch.circuit_open
+                                and not self._flatten_service.flattened
+                            ):
+                                flatten = self._flatten_service.flatten(reason=verdict.reason)
+                                errors.append(
+                                    f"{name}: kill switch engaged — flattened "
+                                    f"{flatten.close_orders} positions, "
+                                    f"{flatten.failed_orders} failed"
+                                )
+                            else:
+                                errors.append(f"{name}: {verdict.reason}")
                             continue
                         cash = self._cash_balance()
                         eq = self._portfolio_service.get_summary(cash).total_equity
@@ -271,13 +341,60 @@ class CycleExecutor:
                             quantity=qty,
                             price=close_price,
                             equity=eq,
+                            existing_gross_exposure=sum(
+                                abs(float(p.quantity)) * float(p.current_price) for p in positions
+                            ),
+                            last_candle_at=candles[-1].timestamp if candles else None,
+                            now=candle_time or datetime.now(UTC),
                         )
                         if not authorization.allowed:
                             errors.append(f"{name}: order blocked: {authorization.reason}")
+                            self._record_causal(
+                                "decision.made",
+                                market_id,
+                                name,
+                                signal_id=str(signal.id),
+                                outcome="blocked",
+                                reason=authorization.reason,
+                                qty=qty,
+                                price=close_price,
+                            )
                             continue
 
+                        client_order_id = str(uuid.uuid4())
+                        self._record_causal(
+                            "decision.made",
+                            market_id,
+                            name,
+                            signal_id=str(signal.id),
+                            outcome="allowed",
+                            side=side,
+                            qty=qty,
+                            price=close_price,
+                            strategy=name,
+                            client_order_id=client_order_id,
+                        )
+
                         fill = self._broker.place_market_order(
-                            market_id, side, qty, close_price=close_price
+                            market_id,
+                            side,
+                            qty,
+                            close_price=close_price,
+                            client_order_id=client_order_id,
+                        )
+                        self._record_causal(
+                            "order.placed",
+                            market_id,
+                            name,
+                            signal_id=str(signal.id),
+                            side=side,
+                            qty=qty,
+                            price=close_price,
+                            status="filled" if fill.filled else "not_filled",
+                            order_id=str(fill.order_id) if fill.order_id else "",
+                            client_order_id=client_order_id,
+                            broker_filled_quantity=fill.fill_quantity,
+                            broker_filled_price=fill.fill_price,
                         )
                         if fill.filled:
                             trade = self._portfolio_service.open_trade(
@@ -296,6 +413,17 @@ class CycleExecutor:
                                 self._portfolio_service.update_trade(trade)
                             self._portfolio_service.fill_trade(trade, fill_price=fill.fill_price)
                             trades_count += 1
+                            self._record_causal(
+                                "trade.fill",
+                                market_id,
+                                name,
+                                signal_id=str(signal.id),
+                                trade_id=str(trade.id),
+                                side=side,
+                                qty=fill.fill_quantity,
+                                price=fill.fill_price,
+                                filled_at=trade.filled_at.isoformat() if trade.filled_at else "",
+                            )
                             self._event_bus.publish(
                                 Event(
                                     "trade.executed",

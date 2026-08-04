@@ -69,11 +69,14 @@ class GuardrailedBroker(BrokerAdapter):
         side: str,
         quantity: float,
         close_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
         rejected = self._guard(quantity, close_price)
         if rejected is not None:
             return rejected
-        return self._inner.place_market_order(market_id, side, quantity, close_price)
+        return self._inner.place_market_order(
+            market_id, side, quantity, close_price, client_order_id
+        )
 
     def place_limit_order(
         self,

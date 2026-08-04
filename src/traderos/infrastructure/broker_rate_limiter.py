@@ -55,9 +55,12 @@ class RateLimitedBroker(BrokerAdapter):
         side: str,
         quantity: float,
         close_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
         self._check("place_market_order")
-        return self._inner.place_market_order(market_id, side, quantity, close_price)
+        return self._inner.place_market_order(
+            market_id, side, quantity, close_price, client_order_id
+        )
 
     def place_limit_order(
         self,

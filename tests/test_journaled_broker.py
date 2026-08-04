@@ -14,7 +14,7 @@ class FakeBroker:
         self.calls = 0
         self.last_result = FillResult(True, 2.0, 100.0, 0.0, "filled", "ext-1")
 
-    def place_market_order(self, market_id, side, quantity, close_price=None):
+    def place_market_order(self, market_id, side, quantity, close_price=None, client_order_id=None):
         self.calls += 1
         return self.last_result
 

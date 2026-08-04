@@ -126,6 +126,7 @@ class PaperBrokerAdapter(BrokerAdapter):
         side: str,
         quantity: float,
         close_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
         import random
 

@@ -33,10 +33,14 @@ class PreflightService:
         audit: AuditPort | None = None,
         broker_reconciliation: BrokerStateReconciliationService | None = None,
         kill_switch: KillSwitch | None = None,
+        allowed_markets: frozenset | None = None,
+        require_allowlist: bool = False,
     ) -> None:
         self._audit = audit
         self._broker_reconciliation = broker_reconciliation
         self._kill_switch = kill_switch
+        self._allowed_markets = allowed_markets
+        self._require_allowlist = require_allowlist
 
     def check(self, live_mode: bool = False) -> PreflightVerdict:
         checks: dict[str, bool] = {}
@@ -75,6 +79,14 @@ class PreflightService:
                     f"Live mode requires {_LIVE_CONFIRM_ENV}=true "
                     "(explicit confirmation beyond env-var presence)"
                 )
+            if self._require_allowlist and not self._allowed_markets:
+                checks["market_allowlist"] = False
+                failures.append(
+                    "Live mode requires a non-empty market allowlist "
+                    "(risk.allowed_markets) — fail-closed"
+                )
+            else:
+                checks["market_allowlist"] = True
         else:
             checks["live_trading_confirmed"] = True
 

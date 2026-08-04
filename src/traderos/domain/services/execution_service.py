@@ -45,12 +45,15 @@ class ExecutionFillResult(NamedTuple):
     fill_price: float
     remaining: float
     status: OrderStatus
+    fee: float = 0.0
 
 
 @dataclass
 class ExecutionService:
     slippage_model: str = "fixed"
     slippage_bps: float = 5.0
+    fee_bps: float = 0.0
+    min_fee: float = 0.0
 
     def create_market_order(
         self,
@@ -99,10 +102,23 @@ class ExecutionService:
             stop_price=stop_price,
         )
 
-    def apply_slippage(self, price: float) -> float:
+    def apply_slippage(self, price: float, side: str = "buy") -> float:
+        """Side-aware market impact: a buy pays up, a sell receives down.
+
+        Direction matters — crediting slippage to a seller is the kind of
+        false optimism a cost-adjusted backtest must not contain.
+        """
         if self.slippage_bps == 0:
             return price
-        return price * (1 + self.slippage_bps / 10000)
+        factor = 1 + self.slippage_bps / 10000
+        return price * factor if side == "buy" else price * (2 - factor)
+
+    def apply_fee(self, notional: float) -> float:
+        if self.fee_bps <= 0 and self.min_fee <= 0:
+            return 0.0
+        if self.fee_bps <= 0:
+            return self.min_fee
+        return max(notional * self.fee_bps / 10000, self.min_fee)
 
     def process_market_order(
         self,
@@ -111,13 +127,15 @@ class ExecutionService:
     ) -> ExecutionFillResult:
         if order.order_type != OrderType.MARKET:
             return ExecutionFillResult(False, 0, 0, order.quantity, OrderStatus.REJECTED)
-        fill_price = self.apply_slippage(market_price)
+        fill_price = self.apply_slippage(market_price, order.side)
+        fee = self.apply_fee(order.quantity * fill_price)
         return ExecutionFillResult(
             filled=True,
             fill_quantity=order.quantity,
             fill_price=fill_price,
             remaining=0.0,
             status=OrderStatus.FILLED,
+            fee=fee,
         )
 
     def process_limit_order(
@@ -132,12 +150,14 @@ class ExecutionService:
         )
         if not can_fill:
             return ExecutionFillResult(False, 0, 0, order.quantity, OrderStatus.PENDING)
+        fee = self.apply_fee(order.quantity * order.price)
         return ExecutionFillResult(
             filled=True,
             fill_quantity=order.quantity,
             fill_price=order.price,
             remaining=0.0,
             status=OrderStatus.FILLED,
+            fee=fee,
         )
 
     def process_stop_order(
@@ -152,13 +172,15 @@ class ExecutionService:
         )
         if not triggered:
             return ExecutionFillResult(False, 0, 0, order.quantity, OrderStatus.PENDING)
-        fill_price = self.apply_slippage(market_price)
+        fill_price = self.apply_slippage(market_price, order.side)
+        fee = self.apply_fee(order.quantity * fill_price)
         return ExecutionFillResult(
             filled=True,
             fill_quantity=order.quantity,
             fill_price=fill_price,
             remaining=0.0,
             status=OrderStatus.FILLED,
+            fee=fee,
         )
 
     def cancel_order(self, order: Order) -> Order:

@@ -29,6 +29,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.adapters.broker_adapter import FillResult
 from traderos.infrastructure.journal import OrderEventJournal
 
@@ -53,7 +54,7 @@ def _to_result(payload: dict[str, Any]) -> FillResult:
     )
 
 
-class JournaledBroker:
+class JournaledBroker(BrokerAdapter):
     """Idempotent submit-are decorator over a live broker."""
 
     def __init__(
@@ -78,7 +79,12 @@ class JournaledBroker:
         if self._journal is None:
             return method(*args, **kwargs)
 
-        key = _client_key(market_id, side, quantity, method_name)
+        # A caller-provided id is the authoritative idempotency key: it uniquely
+        # identifies one *logical* order, so a repeated request with the same id
+        # replays the stored outcome instead of double-submitting, while two
+        # distinct orders that merely share a request shape never collide.
+        cid = kwargs.get("client_order_id")
+        key = cid or _client_key(market_id, side, quantity, method_name)
         existing = self._journal.get(key)
         if existing is not None:
             if existing["status"] == CONFIRMED:
@@ -94,6 +100,7 @@ class JournaledBroker:
                 "market_id": str(market_id),
                 "side": side,
                 "quantity": quantity,
+                "client_order_id": cid or "",
             },
         )
 
@@ -126,10 +133,20 @@ class JournaledBroker:
 
     # ---- broker port ----------------------------------------------------
     def place_market_order(
-        self, market_id: uuid.UUID, side: str, quantity: float, close_price: float | None = None
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        close_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
         return self._submit(
-            "place_market_order", market_id, side, quantity, close_price=close_price
+            "place_market_order",
+            market_id,
+            side,
+            quantity,
+            close_price=close_price,
+            client_order_id=client_order_id,
         )
 
     def place_limit_order(

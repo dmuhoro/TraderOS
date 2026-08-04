@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any
 
 from traderos.application.orchestrator import TradingMode
@@ -16,6 +17,7 @@ from traderos.domain.services.broker_state_reconciliation_service import (
 )
 from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.execution_service import ExecutionService
+from traderos.domain.services.flatten_service import FlattenService
 from traderos.domain.services.knowledge_graph_service import KnowledgeGraphService
 from traderos.domain.services.live_readiness import LiveReadinessService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
@@ -75,6 +77,8 @@ from traderos.infrastructure.repositories.sqlite import SQLiteTradeRepository
 from traderos.infrastructure.run_manifest import RunManifestService as InMemoryManifestService
 from traderos.infrastructure.secrets import EnvSecretProvider
 from traderos.infrastructure.secrets import SecretRotator
+from traderos.infrastructure.supervision import JsonlHeartbeatStore
+from traderos.infrastructure.supervision import SupervisionService
 
 PG_BACKEND = "postgres"
 
@@ -128,6 +132,9 @@ def build_orchestrator(
         persistent_kill_switch=persistent_kill_switch,
         metrics=metrics,
         audit=audit,
+        max_gross_exposure=float(cfg.get("risk.max_gross_exposure", 1.0)),
+        max_data_staleness_seconds=float(cfg.get("risk.max_data_staleness_seconds", 300.0)),
+        allowed_markets=_resolve_allowed_markets(cfg),
     )
     portfolio_service.risk_service = risk_service
     webhook_notifier = WebhookNotifier()
@@ -228,6 +235,8 @@ def build_orchestrator(
         audit=audit,
         broker_reconciliation=broker_reconciliation,
         kill_switch=risk_service.kill_switch,
+        allowed_markets=risk_service.allowed_markets,
+        require_allowlist=bool(cfg.get("risk.require_allowlist", False)),
     )
 
     paper: PaperTradingService | None = None
@@ -338,8 +347,38 @@ def build_orchestrator(
         secret_rotator=_build_secret_rotator(),
         knowledge_graph=knowledge_graph,
         research=research,
+        flatten_service=FlattenService(
+            broker=broker,
+            portfolio_service=portfolio_service,
+            notifications=notifications,
+            audit=audit,
+            metrics=metrics,
+            market_prices=lambda mid: (data_ingestion.get_latest_close(mid) or 0.0),
+        ),
+        supervision=SupervisionService(
+            store=JsonlHeartbeatStore(Path(cfg.data_dir) / "supervision.jsonl"),
+            notifications=notifications,
+            audit=audit,
+            metrics=metrics,
+        ),
     )
     return orch
+
+
+def _resolve_allowed_markets(cfg: Config) -> frozenset[uuid.UUID]:
+    """Resolve ``risk.allowed_markets`` (symbol strings) to market ids.
+
+    Uses the same deterministic ``uuid5("traderos/{symbol}")`` scheme as the
+    data-ingestion wiring, so an allowlisted symbol maps to the market the
+    loop trades. Empty list = unrestricted (unless ``risk.require_allowlist``
+    forces one via preflight in live mode).
+    """
+    symbols = cfg.get("risk.allowed_markets", [])
+    if not isinstance(symbols, list):
+        return frozenset()
+    return frozenset(
+        uuid.uuid5(uuid.NAMESPACE_DNS, f"traderos/{s}") for s in symbols if isinstance(s, str)
+    )
 
 
 def _build_secret_rotator() -> SecretRotator:

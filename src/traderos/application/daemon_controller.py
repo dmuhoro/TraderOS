@@ -24,6 +24,7 @@ from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
 from traderos.domain.services.reconciliation_service import ReconciliationResult
+from traderos.infrastructure.supervision import SupervisionService
 
 # Exceptions a single cycle may surface and that the daemon must swallow so a
 # transient subsystem failure cannot take down the whole trading loop.
@@ -50,6 +51,7 @@ class DaemonController:
         kill_switch: Any | None = None,
         pre_cycle_hook: Callable[[], None] | None = None,
         post_cycle_hook: Callable[[], None] | None = None,
+        supervision: SupervisionService | None = None,
     ) -> None:
         self._mode = mode
         self._cycle_executor = cycle_executor
@@ -68,6 +70,7 @@ class DaemonController:
         self._kill_switch = kill_switch
         self._pre_cycle_hook = pre_cycle_hook
         self._post_cycle_hook = post_cycle_hook
+        self._supervision = supervision
         self._running = False
         self._crash_recovered = False
 
@@ -85,6 +88,9 @@ class DaemonController:
 
     def start(self) -> None:
         self._running = True
+        if self._supervision is not None:
+            self._supervision.check_unclean_shutdown()
+            self._supervision.heartbeat()
         self._health.report_healthy("orchestrator", "started")
         self._audit.record(
             "orchestrator.start", "system", "orchestrator", f"mode={self._mode.value}"
@@ -94,6 +100,8 @@ class DaemonController:
 
     def stop(self) -> None:
         self._running = False
+        if self._supervision is not None:
+            self._supervision.mark_clean_shutdown()
         self._health.report_healthy("orchestrator", "stopped")
         self._audit.record("orchestrator.stop", "system", "orchestrator")
         self._notifications.info("Orchestrator Stopped")
@@ -258,6 +266,8 @@ class DaemonController:
             if shutdown_at is not None and time.monotonic() > shutdown_at:
                 self._notifications.critical("Shutdown", "Forced shutdown after timeout")
                 break
+            if self._supervision is not None:
+                self._supervision.heartbeat()
             if (
                 self._broker_reconciliation is not None
                 and not self._broker_reconciliation.can_accept_orders

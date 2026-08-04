@@ -49,3 +49,6 @@ logs/
 
 # Backups (runtime artifacts)
 backups/
+
+# Runtime state
+data/supervision.jsonl
