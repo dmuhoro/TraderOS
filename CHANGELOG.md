@@ -1,5 +1,30 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 25 (Idempotent order submission at the Alpaca boundary)
+
+### Idempotent submit under retry (2026-08-04)
+- **Stable `client_order_id` at the innermost live boundary:** `AlpacaBrokerAdapter`
+  now generates one `client_order_id` per logical order (before the first submit
+  attempt) and reuses it verbatim across every `retry_with_backoff(max_retries=2)`
+  attempt of `_submit`, on `place_market_order`, `place_limit_order`,
+  `place_stop_order`, and `place_trailing_stop_order`. When the broker accepts an
+  order server-side but drops the response, the retry is now a dedupe by
+  `client_order_id` (Alpaca-day scoped), not a duplicate order.
+- **Test seam:** optional `client=` injection on `AlpacaBrokerAdapter.__init__`.
+- **Excluded by design:** `modify_order` (`replace_order_by_id`) — alpaca-py
+  `ReplaceOrderRequest` has no `client_order_id` field.
+- **Proof through the real path** (`tests/test_alpaca_idempotent_submit.py`): a
+  real `AlpacaBrokerAdapter` driven by a real `CycleExecutor` against a fake
+  Alpaca client that records the order server-side then drops the response —
+  retry reused the same `client_order_id` and the fake broker held exactly **one**
+  order; a negative control confirms distinct orders get distinct ids.
+- **Evidence:** `docs/evidence/2026-08-02_sprint25_idempotent_submit_alpaca.log`.
+  Full suite `1284 passed, 1 skipped`; coverage 92.55%; black/isort/ruff/pyright
+  clean.
+- **Honest scope:** closes one G-02 slice (duplicate orders under adapter-internal
+  retry). Broker-outage soak, WS reconnect, lost-order reconciliation beyond the
+  journal, and kill-flatten/portfolio-cap live drill remain open.
+
 ## [Unreleased] - Sprint 24 (Order-level risk enforcement at the live submission boundary)
 
 ### Order-level risk gate (2026-08-04)
