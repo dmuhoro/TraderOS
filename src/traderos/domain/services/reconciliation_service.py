@@ -108,8 +108,14 @@ class PersistentKillSwitch:
     def __init__(
         self,
         max_consecutive_failures: int = 5,
-        daily_loss_limit: float = float("inf"),
+        daily_loss_limit: float | None = None,
     ) -> None:
+        """Fail-closed by default: ``None`` means no unlimited daily loss.
+
+        The effective daily-loss cap is equity-relative (``daily_loss_pct``)
+        and enforced by :meth:`RiskService.authorize_order` at the live order
+        boundary; an explicit dollar limit here overrides it.
+        """
         self._max_failures = max_consecutive_failures
         self._daily_loss_limit = daily_loss_limit
         self._state = KillSwitchState()
@@ -133,11 +139,14 @@ class PersistentKillSwitch:
         self._state.daily_loss += pnl
 
     def can_trade(self) -> bool:
-        if self._state.circuit_open:
-            return False
-        if self._state.consecutive_failures >= self._max_failures:
-            return False
-        return not abs(self._state.daily_loss) >= self._daily_loss_limit
+        loss_under_limit = (
+            self._daily_loss_limit is None or abs(self._state.daily_loss) < self._daily_loss_limit
+        )
+        return (
+            not self._state.circuit_open
+            and self._state.consecutive_failures < self._max_failures
+            and loss_under_limit
+        )
 
     def reset(self) -> None:
         self._state = KillSwitchState(last_reset=datetime.now(UTC))
