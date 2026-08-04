@@ -1,0 +1,16 @@
+PARTIAL-FILL + RECONNECT DRILL — G-02 broker-side surprises
+started 2026-08-04T21:41:43.104706+00:00
+cycles=12 forced_disconnects=4 submit_attempts=17 fill_pct=0.5
+broker_orders=12 journal_confirmed=12 trades=12
+journal_pending=0
+local_position_qty=91.092872 broker_filled_qty=91.092872
+reconcile_errors=0 mismatches=0
+
+1. partial fills recorded w/ actual qty:   True
+2. position book == broker after partial:   True
+3. reconcile clean:                        True
+4. 0 duplicate orders (broker==journal==trades): True
+5. 0 lost orders (no pending intents):     True
+6. restart re-submits nothing:             True
+7. forced disconnects exercised:           True
+VERDICT: PASS

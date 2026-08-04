@@ -1,5 +1,64 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 27 (Every readiness gap to 80+, evidence-backed)
+
+### HA failover + secrets rotation audit (G-04) (2026-08-04)
+- `src/traderos/infrastructure/ha_failover.py`: lease-based leadership
+  (`LeaseStore` + `FailoverManager`), stale-after-90s takeover, fail-closed
+  standby (no lease → no leadership). Wired into `DaemonController` and
+  `Orchestrator`/`factory.py` (`_build_failover` gated on `ha.enabled`).
+- `SecretsRotator` records `secret.accessed` / `secret.rotated` audit entries
+  with `value_redacted: True`.
+- Proof: `tests/test_ha_failover.py` (5 tests, incl. a real-`CycleExecutor`
+  standby drill), `tests/test_secret_hygiene.py`, firm-ops drill 3/3
+  (`docs/evidence/2026-08-04_sprint27_firm_ops_drill.log`).
+
+### Cost realism: latency in the execution model (G-01) (2026-08-04)
+- `ExecutionService.latency_bps` (default 0.0) folded into side-aware
+  `apply_slippage` (widens buys, lowers sells).
+- Keyless cost-adjusted walk-forward evidence on frozen G-06 oracle candles,
+  35% withheld OOS, 5 folds, full costs (fee 10bps + slippage 5bps + latency
+  10bps). **Honest outcome: no edge after full costs → PILOT = DATA-VALIDATION
+  ONLY** (`docs/evidence/2026-08-04_sprint27_walk_forward_evidence.log`).
+- Proof: `TestLatency` (5 tests) + suite-locked drill test.
+
+### Portfolio risk rails drill (G-03) (2026-08-04)
+- `scripts/evidence/run_risk_rails_drill.py`: **6/6 fail-closed** against the
+  real loop — gross-exposure cap blocks, allowlist blocks unlisted + passes
+  allowlisted to broker, kill-switch flatten exactly-once, data-gap blocks live
+  (`docs/evidence/2026-08-04_sprint27_risk_rails_drill.log`).
+
+### Partial-fill + reconnect drill; real-paper soak harness (G-02) (2026-08-04)
+- `scripts/evidence/run_partial_fill_reconnect.py`: **7/7 PASS** — 50% partial
+  fills + ack drops through the real path; 0 duplicates/lost, book==broker,
+  reconcile clean, restart re-submits nothing
+  (`docs/evidence/2026-08-04_sprint27_partial_fill_reconnect.log`).
+- `scripts/evidence/run_real_paper_soak.py`: operator harness for the
+  unattended Alpaca paper soak, **fails closed** (exit 2, NO-GO) without paper
+  keys (`docs/evidence/2026-08-04_sprint27_real_paper_soak.log`).
+
+### Oracle conformance (G-06) (2026-08-04)
+- `scripts/evidence/run_oracle_conformance.py`: engine reproduces the committed
+  reference PnL on the frozen dataset **and** the withheld window to tolerance
+  1e-4 — **2/2** (`docs/evidence/2026-08-04_sprint27_oracle_conformance.log`).
+
+### Multi-restart replay (G-05) (2026-08-04)
+- `scripts/evidence/run_multirestart_replay.py`: 9 real-path cycles, 2
+  simulated process restarts on the same durable DB; audit chain valid, every
+  cycle reconstructed bit-complete (`docs/evidence/2026-08-04_sprint27_
+  multirestart_replay.log`).
+
+### Operator acknowledgment + live gate in CI (G-07) (2026-08-04)
+- `scripts/governance/operator_ack.py`: HMAC-signed operator acknowledgment of
+  the seven red-lines (ack/verify/status, fails closed on missing/tampered).
+- `verify_ack` now required by `live_gate.py` in live posture; new **governance**
+  CI job asserts paper pass-through + live fail-closed.
+- Governance drill **6/6** (`docs/evidence/2026-08-04_sprint27_governance_drill.log`).
+
+### Evidence & gates
+- Suite **1351 passed, 1 skipped**; whole-tree pyright 0 errors; ruff/black clean;
+  all seven sprint-27 drills suite-locked; `GAP_READINESS.md` rescored 80+ (G-07 85).
+
 ## [Unreleased] - Sprint 26 (Evidence-backed live-ops hardening)
 
 ### Supervision + unclean-shutdown alerting (2026-08-04)

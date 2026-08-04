@@ -1,0 +1,13 @@
+GOVERNANCE DRILL — G-07 signing + operator ack + live gate
+started 2026-08-04T21:41:22.409293+00:00
+drill key: governance-drill-key-not-a-secret (in-process only, never persisted)
+
+[PASS] release_signing
+[PASS] release_verify
+[PASS] operator_ack
+[PASS] operator_ack_verify
+[PASS] live_gate_fails_closed_without_go
+[PASS] live_gate_passes_with_go_and_ack
+
+VERDICT: PASS — governance stack 6/6 enforced (signing, operator ack, fail-closed live gate)
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-04_sprint27_governance_drill.log

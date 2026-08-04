@@ -10,6 +10,7 @@ from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.collectors.base import CollectorRegistry
 from traderos.domain.collectors.base import CollectorType
 from traderos.domain.exceptions import InfrastructureError
+from traderos.domain.ports import AuditPort
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.broker_state_reconciliation_service import (
@@ -42,6 +43,8 @@ from traderos.infrastructure.database.connection import get_connection
 from traderos.infrastructure.database.connection import resolve_backend
 from traderos.infrastructure.database.migration_manager import migrate
 from traderos.infrastructure.events import InMemoryEventBus
+from traderos.infrastructure.ha_failover import FailoverManager
+from traderos.infrastructure.ha_failover import LeaseStore
 from traderos.infrastructure.health import HealthService as InMemoryHealthService
 from traderos.infrastructure.metrics import MetricsService as InMemoryMetricsService
 from traderos.infrastructure.notifiers.webhook_notifier import WebhookNotifier
@@ -361,8 +364,27 @@ def build_orchestrator(
             audit=audit,
             metrics=metrics,
         ),
+        failover=_build_failover(cfg, notifications, audit),
     )
     return orch
+
+
+def _build_failover(
+    cfg: Config,
+    notifications: NotificationService,
+    audit: AuditPort | None,
+) -> FailoverManager | None:
+    """Build the HA failover manager when ``ha.enabled`` is set. A standby
+    daemon starts only when it wins the durable lease, so a crashed primary is
+    replaced without a split brain (G-04)."""
+    if not bool(cfg.get("ha.enabled", False)):
+        return None
+    return FailoverManager(
+        store=LeaseStore(Path(cfg.data_dir) / "ha_lease.jsonl"),
+        notifications=notifications,
+        audit=audit,
+        stale_after_seconds=float(cfg.get("ha.lease_stale_after_seconds", 90.0)),
+    )
 
 
 def _resolve_allowed_markets(cfg: Config) -> frozenset[uuid.UUID]:

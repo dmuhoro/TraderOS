@@ -24,6 +24,7 @@ from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
 from traderos.domain.services.reconciliation_service import ReconciliationResult
+from traderos.infrastructure.ha_failover import FailoverManager
 from traderos.infrastructure.supervision import SupervisionService
 
 # Exceptions a single cycle may surface and that the daemon must swallow so a
@@ -52,6 +53,8 @@ class DaemonController:
         pre_cycle_hook: Callable[[], None] | None = None,
         post_cycle_hook: Callable[[], None] | None = None,
         supervision: SupervisionService | None = None,
+        failover: FailoverManager | None = None,
+        standby_poll_seconds: float = 5.0,
     ) -> None:
         self._mode = mode
         self._cycle_executor = cycle_executor
@@ -71,8 +74,15 @@ class DaemonController:
         self._pre_cycle_hook = pre_cycle_hook
         self._post_cycle_hook = post_cycle_hook
         self._supervision = supervision
+        self._failover = failover
+        self._standby_poll_seconds = standby_poll_seconds
         self._running = False
         self._crash_recovered = False
+
+    @property
+    def leading(self) -> bool:
+        """True when the daemon holds HA leadership (or HA is not in use)."""
+        return self._failover is None or self._failover.leading
 
     @property
     def mode(self) -> TradingMode:
@@ -102,6 +112,8 @@ class DaemonController:
         self._running = False
         if self._supervision is not None:
             self._supervision.mark_clean_shutdown()
+        if self._failover is not None:
+            self._failover.release()
         self._health.report_healthy("orchestrator", "stopped")
         self._audit.record("orchestrator.stop", "system", "orchestrator")
         self._notifications.info("Orchestrator Stopped")
@@ -268,6 +280,17 @@ class DaemonController:
                 break
             if self._supervision is not None:
                 self._supervision.heartbeat()
+            # HA failover: only the leader trades. A standby polls the durable
+            # lease and takes over once the primary's lease goes stale.
+            if self._failover is not None:
+                if not self._failover.try_acquire_leadership():
+                    self._health.report_unhealthy(
+                        "ha_leadership", "standby — another daemon holds the lease"
+                    )
+                    time.sleep(self._standby_poll_seconds)
+                    continue
+                self._failover.renew()
+                self._health.report_healthy("ha_leadership", "leader")
             if (
                 self._broker_reconciliation is not None
                 and not self._broker_reconciliation.can_accept_orders

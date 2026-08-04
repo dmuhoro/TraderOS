@@ -41,6 +41,7 @@ from traderos.domain.services.research_service import ResearchService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_management import StrategyCatalogService
+from traderos.infrastructure.ha_failover import FailoverManager
 from traderos.infrastructure.secrets import SecretRotator
 from traderos.infrastructure.supervision import SupervisionService
 
@@ -84,6 +85,8 @@ class TradingOrchestrator:
     research: ResearchService | None = None
     flatten_service: FlattenService | None = None
     supervision: SupervisionService | None = None
+    failover: FailoverManager | None = None
+    standby_poll_seconds: float = 5.0
 
     def _pre_cycle_check(self) -> None:
         if self.preflight_service is not None:
@@ -140,6 +143,8 @@ class TradingOrchestrator:
             kill_switch=self.risk_service.kill_switch,
             pre_cycle_hook=self._pre_cycle_check,
             supervision=self.supervision,
+            failover=self.failover,
+            standby_poll_seconds=self.standby_poll_seconds,
         )
 
     @property

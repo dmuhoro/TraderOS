@@ -317,3 +317,52 @@ class TestSoakDisconnectDrill:
         finally:
             _unregister()
         conn.close()
+
+    def test_partial_fill_reconnect_drill_passes(self) -> None:
+        """The committed G-02 drill must stay green — partial fills + forced
+        reconnect reconciled cleanly through the real submission path is the
+        standing proof of the exit test."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "evidence"
+            / "run_partial_fill_reconnect.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout
+        assert "position book == broker after partial:   True" in proc.stdout
+        assert "reconcile clean:                        True" in proc.stdout
+
+    def test_real_paper_soak_harness_fails_closed_without_keys(self) -> None:
+        """The operator soak harness must never fabricate broker truth: without
+        real Alpaca paper keys it refuses to run (NO-GO), so an unattended soak
+        result cannot be faked."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[1] / "scripts" / "evidence" / "run_real_paper_soak.py"
+        )
+        env = {"PATH": "/usr/bin:/bin", "HOME": "/tmp", "PYTHONPATH": "src"}
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+            env=env,
+        )
+        assert proc.returncode == 2, proc.stdout + proc.stderr
+        assert "VERDICT: NO-GO (credentials absent)" in proc.stdout

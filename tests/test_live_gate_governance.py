@@ -1,9 +1,12 @@
-"""G-07 governance: release signing round-trip + fail-closed live gate."""
+"""G-07 governance: release signing round-trip, operator acknowledgment, and
+the fail-closed live gate."""
 
 from __future__ import annotations
 
 import pytest
 
+from scripts.governance.operator_ack import ack as operator_ack
+from scripts.governance.operator_ack import verify as verify_ack
 from scripts.governance.sign_release import sign
 from scripts.governance.sign_release import verify
 
@@ -46,6 +49,37 @@ class TestReleaseSigning:
             verify(artifact, "RELEASE_SIGNING_KEY")
 
 
+class TestOperatorAck:
+    def test_ack_then_verify_roundtrip(self, artifact, monkeypatch) -> None:
+        monkeypatch.setenv("RELEASE_SIGNING_KEY", "a-real-drill-key")
+        monkeypatch.setenv("OPERATOR_NAME", "Jane On-Call")
+        monkeypatch.setenv("OPERATOR_ROLE", "on-call")
+        monkeypatch.setenv("OPERATOR_ACK_DIR", str(artifact.parent / "acks"))
+        assert operator_ack(artifact) == 0
+        assert verify_ack(artifact) == 0
+
+    def test_verify_fails_closed_without_ack(self, artifact, monkeypatch) -> None:
+        monkeypatch.setenv("RELEASE_SIGNING_KEY", "a-real-drill-key")
+        monkeypatch.setenv("OPERATOR_ACK_DIR", str(artifact.parent / "acks"))
+        assert verify_ack(artifact) == 1
+
+    def test_verify_rejects_tampered_policy(self, artifact, monkeypatch) -> None:
+        monkeypatch.setenv("RELEASE_SIGNING_KEY", "a-real-drill-key")
+        monkeypatch.setenv("OPERATOR_NAME", "Jane On-Call")
+        monkeypatch.setenv("OPERATOR_ROLE", "on-call")
+        monkeypatch.setenv("OPERATOR_ACK_DIR", str(artifact.parent / "acks"))
+        operator_ack(artifact)
+        artifact.write_bytes(b"tampered policy text")
+        assert verify_ack(artifact) == 1
+
+    def test_ack_requires_operator_identity(self, artifact, monkeypatch) -> None:
+        monkeypatch.setenv("RELEASE_SIGNING_KEY", "a-real-drill-key")
+        monkeypatch.setenv("OPERATOR_ACK_DIR", str(artifact.parent / "acks"))
+        monkeypatch.delenv("OPERATOR_NAME", raising=False)
+        monkeypatch.delenv("OPERATOR_ROLE", raising=False)
+        assert operator_ack(artifact) == 1
+
+
 class TestLiveGate:
     def test_paper_mode_is_not_blocked(self, monkeypatch) -> None:
         monkeypatch.setenv("TRADING_MODE", "paper")
@@ -71,10 +105,14 @@ class TestLiveGate:
         monkeypatch.setenv("GO_CONDITIONS_MET", "true")
         monkeypatch.setenv("RELEASE_SIGNING_KEY", "drill-key")
         monkeypatch.setenv("RELEASE_SIG_DIR", str(tmp_path / "sigs"))
+        monkeypatch.setenv("OPERATOR_ACK_DIR", str(tmp_path / "acks"))
+        monkeypatch.setenv("OPERATOR_NAME", "Jane On-Call")
+        monkeypatch.setenv("OPERATOR_ROLE", "on-call")
 
         artifact = tmp_path / "policy.md"
         artifact.write_text("# Live Run Policy\n")
         sign(artifact, "RELEASE_SIGNING_KEY")
+        operator_ack(artifact)
 
         from scripts.governance.live_gate import main as gate
 
@@ -115,3 +153,46 @@ class TestLiveGate:
         from scripts.governance.live_gate import main as gate
 
         assert gate(["--artifact", str(artifact), "--settings", str(settings)]) == 1
+
+    def test_live_mode_requires_operator_acknowledgment(self, monkeypatch, tmp_path) -> None:
+        """Signed artifact alone must NOT pass: the operator must acknowledge
+        the red-lines in writing, else the gate stays closed."""
+        monkeypatch.setenv("TRADING_MODE", "live")
+        monkeypatch.setenv("ALPACA_API_KEY", "PK" + "LIVEGATEKEY1234567890")
+        monkeypatch.setenv("ALPACA_SECRET_KEY", "livesecretvalue123456")
+        monkeypatch.setenv("LIVE_TRADING_CONFIRMED", "true")
+        monkeypatch.setenv("GO_CONDITIONS_MET", "true")
+        monkeypatch.setenv("RELEASE_SIGNING_KEY", "drill-key")
+        monkeypatch.setenv("RELEASE_SIG_DIR", str(tmp_path / "sigs"))
+        monkeypatch.setenv("OPERATOR_ACK_DIR", str(tmp_path / "acks"))
+
+        artifact = tmp_path / "policy.md"
+        artifact.write_text("# Live Run Policy\n")
+        sign(artifact, "RELEASE_SIGNING_KEY")
+
+        from scripts.governance.live_gate import main as gate
+
+        assert gate(["--artifact", str(artifact)]) == 1
+
+
+class TestGovernanceDrill:
+    def test_governance_drill_passes(self) -> None:
+        """The committed G-07 drill must stay green — signing + operator ack +
+        fail-closed live gate enforced in one reproducible run."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[1] / "scripts" / "evidence" / "run_governance_drill.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout
+        assert "live_gate_fails_closed_without_go" in proc.stdout

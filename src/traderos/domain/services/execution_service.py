@@ -54,6 +54,7 @@ class ExecutionService:
     slippage_bps: float = 5.0
     fee_bps: float = 0.0
     min_fee: float = 0.0
+    latency_bps: float = 0.0
 
     def create_market_order(
         self,
@@ -108,9 +109,10 @@ class ExecutionService:
         Direction matters — crediting slippage to a seller is the kind of
         false optimism a cost-adjusted backtest must not contain.
         """
-        if self.slippage_bps == 0:
+        if self.slippage_bps == 0 and self.latency_bps == 0:
             return price
-        factor = 1 + self.slippage_bps / 10000
+        total_bps = self.slippage_bps + self.latency_bps
+        factor = 1 + total_bps / 10000
         return price * factor if side == "buy" else price * (2 - factor)
 
     def apply_fee(self, notional: float) -> float:

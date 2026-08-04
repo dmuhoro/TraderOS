@@ -93,3 +93,62 @@ class TestSecretHygiene:
         ), "cache holds the value"
         assert rotator.rotate("ALPACA_API_KEY") is True
         assert rotator.stats["versions"]["ALPACA_API_KEY"] == 2
+
+    def test_secret_access_and_rotation_are_audited_values_redacted(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        from traderos.infrastructure.database.migration_manager import migrate
+
+        migrate(conn)
+        audit = SQLiteAuditService(conn)
+        metrics = SQLiteMetricsService(conn)
+        secret_value = "PK" + "SUPERSECRETVALUE987654321"
+        monkeypatch = pytest.MonkeyPatch()
+        try:
+            monkeypatch.setenv("ALPACA_API_KEY", secret_value)
+            rotator = SecretRotator(audit=audit, metrics=metrics)
+            rotator.add_provider(EnvSecretProvider())
+            assert rotator.get("ALPACA_API_KEY") == secret_value
+            assert rotator.get("ALPACA_API_KEY") == secret_value  # cached read
+            assert rotator.rotate("ALPACA_API_KEY") is True
+        finally:
+            monkeypatch.undo()
+
+        actions = [e.action for e in audit.get_entries()]
+        assert actions.count("secret.accessed") == 2
+        assert actions.count("secret.rotated") == 1
+        for entry in audit.get_entries():
+            assert secret_value not in entry.detail, "secret values never hit the audit trail"
+        accessed = [e for e in audit.get_entries() if e.action == "secret.accessed"]
+        details = {e.detail for e in accessed}
+        assert details == {
+            '{"source": "read.provider", "version": 1, "value_redacted": true}',
+            '{"source": "read.cached", "version": 1, "value_redacted": true}',
+        }
+        assert metrics.get_counter("secret.accessed.read.provider") == 1.0
+        assert metrics.get_counter("secret.accessed.read.cached") == 1.0
+        assert metrics.get_counter("secret.rotated") == 1.0
+        conn.close()
+
+    def test_secret_rotation_audit_trail_chain_is_verifiable(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        from traderos.infrastructure.database.migration_manager import migrate
+
+        migrate(conn)
+        audit = SQLiteAuditService(conn)
+        metrics = SQLiteMetricsService(conn)
+        monkeypatch = pytest.MonkeyPatch()
+        try:
+            monkeypatch.setenv("ALPACA_API_KEY", "PK" + "VERIFIEDKEY987654321")
+            rotator = SecretRotator(audit=audit, metrics=metrics)
+            rotator.add_provider(EnvSecretProvider())
+            for _ in range(3):
+                assert rotator.get("ALPACA_API_KEY") is not None
+                assert rotator.rotate("ALPACA_API_KEY") is True
+        finally:
+            monkeypatch.undo()
+
+        assert audit.verify_chain() is True
+        assert len(audit.get_entries()) >= 6
+        conn.close()
