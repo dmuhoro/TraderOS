@@ -12,7 +12,8 @@ defaults + two proof tests + evidence + governance. No UI, no backtest engine,
 no HA, no new risk features.
 
 **Reference docs:** `docs/evidence/2026-08-02_sprint24_risk_gate_submission_boundary.log`,
-`docs/engineering/NEXT_STEPS_TO_COMPLETION.md`.
+`docs/engineering/NEXT_STEPS_TO_COMPLETION.md`,
+`docs/engineering/GAP_READINESS.md` (scored readiness register + GO/NO-GO gate).
 
 ---
 
