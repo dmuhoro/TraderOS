@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import Mock
 
 from traderos.application.cycle_executor import CycleExecutor
@@ -291,3 +292,22 @@ class TestPortfolioRiskRails:
         finally:
             _unregister("risk_rails_always_signal")
         conn.close()
+
+    def test_risk_rails_drill_evidence_passes(self) -> None:
+        """The committed drill must stay green, or the rails' fail-closed
+        guarantee has no standing proof."""
+        import subprocess
+        import sys
+
+        script = (
+            Path(__file__).resolve().parents[1] / "scripts" / "evidence" / "run_risk_rails_drill.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout

@@ -85,3 +85,26 @@ class TestBacktestOracle:
         strat = registry.get("moving_average_trend")()
         result, _ = _cost_adjusted().run(strat, perturbed, MARKET_ID)
         assert abs(result.metrics.total_return - REFERENCE_FULL_RETURN) > 0.01
+
+    def test_oracle_conformance_drill_passes(self) -> None:
+        """The committed G-06 conformance drill must stay green — the engine's
+        reference-PnL lock has no standing proof without it."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "evidence"
+            / "run_oracle_conformance.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout

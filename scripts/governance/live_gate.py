@@ -113,6 +113,14 @@ def main(argv: list[str]) -> int:
         "artifact not signed or invalid",
     )
 
+    from scripts.governance.operator_ack import verify as verify_ack
+
+    check(
+        "operator acknowledgment of red-lines",
+        verify_ack(args.artifact) == 0,
+        "no valid operator acknowledgment for the policy",
+    )
+
     check(
         "GO declared by documented review",
         os.environ.get("GO_CONDITIONS_MET", "").lower() == "true",

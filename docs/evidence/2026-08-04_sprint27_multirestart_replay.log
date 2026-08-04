@@ -1,0 +1,24 @@
+MULTI-RESTART REPLAY — G-05 causal accountability across restarts
+started 2026-08-04T21:41:40.703778+00:00
+DB: /tmp/tmpogr3veci.db
+
+RESTART #1 simulated at 10:15 (fresh process, same DB)
+RESTART #2 simulated at 11:00 (fresh process, same DB)
+
+[2026-08-04T21:41:40.722637+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=16.0 @ 100.0 pnl=open
+[2026-08-04T21:41:40.728325+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=15.68627451 @ 102.0 pnl=open
+[2026-08-04T21:41:40.733723+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=15.38461538 @ 104.0 pnl=open
+[2026-08-04T21:41:40.741594+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=15.09433962 @ 106.0 pnl=open
+[2026-08-04T21:41:40.747495+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill sell qty=15.38461538 @ 104.0 pnl=61.5385
+[2026-08-04T21:41:40.752135+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=14.81481481 @ 108.0 pnl=open
+[2026-08-04T21:41:40.758224+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill sell qty=15.09433962 @ 106.0 pnl=61.6081
+[2026-08-04T21:41:40.764553+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=14.54545455 @ 110.0 pnl=open
+[2026-08-04T21:41:40.770210+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=14.28571429 @ 112.0 pnl=open
+
+SUMMARY: cycles=9 restarts=2 chains_recorded=9 fills_replayed=9 blocked=0 unfilled=0 total_realized_pnl=123.15
+  audit chain valid after restarts: True
+  every cycle reconstructed (chain complete): True
+  replay matches recorded events: True
+
+VERDICT: PASS — full day replayed bit-complete after 2 simulated restarts
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-04_sprint27_multirestart_replay.log

@@ -87,6 +87,28 @@ class TestLatency:
         result, _ = svc.run(_AlwaysBuy(), candles, uuid.uuid4())
         assert result.metrics.total_trades == 3, "final-bar signal is dropped, not filled"
 
+    def test_latency_widens_buy_fill_price(self) -> None:
+        svc = ExecutionService(slippage_bps=5, latency_bps=5)
+        order = svc.create_market_order(uuid.uuid4(), "buy", 10.0)
+        result = svc.process_market_order(order, 100.0)
+        assert result.fill_price == 100.0 * (1 + 10 / 10000)
+
+    def test_latency_lowers_sell_fill_price(self) -> None:
+        svc = ExecutionService(slippage_bps=5, latency_bps=5)
+        order = svc.create_market_order(uuid.uuid4(), "sell", 10.0)
+        result = svc.process_market_order(order, 100.0)
+        assert result.fill_price == 100.0 * (1 - 10 / 10000)
+
+    def test_latency_makes_backtest_more_conservative(self) -> None:
+        candles = _candles(40, 100.0)
+        no_latency = BacktestingService(execution=ExecutionService(slippage_bps=5, fee_bps=10))
+        latency = BacktestingService(
+            execution=ExecutionService(slippage_bps=5, fee_bps=10, latency_bps=10)
+        )
+        r1, _ = no_latency.run(_AlwaysBuy(), candles, uuid.uuid4())
+        r2, _ = latency.run(_AlwaysBuy(), candles, uuid.uuid4())
+        assert r1.metrics.total_return > r2.metrics.total_return
+
 
 class TestWalkForward:
     def test_walk_forward_splits_folds(self) -> None:
@@ -100,3 +122,30 @@ class TestWalkForward:
         svc = BacktestingService(execution=ExecutionService())
         with __import__("pytest").raises(ValueError):
             svc.walk_forward(_AlwaysBuy(), _candles(5, 100.0), uuid.uuid4(), n_splits=5)
+
+
+class TestWalkForwardEvidenceDrill:
+    def test_walk_forward_evidence_drill_passes(self) -> None:
+        """The committed G-01 evidence drill must stay green — a reproducible
+        record that the cost-adjusted engine ran over a withheld out-of-sample
+        window with full costs (slippage + fee + latency)."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "evidence"
+            / "run_walk_forward_evidence.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout
+        assert "latency" in proc.stdout

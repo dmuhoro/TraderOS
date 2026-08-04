@@ -1,0 +1,7 @@
+ORACLE CONFORMANCE — G-06 frozen reference PnL lock
+started 2026-08-04T21:41:17.293918+00:00
+[PASS] full_frozen_dataset: trades=55 (want 55), return=-0.094886 (want -0.094886)
+[PASS] withheld_window: trades=18 (want 18), return=-0.028102 (want -0.028102)
+
+VERDICT: PASS — engine reproduces committed reference PnL on 2/2 conformance cases (tolerance 0.0001)
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-04_sprint27_oracle_conformance.log

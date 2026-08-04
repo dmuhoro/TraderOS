@@ -323,3 +323,28 @@ class TestReplayService:
         realized = ReplayService._fifo_realized_pnl([entry, exit1, exit2])
         assert realized[str(exit1.id)] == pytest.approx(4.0 * (60.0 - 50.0))
         assert realized[str(exit2.id)] == pytest.approx(6.0 * (70.0 - 50.0))
+
+    def test_multirestart_replay_drill_passes(self) -> None:
+        """The committed G-05 drill must stay green — causal replay across
+        simulated restarts is the standing proof of the exit test."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "evidence"
+            / "run_multirestart_replay.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout
+        assert "every cycle reconstructed (chain complete): True" in proc.stdout
+        assert "audit chain valid after restarts: True" in proc.stdout

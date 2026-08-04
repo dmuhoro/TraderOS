@@ -1,0 +1,23 @@
+WALK-FORWARD EVIDENCE — G-01 cost-adjusted, out-of-sample
+started 2026-08-04T21:41:18.655227+00:00
+engine: next-bar fills, side-aware slippage 5bps, fee 10bps, latency 10bps
+dataset: frozen G-06 oracle candles (reproducible on any machine)
+  full series: 120 candles
+  withheld out-of-sample window: 42 candles (2025-01-04 -> 2025-01-05)
+
+=== strategy: moving_average_trend ===
+  walk-forward on withheld OOS (5 folds, full costs incl. latency): mean_fold_return=0.0000 positive_folds=0/5 mean_sharpe=0.0000 mean_max_dd=0.0000 folds=[0.0, 0.0, 0.0, 0.0, 0.0]
+  EDGE PROVEN (all folds positive after costs): NO
+
+=== strategy: volatility_breakout ===
+  walk-forward on withheld OOS (5 folds, full costs incl. latency): mean_fold_return=0.0009 positive_folds=3/5 mean_sharpe=3.5937 mean_max_dd=0.0004 folds=[0.0, 0.0, 0.0001, 0.0031, 0.0015]
+  EDGE PROVEN (all folds positive after costs): NO
+
+=== strategy: mean_reversion ===
+  walk-forward on withheld OOS (5 folds, full costs incl. latency): mean_fold_return=0.0001 positive_folds=3/5 mean_sharpe=4.8580 mean_max_dd=0.0000 folds=[0.0, 0.0, 0.0, 0.0002, 0.0004]
+  EDGE PROVEN (all folds positive after costs): NO
+
+G-01 EXIT TEST (positive expectancy after full costs on OOS data):
+  No strategy shows positive expectancy after full costs on the out-of-sample window. Honest outcome: PILOT = DATA-VALIDATION ONLY, no PnL claim (per LIVE_RUN_POLICY.md).
+VERDICT: PASS — cost-adjusted walk-forward evidence recorded
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-04_sprint27_walk_forward_evidence.log

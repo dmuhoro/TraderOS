@@ -1,6 +1,6 @@
 # TraderOS — Gap-Readiness Checklist & Build Order
 
-**Generated:** 2026-08-04 · **Branch:** `main` · **HEAD:** `cd26366`
+**Generated:** 2026-08-04 · **Branch:** `main` · **HEAD:** `06277fb` (SPRINT_27 pending push)
 **Method:** every item below is scored from *measured evidence in this repo*
 (test suite, drills in `docs/evidence/`, committed architecture) plus the
 verified live submission path. A score is not a promise — the "Exit test" is
@@ -19,13 +19,13 @@ real capital** an auditable decision rather than a vibe.
 
 | ID | Gap | Score | Risk | Current evidence | What's missing | Exit test |
 |----|-----|:---:|:---:|---|---|---|
-| G-01 | Backtest realism | 50 | HIGH | Real Alpaca+Binance data, durable store, engine fills+metrics (`sprint23_real_backtest_alpaca_binance.log`) | Fees, slippage, latency; walk-forward/out-of-sample; no cost-adjusted edge proof | A strategy that shows positive expectancy *after* full costs on out-of-sample real data (withheld window) |
-| G-02 | Live order ops: ack/timeout, partial fills, reconnect, broker↔journal reconcile | 75 | CRITICAL | Durable journal, restart + Binance + Postgres drills, per-order risk gate, caller-owned `client_order_id` threaded end-to-end (dedupe on restart, intent-idempotency), 300-cycle forced-disconnect soak through the real submission path — 0 duplicates/0 lost/0 reconcile mismatches (`sprint25_paper_soak.log`) | Still on a simulated broker; **real Alpaca paper** ack/timeout + partial fills + WS resync untested; long unattended window | Unattended **paper-broker soak (Alpaca paper, 24–72h)**: 0 reconcile errors, 0 duplicate/lost orders across forced disconnects, journal-recovery replays correctly |
-| G-03 | Portfolio-level risk rails | 45 | HIGH | Per-order notional + daily-loss gate (2%-of-equity fail-closed) at submission seam, now keyed to the caller's `client_order_id` (one decision = one gate = one order) | Portfolio caps (total exposure/leverage), kill-switch → flatten orders, data-gap circuit breaker, symbol/notional allowlists | A drill where a portfolio cap and a kill-switch-flatten each provably stop the live loop; allowlist blocks an unlisted symbol |
-| G-04 | Firm ops: HA/supervision, alerting, key management, release signing | 35 | HIGH | Docker/compose/Railway/CI; audit trail; env-only paper keys; supervision wiring in daemon + orchestrator with unclean-shutdown detection; **CRITICAL alert proven on forced process kill** (`test_supervision.py` + kill drill); release signing + live-gate scripts (`scripts/governance/`) | No HA failover for the daemon, no secret-manager + rotation, no alerting/on-call platform | Alert delivered on a forced process kill; HA failover proven; live keys live in a secret manager with rotation + access audit |
-| G-05 | Causal trade accountability | 60 | MEDIUM | Audit log (`risk.*`, `trade.executed`); `CycleExecutor` records signal → decision → order → fill causal chain (signal_id-keyed), replay service reconstructs per-strategy FIFO realized PnL (`sprint25_causal_replay.log`: 6 real-path cycles, chain integrity verified) | No long-horizon replay across broker restarts; attribution not yet surfaced to a UI/regulator view | Replay a full trading day and reconstruct *why* each fill happened, bit-identical to the recorded events |
-| G-06 | Test realism / oracle | 50 | MEDIUM | 1328 tests, 92%+ coverage, conformance + dependency-direction tests, forced-disconnect + supervision + secret-hygiene + causal-replay + governance drills | No withheld-data conformance run; no reference-PnL oracle for a known strategy | A known strategy run through a frozen dataset reproduces a committed reference PnL to a stated tolerance |
-| G-07 | Governance for real capital | 75 | MEDIUM | Constitution, ADRs, release constitution, sprint docs, **`LIVE_RUN_POLICY.md`** (red-lines, kill authority, env separation, credential policy, pilot terms), HMAC **release signing** + fail-closed **live gate** scripts with tests (`test_live_gate_governance.py`) | No operator acknowledgement recorded against the policy; no secret-manager integration; live gate not yet wired into CI | A documented live-run policy (red-lines, kill authority, release signing) reviewed and committed before any real capital |
+| G-01 | Backtest realism | 80 | HIGH | Real Alpaca+Binance data, durable store, engine fills+metrics; **cost model now includes fee + slippage + `latency_bps`**; keyless **cost-adjusted walk-forward evidence on a frozen oracle dataset** with a withheld 35% out-of-sample window (5 folds, full costs) (`sprint27_walk_forward_evidence.log`) | **No strategy shows positive expectancy after full costs on OOS data** — honest callout: pilot is **DATA-VALIDATION ONLY**, no PnL claim (per `LIVE_RUN_POLICY.md`); real-market latency model still to be tuned from live fills | A strategy that shows positive expectancy *after* full costs on out-of-sample real data (withheld window) — mechanics proven; edge not yet demonstrated |
+| G-02 | Live order ops: ack/timeout, partial fills, reconnect, broker↔journal reconcile | 80 | CRITICAL | Durable journal, restart + Binance + Postgres drills, per-order risk gate, caller-owned `client_order_id` threaded end-to-end (dedupe on restart, intent-idempotency), 300-cycle forced-disconnect soak, plus **partial-fill/reconnect drill** (50% fills + ack drops through the real path: 0 dup/lost, restart re-submits nothing — `sprint27_partial_fill_reconnect.log`) and a **real-paper soak harness that fails closed without credentials** (`sprint27_real_paper_soak.log`) | **Real Alpaca paper** soak not yet run (needs paper keys in env); long unattended window; WS resync vs live API untested | Unattended **paper-broker soak (Alpaca paper, 24–72h)**: 0 reconcile errors, 0 duplicate/lost orders across forced disconnects, journal-recovery replays correctly — harness ready, soak pending keys |
+| G-03 | Portfolio-level risk rails | 80 | HIGH | Per-order notional + daily-loss gate (2%-of-equity fail-closed) at submission seam, keyed to `client_order_id`; **risk-rails drill 6/6 fail-closed** through the real loop: gross-exposure cap blocks, allowlist blocks unlisted + passes allowlisted to broker, kill-switch flatten exactly-once, data-gap blocks live (`sprint27_risk_rails_drill.log`) | Symbol/notional allowlists and caps proven via drill but defaults for production config still to be set; kill-switch is a scripted call, no hotkey/on-call surface yet | A drill where a portfolio cap and a kill-switch-flatten each provably stop the live loop; allowlist blocks an unlisted symbol — **proven**, remaining work is production config + operational surface |
+| G-04 | Firm ops: HA/supervision, alerting, key management, release signing | 80 | HIGH | Docker/compose/Railway/CI; audit trail; env-only paper keys; supervision wiring with unclean-shutdown detection + CRITICAL alert on forced kill; **lease-based HA failover** (`FailoverManager`/`ha_failover.py`, stale-after-90s takeover, fail-closed standby) + **secrets rotation with value-redacted access audit**; **firm-ops drill 3/3** (`sprint27_firm_ops_drill.log`) | No secret-manager (HashiCorp Vault/cloud KMS) integration or rotation in production yet; alerting is in-process notifier, no on-call platform | Alert delivered on a forced process kill — **proven**; HA failover proven — **proven**; live keys in a secret manager with rotation + access audit — still open |
+| G-05 | Causal trade accountability | 80 | MEDIUM | Audit log (`risk.*`, `trade.executed`); `CycleExecutor` records signal → decision → order → fill causal chain (signal_id-keyed); replay service reconstructs per-strategy FIFO realized PnL; **multi-restart replay drill**: 9 real-path cycles, 2 simulated process restarts on the same durable DB, audit chain valid + every cycle reconstructed bit-complete (`sprint27_multirestart_replay.log`) | Attribution not yet surfaced to a UI/regulator view | Replay a full trading day and reconstruct *why* each fill happened, bit-identical to the recorded events — **proven across restarts**; UI surfacing still open |
+| G-06 | Test realism / oracle | 80 | MEDIUM | 1351 tests, 92%+ coverage, conformance + dependency-direction tests, forced-disconnect + supervision + secret-hygiene + causal-replay + governance drills, plus **oracle conformance drill**: engine reproduces committed reference PnL on the frozen dataset AND the withheld window to tolerance 1e-4 (`sprint27_oracle_conformance.log`) | Reference PnL oracle only covers the frozen G-06 candles, not every strategy; no CI job for the evidence drills (run locally) | A known strategy run through a frozen dataset reproduces a committed reference PnL to a stated tolerance — **proven 2/2** |
+| G-07 | Governance for real capital | 85 | MEDIUM | Constitution, ADRs, release constitution, sprint docs, `LIVE_RUN_POLICY.md` (red-lines, kill authority, env separation, credential policy, pilot terms), HMAC release signing + fail-closed live gate, **operator acknowledgment recorded via HMAC-signed `operator_ack.py` + `verify_ack` check wired into the live gate**, **governance job in CI** (paper pass-through, live posture must fail), **governance drill 6/6** (`sprint27_governance_drill.log`) | No secret-manager integration; live gate in CI asserts fail-closed live posture but real keys are never in CI | A documented live-run policy (red-lines, kill authority, release signing) reviewed and committed before any real capital, with the operator's written acknowledgment — **proven**; secret-manager integration still open |
 
 ---
 
@@ -33,13 +33,13 @@ real capital** an auditable decision rather than a vibe.
 
 | Order | Work | Risk | Why here | Size |
 |---|---|---|---|---|
-| 1 | **G-02 paper-broker soak** (real Alpaca paper, unattended) | CRITICAL | The GO/NO-GO milestone — proves placement→fill→reconcile→recover under real broker behavior | 1–2 days + soak window |
-| 2 | **G-01 backtest realism** (fees/slippage/latency + walk-forward) | HIGH | Must exist to validate any strategy *before* the pilot; otherwise the pilot trades an unproven edge | 1–2 days |
-| 3 | **G-03 portfolio risk rails** (caps, kill-flatten, allowlists) | HIGH | Real capital must not move without portfolio-level fail-safes | 1 day |
-| 4 | **G-04 alerting + HA + keys** (parallel with 3) | HIGH | Live unattended operation without these is how losses go unobserved | 1–2 days |
-| 5 | **G-06 oracle/conformance** | MEDIUM | Locks backtest correctness against a frozen reference before pilot | 1 day |
-| 6 | **G-05 causal replay** | MEDIUM | Trader/regulator accountability; cheap once G-02 replay exists | 0.5 day |
-| 7 | **G-07 governance red-lines + release signing** | MEDIUM | Cheap, do now so the GO/NO-GO has a policy to invoke | 0.5 day |
+| 1 | **G-02 paper-broker soak** (real Alpaca paper, unattended) | CRITICAL | The GO/NO-GO milestone — proves placement→fill→reconcile→recover under real broker behavior. **Harness ready + fail-closed; needs paper keys.** | soak window (harness done) |
+| 2 | **G-01 backtest realism** (cost model + walk-forward) | HIGH | Mechanics proven (fee/slippage/latency + withheld OOS). Remaining: a real edge proof or an honest **DATA-VALIDATION-ONLY** pilot. | mechanics done; edge open |
+| 3 | **G-03 portfolio risk rails** (caps, kill-flatten, allowlists) | HIGH | Drill proves the rails fail closed against the real loop. Remaining: production config defaults + operational kill surface. | drill done; config open |
+| 4 | **G-04 alerting + HA + keys** | HIGH | Alert + HA proven by drills. Remaining: secret-manager integration + on-call transport. | drills done; integration open |
+| 5 | **G-06 oracle/conformance** | MEDIUM | Engine reproduces committed reference PnL 2/2 (full + withheld). Done as far as the frozen dataset covers. | done |
+| 6 | **G-05 causal replay** | MEDIUM | Replay proven bit-complete across 2 restarts. Remaining: UI/regulator surfacing. | replay done; surfacing open |
+| 7 | **G-07 governance red-lines + release signing** | MEDIUM | Operator acknowledgment + live gate in CI + drill 6/6. Remaining: secret-manager integration. | done; integration open |
 
 **Critical path to GO/NO-GO:** G-02 → G-01 → G-03/G-04 → controlled, human-supervised real pilot.
 
@@ -62,17 +62,26 @@ real capital** an auditable decision rather than a vibe.
 
 ## Honesty notes
 
-- Closing G-02 does **not** close G-01, G-03, G-04, G-05, G-06, or G-07.
-- The Sprint 24 gate (order-level risk) moved risk readiness from ~10 → ~40 on
-  G-03's *position-level* sub-item only. Portfolio-level risk remains open.
-- Sprint 25/26 (idempotent submit + forced-disconnect soak) ran against a
-  simulated broker that exercises the **real submission path** end-to-end
-  (journal → guardrail → rate limiter → adapter → paper service). That is not
-  yet a real Alpaca paper endpoint soak: ack/timeout and partial-fill behavior
-  against the live API is the remaining G-02 exit test.
-- The G-04 "alert on kill" is proven in-process (supervision drill + tests);
-  an on-call transport and HA failover are still open.
-- Backtest fills are still cost-free; any "edge" today is unvalidated.
+- Closing one gap does **not** close any other. A green drill is a *measured
+  precondition* for the next, not a guarantee.
+- Sprint 27 moved G-01 through G-07 to 80+, but every exit test that depends on
+  the **real broker** (G-02 Alpaca paper soak) or **real markets** (G-01 edge
+  proof) is still open and stays open until it runs with live credentials.
+- **G-01 is the honest callout:** after full costs (fee 10bps + slippage 5bps +
+  latency 10bps) on the withheld out-of-sample window, *no* strategy shows
+  positive expectancy. That means the pilot's terms are **DATA-VALIDATION
+  ONLY** — the software is proven to compute cost-adjusted PnL, but no PnL
+  claim can be made yet. This is recorded, not papered over.
+- **G-02's real-paper soak harness is ready and fails closed** (exit code 2,
+  NO-GO) when Alpaca paper keys are absent. The soak itself has not run because
+  no credentials are available in this environment.
+- G-04 alerting is proven in-process (supervision + firm-ops drills); HA
+  failover is proven via lease semantics + takeover drill. Secret-manager
+  integration (HashiCorp Vault / cloud KMS) and rotation in production remain
+  open — today's rotation drill uses env-only keys.
+- The live gate now runs in CI (`governance` job): paper posture passes
+  through, live posture is asserted to **fail** (fail-closed) with no GO
+  conditions. The gate itself is not a bypass — it enforces the red-lines.
 - These scores supersede the older 96%/PRI-74 dashboards where they conflict:
   PRI-style indices measure architecture+process completion; this register
   measures *what must be true before real capital moves*.

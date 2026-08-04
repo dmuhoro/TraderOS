@@ -64,7 +64,7 @@ def main() -> int:
             continue
         no_cost = BacktestingService(execution=ExecutionService(slippage_bps=0, fee_bps=0))
         costed = BacktestingService(
-            execution=ExecutionService(slippage_bps=5, fee_bps=10, min_fee=0.0)
+            execution=ExecutionService(slippage_bps=5, fee_bps=10, min_fee=0.0, latency_bps=10)
         )
         r0, _ = no_cost.run(strat_cls(), candles, candles[0].market_id)
         r1, _ = costed.run(strat_cls(), candles, candles[0].market_id)
