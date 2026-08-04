@@ -1,0 +1,39 @@
+=== Sprint 25 idempotent-submit drill host=2026-08-04 ===
+
+--- 1. Fix target: innermost live submission boundary (retry dup hazard) ---
+Live chain: CycleExecutor -> JournaledBroker -> GuardrailedBroker ->
+RateLimitedBroker -> AlpacaBrokerAdapter.submit_order (application/factory.py:182-223).
+Adversary: adapter-internal retry_with_backoff(max_retries=2) re-submits after a
+dropped response/timeout. If the broker accepted attempt #1 server-side, attempt
+#2 creates a DUPLICATE order unless a stable client_order_id is reused.
+
+--- 2. Changes (src/traderos/infrastructure/alpaca_broker.py) ---
+- _new_client_order_id() helper (uuid4), generated once BEFORE the first submit
+  attempt of a logical order and reused verbatim on every retry.
+- client_order_id wired into: place_market_order (line 104), place_limit_order
+  (146), place_stop_order (190), place_trailing_stop_order (234) request
+  objects, inside their _submit closures (retry boundary at lines 108/150/194/238).
+- Optional client= injection seam added to __init__ for tests.
+- EXCLUDED: modify_order (replace_order_by_id, line ~260) - alpaca-py
+  ReplaceOrderRequest has no client_order_id field; not applicable.
+
+--- 3. Proof: real CycleExecutor -> real AlpacaBrokerAdapter -> fake Alpaca client ---
+Fake server semantics: FIRST submit of a new client_order_id records the order
+server-side, then drops the response (TimeoutError). Retry with the SAME
+client_order_id returns the existing order (no duplicate).
+
+  >>> TEST 1: timeout-after-record creates EXACTLY ONE order
+      attempts=2, server-side orders=1, retry reused same client_order_id
+tests/test_alpaca_idempotent_submit.py::TestIdempotentSubmitAtAlpacaBoundary::test_timeout_after_record_creates_exactly_one_order PASSED
+
+  >>> TEST 2 (negative control): distinct orders get distinct client_order_ids
+tests/test_alpaca_idempotent_submit.py::TestIdempotentSubmitAtAlpacaBoundary::test_different_orders_get_different_client_order_ids PASSED
+
+--- 4. Full suite ---
+================ 1284 passed, 1 skipped, 101 warnings in 52.79s ================
+Coverage 92.55%; black/isort/ruff clean; pyright 0 errors.
+
+--- 5. Honest scope ---
+Closes one G-02 slice: no duplicate orders under adapter-internal retry.
+NOT covered: network-level broker outage soak, WS reconnect, lost-order
+reconciliation beyond the journal layer, kill-switch/portfolio-cap live drill.

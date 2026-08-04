@@ -9,6 +9,18 @@ from traderos.domain.exceptions import InfrastructureError
 from traderos.domain.exceptions import ServiceError
 from traderos.infrastructure.retry import retry_with_backoff
 
+
+def _new_client_order_id() -> str:
+    """Stable idempotency key for one logical order intent.
+
+    Generated once *before* the first submit attempt and reused verbatim on
+    every retry, so a dropped response/timeout after the broker accepted the
+    order can never cause a duplicate order at the broker (Alpaca dedupes by
+    ``client_order_id`` within the day).
+    """
+    return str(uuid.uuid4())
+
+
 _has_alpaca: bool
 try:
     from alpaca.trading.client import TradingClient as _TradingClient
@@ -44,10 +56,11 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         secret_key: str,
         paper: bool = True,
         symbol_map: dict[uuid.UUID, str] | None = None,
+        client: Any | None = None,
     ) -> None:
         if not _has_alpaca or _TradingClient is None:
             raise ImportError("alpaca-py is required. Install with: pip install alpaca-py")
-        self._client: Any = _TradingClient(api_key, secret_key, paper=paper)
+        self._client: Any = client or _TradingClient(api_key, secret_key, paper=paper)
         self._symbol_map: dict[uuid.UUID, str] = symbol_map or {}
 
     def _symbol(self, market_id: uuid.UUID) -> str:
@@ -69,9 +82,11 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         side: str,
         quantity: float,
         close_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
         try:
             symbol = self._symbol(market_id)
+            cid = client_order_id or _new_client_order_id()
 
             def _submit() -> Any:
                 client = self._client
@@ -86,6 +101,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                         qty=quantity,
                         side=self._side(side),
                         time_in_force=self._time_in_force(),
+                        client_order_id=cid,
                     )
                 )
 
@@ -108,11 +124,13 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         quantity: float,
         price: float,
         close_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
         try:
             from alpaca.trading.requests import LimitOrderRequest
 
             symbol = self._symbol(market_id)
+            cid = client_order_id or _new_client_order_id()
 
             def _submit() -> Any:
                 client = self._client
@@ -125,6 +143,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                         side=self._side(side),
                         time_in_force=self._time_in_force(),
                         limit_price=round(price, 2),
+                        client_order_id=cid,
                     )
                 )
 
@@ -147,9 +166,11 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         quantity: float,
         stop_price: float,
         market_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
         try:
             symbol = self._symbol(market_id)
+            cid = client_order_id or _new_client_order_id()
 
             def _submit() -> Any:
                 client = self._client
@@ -166,6 +187,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                         time_in_force=self._time_in_force(),
                         type=_OrderType.STOP,
                         stop_price=round(stop_price, 2),
+                        client_order_id=cid,
                     )
                 )
 
@@ -188,9 +210,11 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         quantity: float,
         trail_percent: float,
         market_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
         try:
             symbol = self._symbol(market_id)
+            cid = client_order_id or _new_client_order_id()
 
             def _submit() -> Any:
                 client = self._client
@@ -207,6 +231,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                         time_in_force=self._time_in_force(),
                         type=_OrderType.TRAILING_STOP,
                         trail_percent=round(trail_percent, 4),
+                        client_order_id=cid,
                     )
                 )
 
