@@ -124,7 +124,11 @@ def build_orchestrator(
         audit = InMemoryAuditService()
         metrics = InMemoryMetricsService()
         run_manifest = InMemoryManifestService()
-    risk_service = RiskService(persistent_kill_switch=persistent_kill_switch, metrics=metrics)
+    risk_service = RiskService(
+        persistent_kill_switch=persistent_kill_switch,
+        metrics=metrics,
+        audit=audit,
+    )
     portfolio_service.risk_service = risk_service
     webhook_notifier = WebhookNotifier()
     notifications = NotificationService(notifier=webhook_notifier)

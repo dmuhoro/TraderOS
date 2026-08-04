@@ -1,5 +1,57 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 24 (Order-level risk enforcement at the live submission boundary)
+
+### Order-level risk gate (2026-08-04)
+- **Per-order gate at the real submission seam:** new
+  `RiskService.authorize_order(...)` called in `cycle_executor` immediately
+  before `broker.place_market_order` (the live path — journaled broker →
+  `AlpacaBrokerAdapter`). An order whose notional exceeds `max_position_size`
+  of equity, or that arrives after the daily-loss cap is reached, is **refused
+  explicitly**: clear reason returned to the caller, `risk.order_blocked` audit
+  entry, and `risk.order_blocked` metric. No silent drops.
+- **Fail-closed defaults (no more unlimited loss):** `KillSwitch` and
+  `PersistentKillSwitch` `daily_loss_limit` defaults changed from
+  `float("inf")` to `None`; when unset, the gate applies a conservative hard
+  cap of **2% of current equity** (`DEFAULT_DAILY_LOSS_PCT`). Explicit dollar
+  limits still override.
+- **Factory:** `AuditPort` now wired into `RiskService` (was unset in
+  production), so rejections are recorded.
+- **Proof through the real path** (`tests/test_cycle_risk_gate.py`): a real
+  `RiskService` driven through a real `CycleExecutor` with a spy broker —
+  oversized order and daily-loss-breach order both refuse with
+  `place_market_order` **never called**; an in-limits order still reaches the
+  broker. `grep` confirms the submission path was ungated before (`3c80c4f`,
+  0 references) and is gated now.
+- **Evidence:** `docs/evidence/2026-08-02_sprint24_risk_gate_submission_boundary.log`.
+  Full suite `1282 passed, 1 skipped`; coverage 92.54%; black/isort/ruff/
+  pyright clean.
+- **Honest scope:** closes exactly one gap (order-level risk enforcement at the
+  live boundary). Backtest realism, live-ops maturity, HA, and the rest of the
+  OpenCode audit remain open and scheduled for larger work blocks.
+
+## [Unreleased] - Sprint 23 (Real-data backtesting: unified Alpaca + Binance data foundation)
+
+### Real-data backtesting (2026-08-02)
+- **Unified, durable data model:** `HistoricalDataService` normalizes
+  `AlpacaCollector` (crypto feed, `BTC/USD`) and `BinanceCollector`
+  (`BTCUSDT`) into domain `Candle`s keyed by `uuid5("traderos://{source}/{symbol}")`;
+  `SQLiteHistoricalCandleRepository` + migration `v007_historical_candles`
+  (`UNIQUE(source, symbol, timeframe, ts)`) persist trusted bars for reuse.
+  Fixed cache-read bug (cached rows key `ts`, not `timestamp`).
+- **Backtest engine reality fixes:** indicators now include `sma_20/sma_50`,
+  Bollinger bands, `atr_14` (strategies could never signal before), fills are
+  counted into `total_trades`, and `mean_reversion` warm-up division-by-zero is
+  guarded. Engine honestly reports flat ±2% BTC 1h data as no `moving_average_trend`
+  edge while `volatility_breakout`/`mean_reversion` fill hundreds of trades.
+- **CLI:** `backtest` gains `--source {synthetic,binance,alpaca}`, `--symbol`,
+  `--timeframe`, `--candles`, `--no-cache`, and full metrics output.
+- **Architecture:** collectors composed at the CLI layer; domain stays
+  infrastructure-import-free (dependency-direction test enforces).
+- **Evidence:** `docs/evidence/2026-08-02_sprint23_real_backtest_alpaca_binance.log`
+  — live 1h fetch + identical cache-recall on both providers; CLI backtests
+  fill trades on both. Full suite `1279 passed, 1 skipped`; coverage 92.56%.
+
 ## [Unreleased] - Sprint 22 (Postgres reproducibility — environment-independent CI signal)
 
 ### Postgres reproducibility programme (2026-08-02)

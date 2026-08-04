@@ -1,0 +1,35 @@
+=== Sprint 24 risk-gate drill host=2026-08-04T04:47:07Z ===
+
+--- 1. Per-order gate wired at the real live submission boundary ---
+268:                        authorization = self._risk_service.authorize_order(
+
+--- 2. authorize_order implementation (RiskService) ---
+20:DEFAULT_DAILY_LOSS_PCT = 0.02
+103:    daily_loss_pct: float = DEFAULT_DAILY_LOSS_PCT
+134:    def authorize_order(
+147:        equity (``daily_loss_pct``), never unlimited.
+155:            daily_limit = equity * self.daily_loss_pct
+177:    def _block_order(self, market_id: uuid.UUID, side: str, reason: str) -> TradeVerdict:
+
+--- 3. Fail-open defaults removed (no unlimited-loss sentinels left) ---
+grep 'float("inf")' in kill-switch daily-loss fields:
+  NONE (fail-open daily-loss default eliminated)
+
+--- 4. BEFORE the fix (git show 3c80c4f): submission path had no risk gate ---
+  authorize_order references: 0
+
+--- 5. Proof tests: order blocked => broker.place_market_order NEVER called ---
+
+  >>> TEST 1: order notional > max_position_size (0.25 * equity) refused
+      notional=100qty*100price=10000 > cap=0.25*10000=2500
+tests/test_cycle_risk_gate.py::TestOrderRiskGateAtSubmissionBoundary::test_order_above_max_position_size_is_refused_broker_never_called PASSED [100%]
+
+  >>> TEST 2: daily loss already breached (fail-closed 2%-of-equity cap) refused
+      realized=-250 > cap=0.02*10000=200
+tests/test_cycle_risk_gate.py::TestOrderRiskGateAtSubmissionBoundary::test_order_after_daily_loss_breached_is_refused_broker_never_called PASSED [100%]
+
+  >>> SANITY: within-limits order still reaches the broker
+tests/test_cycle_risk_gate.py::TestOrderRiskGateAtSubmissionBoundary::test_order_within_limits_reaches_broker PASSED [100%]
+
+--- 6. Full suite ---
+================ 1282 passed, 1 skipped, 100 warnings in 49.25s ================

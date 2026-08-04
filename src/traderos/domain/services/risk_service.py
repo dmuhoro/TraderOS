@@ -14,6 +14,11 @@ from traderos.domain.ports import AuditPort
 from traderos.domain.ports import MetricsPort
 from traderos.domain.services.reconciliation_service import PersistentKillSwitch
 
+# Conservative fail-closed default: when no explicit daily loss dollar limit is
+# configured, an order is refused once realized daily loss reaches this share of
+# equity. Never unlimited.
+DEFAULT_DAILY_LOSS_PCT = 0.02
+
 
 class RiskAssessment(NamedTuple):
     kelly_fraction: float
@@ -39,7 +44,7 @@ class TradeVerdict(NamedTuple):
 class KillSwitch:
     consecutive_failures: int = 0
     max_consecutive_failures: int = 5
-    daily_loss_limit: float = float("inf")
+    daily_loss_limit: float | None = None
     daily_realized_pnl: float = 0.0
     _current_day: date = field(default_factory=lambda: datetime.now(UTC).date())
     circuit_open: bool = False
@@ -64,7 +69,10 @@ class KillSwitch:
             return TradeVerdict(False, "Circuit breaker open")
         if self.consecutive_failures >= self.max_consecutive_failures:
             return TradeVerdict(False, f"{self.consecutive_failures} consecutive failures")
-        if abs(self.daily_realized_pnl) >= self.daily_loss_limit:
+        if (
+            self.daily_loss_limit is not None
+            and abs(self.daily_realized_pnl) >= self.daily_loss_limit
+        ):
             return TradeVerdict(False, f"Daily loss limit reached: {self.daily_realized_pnl:.2f}")
         return TradeVerdict(True, "")
 
@@ -92,6 +100,7 @@ class RiskService:
     kill_switch: KillSwitch = field(default_factory=KillSwitch)
     persistent_kill_switch: PersistentKillSwitch | None = None
     max_positions_total: int = 10
+    daily_loss_pct: float = DEFAULT_DAILY_LOSS_PCT
     audit: AuditPort | None = None
     metrics: MetricsPort | None = None
 
@@ -121,6 +130,57 @@ class RiskService:
         self.kill_switch.record_realized_pnl(pnl)
         if self.persistent_kill_switch is not None:
             self.persistent_kill_switch.record_realized_pnl(pnl)
+
+    def authorize_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        price: float,
+        equity: float,
+    ) -> TradeVerdict:
+        """Per-order fail-closed gate at the live submission boundary.
+
+        Refuses an order when the daily loss budget is exhausted or when the
+        order notional breaches ``max_position_size`` against current equity.
+        An unconfigured daily loss limit defaults to a conservative share of
+        equity (``daily_loss_pct``), never unlimited.
+        """
+        if equity <= 0:
+            return self._block_order(
+                market_id, side, f"Cannot size order against non-positive equity: {equity}"
+            )
+        daily_limit = self.kill_switch.daily_loss_limit
+        if daily_limit is None:
+            daily_limit = equity * self.daily_loss_pct
+        realized = abs(self.kill_switch.daily_realized_pnl)
+        if realized >= daily_limit:
+            return self._block_order(
+                market_id,
+                side,
+                f"Daily loss limit reached: {realized:.2f} >= {daily_limit:.2f}",
+            )
+        notional = quantity * price
+        cap = equity * self.max_position_size
+        if notional > cap:
+            return self._block_order(
+                market_id,
+                side,
+                f"Order notional {notional:.2f} exceeds max_position_size "
+                f"({self.max_position_size} of equity = {cap:.2f})",
+            )
+        verdict = self.kill_switch.can_trade()
+        if not verdict.allowed:
+            return verdict
+        return TradeVerdict(True, "")
+
+    def _block_order(self, market_id: uuid.UUID, side: str, reason: str) -> TradeVerdict:
+        detail = f"side={side} market={market_id} reason={reason}"
+        if self.audit:
+            self.audit.record("risk.order_blocked", "system", "trading", detail)
+        if self.metrics:
+            self.metrics.counter("risk.order_blocked", 1.0)
+        return TradeVerdict(False, reason)
 
     def assess_trade(
         self,

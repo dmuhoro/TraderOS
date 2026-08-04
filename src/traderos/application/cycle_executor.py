@@ -265,6 +265,17 @@ class CycleExecutor:
                                     errors.append(f"{name}: preflight (re-check): {f}")
                                 continue
 
+                        authorization = self._risk_service.authorize_order(
+                            market_id=market_id,
+                            side=side,
+                            quantity=qty,
+                            price=close_price,
+                            equity=eq,
+                        )
+                        if not authorization.allowed:
+                            errors.append(f"{name}: order blocked: {authorization.reason}")
+                            continue
+
                         fill = self._broker.place_market_order(
                             market_id, side, qty, close_price=close_price
                         )
