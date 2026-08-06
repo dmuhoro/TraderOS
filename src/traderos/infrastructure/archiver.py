@@ -30,7 +30,16 @@ def purge_old_entries(conn: Any, retention_days: int = 90) -> dict[str, int]:
             if deleted and deleted > 0:
                 results[table] = deleted
         except Exception:
-            pass
+            # A missing table/column must never poison the connection: on
+            # PostgreSQL a failed statement aborts the whole transaction, so a
+            # swallowed error here makes every subsequent repo's CREATE TABLE
+            # fail with InFailedSqlTransaction. Roll back per-table to keep the
+            # connection usable (the purge is best-effort by design).
+            if is_pg:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
     if results:
         conn.commit()
     return results

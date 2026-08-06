@@ -61,3 +61,63 @@ class TestPurgeOldEntries:
         assert conn.execute("SELECT COUNT(*) AS n FROM order_events").fetchone()["n"] == 2
         assert conn.execute("SELECT COUNT(*) AS n FROM audit_log").fetchone()["n"] == 2
         conn.close()
+
+
+def _pg_reachable(timeout: int = 3) -> bool:
+    try:
+        import psycopg2
+
+        conn = psycopg2.connect(
+            "host=localhost port=5433 dbname=traderos_test user=traderos password=traderos",
+            connect_timeout=timeout,
+        )
+        conn.close()
+        return True
+    except Exception:  # noqa: BLE001 — environment probe, never fatal
+        return False
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.skipif(
+    not _pg_reachable(),
+    reason="Postgres not reachable — archiver PG regression skipped, not passed",
+)
+class TestPurgeKeepsPgConnectionUsable:
+    """A5 regression: the archiver must not poison a PostgreSQL connection.
+
+    When any purge table/column is missing, the DELETE fails and — unless we
+    roll back — the transaction stays aborted, making every subsequent repo's
+    CREATE TABLE fail with InFailedSqlTransaction. The factory builds the PG
+    repos on the same connection used by purge, so this would break ANY
+    PG-backed orchestrator boot.
+    """
+
+    def test_missing_table_does_not_poison_connection(self) -> None:
+        import psycopg2
+
+        dsn = "host=localhost port=5433 dbname=traderos_test user=traderos password=traderos"
+        conn = psycopg2.connect(dsn)
+        conn.autocommit = False
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DROP TABLE IF EXISTS audit_log")
+            conn.commit()
+            from traderos.infrastructure.archiver import purge_old_entries
+
+            purge_old_entries(conn, retention_days=90)
+            # The connection must now be usable for a real statement.
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                assert cur.fetchone() == (1,)
+            conn.rollback()
+            # Restore the dropped audit_log table so the shared test store is
+            # left in a clean, migrated state for other tests.
+            from traderos.infrastructure.database.migration_manager import migrate
+
+            migrate(conn)
+            conn.commit()
+        finally:
+            conn.rollback()
+            conn.close()

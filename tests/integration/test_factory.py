@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from traderos.application.factory import build_orchestrator
 from traderos.application.orchestrator import TradingMode
 from traderos.application.orchestrator import TradingOrchestrator
@@ -85,3 +87,94 @@ class TestServiceFactory:
         assert orch.metrics is not None
         assert orch.notifications is not None
         assert orch.run_manifest is not None
+
+
+def _pg_reachable(timeout: int = 3) -> bool:
+    try:
+        import psycopg2
+
+        conn = psycopg2.connect(
+            "host=localhost port=5433 dbname=traderos_test user=traderos password=traderos",
+            connect_timeout=timeout,
+        )
+        conn.close()
+        return True
+    except Exception:  # noqa: BLE001 — environment probe, never fatal
+        return False
+
+
+_PG_SKIP = pytest.mark.skipif(
+    not _pg_reachable(),
+    reason="Postgres not reachable — PG-backed factory parity skipped, not passed",
+)
+
+
+@_PG_SKIP
+class TestPostgresBackedFactory:
+    """A5 parity gate: when DATABASE_URL points at Postgres, the factory must
+    build the strategy/workflow/backtest repos on Postgres (not degrade to
+    in-memory), so a deployed store is never silently demoted."""
+
+    def test_factory_uses_postgres_strategy_repo(self, monkeypatch) -> None:
+        from traderos.infrastructure.repositories.postgres.strategies import (
+            PostgresStrategyRepository,
+        )
+
+        monkeypatch.setenv(
+            "DATABASE_URL",
+            "postgresql://traderos:traderos@localhost:5433/traderos_test",
+        )
+        orch = build_orchestrator(mode="paper")
+        assert isinstance(orch.strategy_repository, PostgresStrategyRepository)
+
+    def test_factory_uses_postgres_workflow_repo(self, monkeypatch) -> None:
+        from traderos.infrastructure.repositories.postgres.workflows import (
+            PostgresOperatorWorkflowRepository,
+        )
+
+        monkeypatch.setenv(
+            "DATABASE_URL",
+            "postgresql://traderos:traderos@localhost:5433/traderos_test",
+        )
+        orch = build_orchestrator(mode="paper")
+        assert isinstance(orch.workflow_repository, PostgresOperatorWorkflowRepository)
+
+    def test_factory_has_no_in_memory_backtest_results_on_pg(self, monkeypatch) -> None:
+        from traderos.infrastructure.repositories.postgres.strategies import (
+            PostgresBacktestResultRepository,
+        )
+
+        monkeypatch.setenv(
+            "DATABASE_URL",
+            "postgresql://traderos:traderos@localhost:5433/traderos_test",
+        )
+        orch = build_orchestrator(mode="paper")
+        assert isinstance(orch.strategy_catalog.backtest_results, PostgresBacktestResultRepository)
+
+
+@pytest.mark.skipif(
+    not _pg_reachable(),
+    reason="Postgres not reachable — A5 parity drill skipped, not passed",
+)
+class TestPostgresParityDrill:
+    def test_postgres_parity_drill_passes(self) -> None:
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[2]
+            / "scripts"
+            / "evidence"
+            / "run_postgres_parity_drill.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[2],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout
+        assert "in_memory_fallback=No" in proc.stdout

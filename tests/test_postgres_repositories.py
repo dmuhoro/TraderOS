@@ -10,9 +10,14 @@ from datetime import timedelta
 import psycopg2
 import pytest
 
+from traderos.domain.entities import BacktestResult
+from traderos.domain.entities import EquityCurve
+from traderos.domain.entities import Metrics
 from traderos.domain.entities import Position
 from traderos.domain.entities import Signal
 from traderos.domain.entities import SignalDirection
+from traderos.domain.entities import Strategy
+from traderos.domain.entities import StrategyStatus
 from traderos.domain.entities import Trade
 from traderos.domain.entities import TradeSide
 from traderos.domain.entities import TradeStatus
@@ -22,8 +27,15 @@ from traderos.infrastructure.repositories.postgres.base import to_dt
 from traderos.infrastructure.repositories.postgres.base import to_json
 from traderos.infrastructure.repositories.postgres.base import to_uuid
 from traderos.infrastructure.repositories.postgres.signals import PostgresSignalRepository
+from traderos.infrastructure.repositories.postgres.strategies import (
+    PostgresBacktestResultRepository,
+)
+from traderos.infrastructure.repositories.postgres.strategies import PostgresStrategyRepository
 from traderos.infrastructure.repositories.postgres.trades import PostgresPositionRepository
 from traderos.infrastructure.repositories.postgres.trades import PostgresTradeRepository
+from traderos.infrastructure.repositories.postgres.workflows import (
+    PostgresOperatorWorkflowRepository,
+)
 
 DSN = os.environ.get(
     "POSTGRES_TEST_DSN",
@@ -45,7 +57,15 @@ pytestmark = pytest.mark.skipif(
     reason=f"Postgres not reachable at {DSN} — skipped, not passed",
 )
 
-_REPO_TABLES = ("signals", "trades", "positions")
+_REPO_TABLES = (
+    "signals",
+    "trades",
+    "positions",
+    "strategies",
+    "backtest_results",
+    "operator_workflow",
+    "workflow_transitions",
+)
 
 
 @pytest.fixture
@@ -318,3 +338,167 @@ class TestPostgresPositionRepository:
         repo.add(pos)
         repo.delete(pos.id)
         assert repo.get(pos.id) is None
+
+
+class TestPostgresStrategyRepository:
+    def _make_strategy(self, status: StrategyStatus = StrategyStatus.DRAFT) -> Strategy:
+        return Strategy(
+            name="momentum_1h",
+            params={"trend_threshold": 0.02},
+            version="1.0.0",
+            status=status,
+        )
+
+    def test_add_get_list_roundtrip(self, pg_conn) -> None:
+        repo = PostgresStrategyRepository(pg_conn)
+        strategy = self._make_strategy()
+        repo.add(strategy)
+        fetched = repo.get(strategy.id)
+        assert fetched is not None
+        assert fetched.name == "momentum_1h"
+        assert fetched.params == {"trend_threshold": 0.02}
+        assert repo.list() == [strategy]
+
+    def test_get_by_name(self, pg_conn) -> None:
+        repo = PostgresStrategyRepository(pg_conn)
+        strategy = self._make_strategy()
+        repo.add(strategy)
+        fetched = repo.get_by_name("momentum_1h")
+        assert fetched is not None
+        assert fetched.id == strategy.id
+        assert repo.get_by_name("nope") is None
+
+    def test_list_active_only_active_or_promoted(self, pg_conn) -> None:
+        repo = PostgresStrategyRepository(pg_conn)
+        draft = Strategy(
+            name="momentum_1h_draft",
+            params={},
+            version="1.0.0",
+            status=StrategyStatus.DRAFT,
+        )
+        active = Strategy(
+            name="momentum_1h_active",
+            params={},
+            version="1.0.0",
+            status=StrategyStatus.ACTIVE,
+        )
+        repo.add(draft)
+        repo.add(active)
+        ids = [s.id for s in repo.list_active()]
+        assert active.id in ids
+        assert draft.id not in ids
+
+    def test_update_persists_params_and_status(self, pg_conn) -> None:
+        repo = PostgresStrategyRepository(pg_conn)
+        strategy = self._make_strategy()
+        repo.add(strategy)
+        updated = replace(strategy, params={"trend_threshold": 0.05}, status=StrategyStatus.ACTIVE)
+        repo.update(updated)
+        fetched = repo.get(strategy.id)
+        assert fetched.params == {"trend_threshold": 0.05}
+        assert fetched.status == StrategyStatus.ACTIVE
+
+    def test_delete_strategy(self, pg_conn) -> None:
+        repo = PostgresStrategyRepository(pg_conn)
+        strategy = self._make_strategy()
+        repo.add(strategy)
+        repo.delete(strategy.id)
+        assert repo.get(strategy.id) is None
+
+
+class TestPostgresBacktestResultRepository:
+    def _make_result(self) -> BacktestResult:
+        return BacktestResult(
+            strategy_id=uuid.uuid4(),
+            market_id=uuid.uuid4(),
+            metrics=Metrics(
+                total_return=0.1,
+                sharpe_ratio=1.2,
+                total_trades=3,
+            ),
+            equity_curve=EquityCurve(
+                points=(
+                    (datetime.now(UTC), 100.0),
+                    (datetime.now(UTC), 105.0),
+                )
+            ),
+            period_start=datetime(2026, 1, 1, tzinfo=UTC),
+            period_end=datetime(2026, 1, 31, tzinfo=UTC),
+        )
+
+    def test_add_get_list_roundtrip(self, pg_conn) -> None:
+        repo = PostgresBacktestResultRepository(pg_conn)
+        result = self._make_result()
+        repo.add(result)
+        fetched = repo.get(result.id)
+        assert fetched is not None
+        assert fetched.metrics.total_return == 0.1
+        assert fetched.equity_curve.points[0][1] == 100.0
+        assert repo.list() == [result]
+
+    def test_get_by_strategy(self, pg_conn) -> None:
+        repo = PostgresBacktestResultRepository(pg_conn)
+        strategy = uuid.uuid4()
+        a = replace(self._make_result(), strategy_id=strategy)
+        b = self._make_result()
+        repo.add(a)
+        repo.add(b)
+        ids = [r.id for r in repo.get_by_strategy(strategy)]
+        assert a.id in ids
+        assert b.id not in ids
+
+    def test_get_by_market(self, pg_conn) -> None:
+        repo = PostgresBacktestResultRepository(pg_conn)
+        market = uuid.uuid4()
+        a = replace(self._make_result(), market_id=market)
+        repo.add(a)
+        assert [r.id for r in repo.get_by_market(market)] == [a.id]
+
+
+class TestPostgresOperatorWorkflowRepository:
+    def test_save_load_roundtrip(self, pg_conn) -> None:
+        from traderos.domain.services.operator_workflow import OperatorStep
+        from traderos.domain.services.operator_workflow import OperatorWorkflow
+
+        repo = PostgresOperatorWorkflowRepository(pg_conn)
+        assert repo.load() is None
+        workflow = OperatorWorkflow(current_step=OperatorStep.BROKER_CHECK)
+        workflow.transitions = []
+        repo.save(workflow)
+        reloaded = repo.load()
+        assert reloaded is not None
+        assert reloaded.current_step == OperatorStep.BROKER_CHECK
+
+    def test_save_upsert_single_row(self, pg_conn) -> None:
+        from traderos.domain.services.operator_workflow import OperatorWorkflow
+
+        repo = PostgresOperatorWorkflowRepository(pg_conn)
+        workflow = OperatorWorkflow()
+        repo.save(workflow)
+        repo.save(workflow)
+        reloaded = repo.load()
+        assert reloaded is not None
+
+    def test_persists_transitions(self, pg_conn) -> None:
+        from traderos.domain.services.operator_workflow import OperatorStep
+        from traderos.domain.services.operator_workflow import OperatorWorkflow
+        from traderos.domain.services.operator_workflow import WorkflowTransition
+
+        repo = PostgresOperatorWorkflowRepository(pg_conn)
+        workflow = OperatorWorkflow(
+            current_step=OperatorStep.CONTROLLED_LIVE,
+        )
+        workflow.transitions = [
+            WorkflowTransition(
+                from_step=OperatorStep.BROKER_CHECK,
+                to_step=OperatorStep.CONTROLLED_LIVE,
+                actor="ops",
+                result="ok",
+                timestamp=datetime.now(UTC),
+            )
+        ]
+        repo.save(workflow)
+        reloaded = repo.load()
+        assert reloaded is not None
+        assert len(reloaded.transitions) == 1
+        assert reloaded.transitions[0].to_step == OperatorStep.CONTROLLED_LIVE
