@@ -1,0 +1,22 @@
+REAL-MARKET WALK-FORWARD — G-01 cost-adjusted, out-of-sample (A3)
+started 2026-08-06T20:02:46.506847+00:00
+engine: next-bar fills, side-aware slippage 5bps, fee 10bps, latency 10bps
+dataset: real public Binance BTCUSDT 1h klines via REST (paginated)
+  full series: 8880 candles (8880 hours, 370 days)
+  withheld out-of-sample window: 3108 candles (2026-03-30 -> 2026-08-06)
+  frozen dataset pointer: docs/evidence/frozen/binance_btcusdt_1h_2026-08-06.csv
+
+=== strategy: moving_average_trend ===
+  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=-0.9543 positive_folds=1/5 mean_sharpe=0.1872 mean_max_dd=0.5342
+
+=== strategy: volatility_breakout ===
+  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=10.9289 positive_folds=3/5 mean_sharpe=-0.4082 mean_max_dd=5.0996
+
+=== strategy: mean_reversion ===
+  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=0.0506 positive_folds=3/5 mean_sharpe=0.1406 mean_max_dd=1.8690
+
+G-01 EXIT TEST (positive expectancy after full costs on real OOS data):
+  (corrected label; exit criterion unchanged: all folds positive after costs)
+  No strategy shows positive expectancy after full costs on the real out-of-sample window. Honest outcome: PILOT = DATA-VALIDATION ONLY, no PnL claim (per LIVE_RUN_POLICY.md).
+VERDICT: PASS — cost-adjusted walk-forward over real data recorded
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-06_real_market_walk_forward.log
