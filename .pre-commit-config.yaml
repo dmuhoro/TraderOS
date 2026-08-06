@@ -6,6 +6,9 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+        # Frozen real-market datasets under docs/evidence/frozen/ are committed
+        # dataset pointers by design (A3 walk-forward), not accidental blobs.
+        exclude: '^docs/evidence/frozen/'
       - id: check-merge-conflict
       - id: detect-private-key
 

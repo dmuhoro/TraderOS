@@ -5,6 +5,8 @@ from datetime import UTC
 from datetime import datetime
 from decimal import Decimal
 
+import pytest
+
 from traderos.domain.entities import OHLCV
 from traderos.domain.entities import Candle
 from traderos.domain.entities import Timeframe
@@ -148,4 +150,46 @@ class TestWalkForwardEvidenceDrill:
         )
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "VERDICT: PASS" in proc.stdout
+        assert "latency" in proc.stdout
+
+
+def _binance_reachable(timeout: int = 4) -> bool:
+    try:
+        from urllib.request import urlopen
+
+        with urlopen("https://api.binance.com/api/v3/ping", timeout=timeout):
+            return True
+    except Exception:  # noqa: BLE001 — environment probe, never fatal
+        return False
+
+
+@pytest.mark.skipif(
+    not _binance_reachable(),
+    reason="Binance not reachable — live walk-forward drill skipped, not passed",
+)
+class TestRealMarketWalkForwardDrill:
+    def test_real_market_walk_forward_drill_passes(self) -> None:
+        """The committed A3 drill must stay green when the real public feed is
+        reachable — proving G-01 runs cost-adjusted over ≥1y of real Binance
+        candles with an honest DATA-VALIDATION verdict on the withheld OOS."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "evidence"
+            / "run_real_market_walk_forward.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout
+        assert "frozen dataset pointer" in proc.stdout
         assert "latency" in proc.stdout
