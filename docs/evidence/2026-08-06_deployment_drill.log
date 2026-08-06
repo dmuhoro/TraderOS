@@ -1,0 +1,13 @@
+DEPLOYMENT DRILL — A4
+started 2026-08-06T20:30:00.656784+00:00
+  migrations-on-boot: schema_version=7
+  healthz: alive
+  supervisor manifest: PASS
+  no-secrets scan: clean=True
+-------
+  [PASS] migrations_on_boot: schema_version=7
+  [PASS] healthz: status=alive
+  [PASS] supervisor_manifest: Procfile web+worker present
+  [PASS] no_secrets_in_repo: 0 findings
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-06_deployment_drill.log

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+from traderos.infrastructure.boot import run_migrations_on_boot
 from traderos.interfaces.api.server import build_app
 from traderos.interfaces.api.server import ensure_fastapi
 
@@ -20,6 +21,9 @@ def main() -> None:
         ssl_keyfile=ssl_keyfile,
         ssl_certfile=ssl_certfile,
     )
+    # A4: apply pending schema migrations before serving (fail closed if the
+    # configured store is not migratable). No-op for a dev default SQLite.
+    run_migrations_on_boot()
     port = int(os.getenv("PORT", "8000"))
     kwargs: dict = {"host": "0.0.0.0", "port": port}
     if ssl_keyfile and ssl_certfile:
