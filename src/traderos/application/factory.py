@@ -69,9 +69,13 @@ from traderos.infrastructure.repositories.in_memory import InMemoryPositionRepos
 from traderos.infrastructure.repositories.in_memory import InMemorySignalRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryStrategyRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryTradeRepository
+from traderos.infrastructure.repositories.postgres import PostgresBacktestResultRepository
+from traderos.infrastructure.repositories.postgres import PostgresOperatorWorkflowRepository
 from traderos.infrastructure.repositories.postgres import PostgresPositionRepository
 from traderos.infrastructure.repositories.postgres import PostgresSignalRepository
+from traderos.infrastructure.repositories.postgres import PostgresStrategyRepository
 from traderos.infrastructure.repositories.postgres import PostgresTradeRepository
+from traderos.infrastructure.repositories.sqlite import SQLiteBacktestResultRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteOperatorWorkflowRepository
 from traderos.infrastructure.repositories.sqlite import SQLitePositionRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteSignalRepository
@@ -305,20 +309,20 @@ def build_orchestrator(
     if db is not None and backend != PG_BACKEND:
         strategy_repo = SQLiteStrategyRepository(db)
         workflow_repo = SQLiteOperatorWorkflowRepository(db)
+        backtest_results_repo = SQLiteBacktestResultRepository(db)
+    elif db is not None:
+        strategy_repo = PostgresStrategyRepository(db)
+        workflow_repo = PostgresOperatorWorkflowRepository(db)
+        backtest_results_repo = PostgresBacktestResultRepository(db)
     else:
-        # PostgreSQL strategy/workflow repos do not exist yet (WP-C4 scope);
-        # the operator catalog degrades to in-memory on PG-backed builds.
         strategy_repo = InMemoryStrategyRepository()
         workflow_repo = InMemoryOperatorWorkflowRepository()
+        backtest_results_repo = InMemoryBacktestResultRepository()
 
     strategy_catalog = StrategyCatalogService(
         repo=strategy_repo,
         backtest=backtest,
-        backtest_results=(
-            InMemoryBacktestResultRepository()
-            if db is None
-            else None  # legacy v001 backtest_results schema diverges (SQLite)
-        ),
+        backtest_results=backtest_results_repo,
     )
     strategy_catalog.ensure_seeded()
 
