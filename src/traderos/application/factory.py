@@ -180,11 +180,47 @@ def build_orchestrator(
         else CollectorType.MOCK
     )
 
+    # A2: optional live streaming feed. Only when explicitly enabled
+    # (data_collection.binance.streaming), the collector is available, and the
+    # websockets transport can be imported. Ticks are aggregated into candles
+    # served through DataIngestionService, so the G-03 data-gap breaker sees
+    # real, fresh data. Defaults off so CI/tests stay offline (Test Before Trust).
+    streaming_feed: Any | None = None
+    streaming_enabled = bool(cfg.get("data_collection.binance.streaming", False))
+    if streaming_enabled and crypto_collector_type == CollectorType.BINANCE:
+        try:
+            from traderos.infrastructure.collectors.binance_collector import BinanceCollector
+            from traderos.infrastructure.collectors.streaming_collector import StreamingFeedRunner
+            from traderos.infrastructure.collectors.streaming_collector import (
+                StreamingMarketDataCollector,
+            )
+            from traderos.infrastructure.market_stream import BinanceStreamTransport
+            from traderos.infrastructure.market_stream import StreamingMarketDataService
+
+            _stream = StreamingMarketDataService(BinanceStreamTransport())
+            _streaming_collector = StreamingMarketDataCollector(
+                stream=_stream,
+                backfill=BinanceCollector(),
+                interval_seconds=_stream_interval_seconds(cfg),
+            )
+            _streaming_collector.subscribe(crypto)
+            collector_registry.register(_streaming_collector)
+            streaming_feed = StreamingFeedRunner(_stream, crypto)
+            streaming_enabled = True
+        except Exception:  # noqa: BLE001 — streaming is best-effort, never fatal
+            streaming_enabled = False
+
     symbol_map: dict[uuid.UUID, str] = {}
     data_market_ids: list[uuid.UUID] = []
     for symbol in symbols:
         mid = uuid.uuid5(uuid.NAMESPACE_DNS, f"traderos/{symbol}")
-        source_type = crypto_collector_type if symbol in crypto else CollectorType.MOCK
+        source_type: CollectorType
+        if streaming_enabled and symbol in crypto:
+            source_type = CollectorType.STREAMING
+        elif symbol in crypto:
+            source_type = crypto_collector_type
+        else:
+            source_type = CollectorType.MOCK
         data_ingestion.add_source(mid, symbol, source_type)
         symbol_map[mid] = symbol
         data_market_ids.append(mid)
@@ -365,8 +401,18 @@ def build_orchestrator(
             metrics=metrics,
         ),
         failover=_build_failover(cfg, notifications, audit),
+        streaming_feed=streaming_feed,
     )
     return orch
+
+
+def _stream_interval_seconds(cfg: Config) -> int:
+    """Map a config timeframe to aggregator interval seconds."""
+    tf = str(cfg.get("data_collection.timeframe", "1h"))
+    multiplier = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    if tf[-1] in multiplier and tf[:-1].isdigit():
+        return int(tf[:-1]) * multiplier[tf[-1]]
+    return 3600
 
 
 def _build_failover(

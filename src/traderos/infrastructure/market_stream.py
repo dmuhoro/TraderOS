@@ -161,6 +161,19 @@ def build_subscription_frame(symbols: Iterable[str]) -> str:
     return json.dumps({"method": "SUBSCRIBE", "params": params, "id": 1})
 
 
+def build_stream_url(symbols: Iterable[str], *, base: str | None = None) -> str:
+    """Binance combined-stream URL for the symbols' aggTrade streams.
+
+    The combined-stream endpoint (``/stream?streams=...``) is reachable with a
+    single connection and accepts the SUBSCRIBE frame from
+    ``build_subscription_frame``. Connects to a bare base URL would 404, so the
+    transport must always target this path.
+    """
+    base_url = (base or BINANCE_STREAM_URL).rstrip("/")
+    streams = "/".join(f"{binance_stream_symbol(s)}@aggTrade" for s in symbols)
+    return f"{base_url}/stream?streams={streams}"
+
+
 def parse_trade_frame(text: str, *, source: str = "binance") -> dict[str, Any] | None:
     """Parse one Binance WS frame into a normalized raw tick (OT-001/OT-004).
 
@@ -228,7 +241,8 @@ class BinanceStreamTransport(StreamTransport):
 
     def connect(self, symbols: list[str]) -> Iterable[dict[str, Any]]:
         self.close()
-        ws = self._connector(self._url)
+        url = build_stream_url(symbols, base=self._url)
+        ws = self._connector(url)
         self._ws = ws
         ws.send(build_subscription_frame(symbols))
         while True:

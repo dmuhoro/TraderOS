@@ -1,0 +1,15 @@
+REAL BINANCE STREAM DRILL — A2 live market-data seam
+  latest candle 2026-08-06T19:38:55+00:00 O=64438.60000000 C=64436.00000000 V=0.45039000
+  ticks seen by probe: 96, drained by collector: 96
+
+[PASS] real_ticks_received
+[PASS] ticks_exchange_time_ordered
+[PASS] closed_candles_aggregated
+[PASS] stale_seconds_finite_and_fresh
+[PASS] streaming_off_unless_explicitly_enabled
+[PASS] streaming_feed_absent_when_off
+[PASS] streaming_on_when_explicitly_enabled
+[PASS] forex_never_streams
+
+VERDICT: PASS — live feed + gating 8/8
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-06_real_binance_stream_drill.log

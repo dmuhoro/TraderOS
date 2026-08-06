@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import Request as StarletteRequest
 
 from traderos.infrastructure.auth import APIKeyAuthenticator
 from traderos.infrastructure.auth import Permission
@@ -151,3 +153,80 @@ class TestApiAuthEnforced:
         assert body["required"] is True
         assert body["authenticated"] is False
         assert body["role"] is None
+
+
+class TestApiAuthFailClosed:
+    """A1: the /v1/* seam fails closed even when no key is configured but a
+    trading posture (paper or live) is declared, and when a route forgets its
+    role dependency, the boundary guard still denies unauthenticated callers."""
+
+    def test_paper_mode_without_keys_blocks_protected_routes(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TRADING_MODE", "paper")
+        assert client.get("/v1/portfolio").status_code == 401
+
+    def test_live_mode_without_keys_blocks_protected_routes(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TRADING_MODE", "live")
+        assert client.get("/v1/portfolio").status_code == 401
+        assert client.get("/v1/strategies").status_code == 401
+
+    def test_public_probes_stay_open_in_live_without_keys(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TRADING_MODE", "live")
+        assert client.get("/v1/healthz").status_code == 200
+        assert client.get("/v1/auth/me").status_code == 200
+
+    def test_live_mode_without_keys_blocks_route_without_dependency(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # /v1/manifest has an explicit dependency in the app; emulate a "lost"
+        # dependency by asserting the boundary alone (auth_required) blocks any
+        # non-public v1 path when a live posture is declared.
+        monkeypatch.setenv("TRADING_MODE", "live")
+        assert security.auth_required() is True
+        request = StarletteRequest(
+            scope={
+                "type": "http",
+                "method": "GET",
+                "path": "/v1/some-route",
+                "headers": [],
+                "server": ("test", 80),
+                "client": ("test", 12345),
+                "scheme": "http",
+                "query_string": b"",
+                "root_path": "",
+            }
+        )
+        with pytest.raises(StarletteHTTPException) as exc_info:
+            security.enforce_auth_boundary(request)
+        assert exc_info.value.status_code == 401
+
+
+class TestAuthFailClosedDrill:
+    def test_auth_fail_closed_drill_passes(self) -> None:
+        """The committed A1 drill must stay green: the /v1 boundary fails
+        closed in any trading posture, stays open in dev, and public probes
+        remain reachable."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "evidence"
+            / "run_auth_fail_closed_drill.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout

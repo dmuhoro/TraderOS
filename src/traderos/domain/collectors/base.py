@@ -14,6 +14,7 @@ class CollectorType(Enum):
     ALPACA = "alpaca"
     YFINANCE = "yfinance"
     MOCK = "mock"
+    STREAMING = "streaming"
 
 
 T = TypeVar("T", bound="DataCollector")

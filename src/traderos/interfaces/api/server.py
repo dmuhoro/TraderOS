@@ -23,6 +23,7 @@ from traderos.infrastructure.monitoring import PrometheusMetricsService
 from traderos.infrastructure.rate_limiter import RateLimiter
 from traderos.interfaces.api import events
 from traderos.interfaces.api.security import auth_info
+from traderos.interfaces.api.security import enforce_auth_boundary
 from traderos.interfaces.api.security import require_admin
 from traderos.interfaces.api.security import require_operate
 from traderos.interfaces.api.security import require_read
@@ -205,6 +206,21 @@ def build_app() -> Any:
         response = await call_next(request)
         response.headers["X-RateLimit-Remaining"] = str(_rate_limiter.remaining(client_ip))
         return response
+
+    @app.middleware("http")
+    async def _auth_boundary_middleware(request: Request, call_next):
+        """A1: fail-closed boundary auth.
+
+        Runs before route dispatch so an endpoint that omits its role
+        dependency is still denied whenever authentication is required.
+        Public probes (healthz, auth/me) remain reachable; the dashboard static
+        bundle is read-only and served separately.
+        """
+        try:
+            enforce_auth_boundary(request)
+        except HTTPException:
+            return _error_response(401, "Unauthorized: a valid API key is required")
+        return await call_next(request)
 
     router = APIRouter(prefix="/v1")
 

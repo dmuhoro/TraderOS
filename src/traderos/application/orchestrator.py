@@ -86,6 +86,7 @@ class TradingOrchestrator:
     flatten_service: FlattenService | None = None
     supervision: SupervisionService | None = None
     failover: FailoverManager | None = None
+    streaming_feed: Any | None = None
     standby_poll_seconds: float = 5.0
 
     def _pre_cycle_check(self) -> None:
@@ -155,8 +156,12 @@ class TradingOrchestrator:
         self._daemon_controller.start()
         if self.secret_rotator is not None:
             self.secret_rotator.start()
+        if self.streaming_feed is not None:
+            self.streaming_feed.start()
 
     def stop(self) -> None:
+        if self.streaming_feed is not None:
+            self.streaming_feed.stop()
         if self.secret_rotator is not None:
             self.secret_rotator.stop()
         self._daemon_controller.stop()

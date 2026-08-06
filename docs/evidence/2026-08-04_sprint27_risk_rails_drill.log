@@ -1,5 +1,5 @@
 RISK-RAILS DRILL — G-03 portfolio-level fail-closed proof
-started 2026-08-04T21:41:34.223112+00:00
+started 2026-08-06T19:38:23.156275+00:00
 [PASS] gross_exposure_cap_blocks: cap 0.504x equity blocks 16 qty @ 100 with existing 10000 exposure (broker untouched)
 [PASS] allowlist_blocks_unlisted: unlisted symbol refused; broker untouched
 [PASS] allowlist_reaches_broker: allowlisted symbol reaches broker
