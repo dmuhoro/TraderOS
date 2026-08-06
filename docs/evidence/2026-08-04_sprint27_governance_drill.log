@@ -1,5 +1,5 @@
 GOVERNANCE DRILL — G-07 signing + operator ack + live gate
-started 2026-08-04T21:41:22.409293+00:00
+started 2026-08-06T19:38:00.571235+00:00
 drill key: governance-drill-key-not-a-secret (in-process only, never persisted)
 
 [PASS] release_signing

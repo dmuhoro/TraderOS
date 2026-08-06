@@ -19,6 +19,11 @@ data_collection:
   # installed; otherwise crypto falls back to the deterministic mock collector.
   binance:
     enabled: false
+    # A2: live WebSocket tick feed aggregated into candles. Requires
+    # binance.enabled=true AND the 'websockets' package. Ticks flow into the
+    # daemon's DataIngestionService so the G-03 data-gap breaker sees real
+    # data. Off by default so CI/tests stay network-free.
+    streaming: false
   history_days: 30
 
 analysis:

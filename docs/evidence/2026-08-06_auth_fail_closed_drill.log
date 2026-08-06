@@ -1,0 +1,14 @@
+AUTH FAIL-CLOSED DRILL — A1 /v1 boundary
+
+[PASS] dev_no_keys_open
+[PASS] live_no_key_blocked
+[PASS] live_no_key_strategies_blocked
+[PASS] live_no_key_route_without_dep_blocked
+[PASS] live_healthz_open
+[PASS] live_auth_me_open
+[PASS] paper_no_key_blocked
+[PASS] live_with_key_allowed
+[PASS] live_wrong_key_blocked
+
+VERDICT: PASS — /v1 boundary fail-closed 9/9
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-06_auth_fail_closed_drill.log

@@ -103,6 +103,30 @@ class TestBinanceStreamTransportClose:
         transport = BinanceStreamTransport(connector=lambda url: MagicMock())
         transport.close()
 
+    def test_connect_targets_combined_stream_url(self) -> None:
+        """A bare base URL 404s on Binance; the transport must connect to the
+        combined-stream path with each symbol's aggTrade stream."""
+        captured: list[str] = []
+
+        class CaptureConnector:
+            def __call__(self, url: str) -> MagicMock:
+                captured.append(url)
+                ws = MagicMock()
+                ws.recv.return_value = None
+                return ws
+
+        transport = BinanceStreamTransport(connector=CaptureConnector())
+        assert list(transport.connect(["BTCUSDT", "ETHUSDT"])) == []
+        assert len(captured) == 1
+        url = captured[0]
+        assert url.startswith(ms.BINANCE_STREAM_URL)
+        assert "/stream?streams=" in url
+        assert "btcusdt@aggTrade" in url and "ethusdt@aggTrade" in url
+
+    def test_build_stream_url_escapes_base(self) -> None:
+        url = ms.build_stream_url(["BTCUSDT"], base="wss://x:443/")
+        assert url == "wss://x:443/stream?streams=btcusdt@aggTrade"
+
 
 class TestCandleAggregatorRollover:
     def test_late_tick_after_rollover_is_counted(self) -> None:
