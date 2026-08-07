@@ -277,3 +277,28 @@ class TestOnCallTransportDrill:
             "fail_closed_critical",
         ):
             assert f"[PASS] {name}" in proc.stdout
+
+
+class TestUserAccountDrill:
+    """B1 suite lock: the fail-closed user/account drill must pass.
+    In-memory only (no network), so it runs unconditionally in CI."""
+
+    def test_user_account_drill_passes(self) -> None:
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[2] / "scripts" / "evidence" / "run_account_drill.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[2],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout
+        for name in ("password_hashed", "fail_closed_credentials", "per_user_api_key"):
+            assert f"[PASS] {name}" in proc.stdout

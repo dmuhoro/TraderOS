@@ -1,0 +1,12 @@
+USER/ACCOUNT DRILL — B1 fail-closed credentials, sessions, per-user keys
+started 2026-08-07T16:58:46.435217+00:00
+[PASS] password_hashed: credential stored as salted PBKDF2-SHA256, not plaintext
+[PASS] fail_closed_credentials: wrong password + ghost user denied
+[PASS] session_authenticates: issued session resolves to the user
+[PASS] session_denies_unknown: unknown token denied (fail-closed)
+[PASS] per_user_api_key: issued key authenticates; raw not persisted
+[PASS] api_key_unknown_denied: unknown key denied (fail-closed)
+[PASS] api_key_raw_never_persisted: only hash of the key is stored
+
+VERDICT: PASS — 7/7 account rails proven
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-07_user_account_drill.log
