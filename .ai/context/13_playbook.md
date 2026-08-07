@@ -44,6 +44,21 @@ AI agents (all models), new engineers onboarding.
 6. **Review plan** — against Constitution principles, architecture, standards
 7. **Get feedback** — present plan to human reviewer before coding
 
+### Task template (M3 — mandatory before any scope-free labour)
+
+Before labour, open a "task" with exactly five fields, frozen. See
+`docs/engineering/FOUNDEROS_WORKFLOW_SPEC.md`:
+
+| Field | What it answers |
+|-------|-----------------|
+| Scope | The one capability + the one boundary it touches |
+| Exit test | Observable, reproducible pass/fail assertion |
+| Blast radius | What breaks if wrong + who reviews |
+| Reviewer | The named role that reads the verdict (never the coder) |
+| Evidence path | Committed, re-runnable artifact (`docs/evidence/`, suite-lock) |
+
+A task with no exit test or no reviewer is NOT manufacturable — stop and fix it.
+
 ## How to Implement
 
 1. **Follow the standards** in `04_code-standards.md` — types, naming, formatting
@@ -54,6 +69,19 @@ AI agents (all models), new engineers onboarding.
 6. **One file at a time** — implement, save, verify
 7. **Add tests** — test the new functionality
 8. **Run `make ci`** before committing
+
+### Blast-radius tiering (M4)
+
+Gate the labour by how much breaks if wrong:
+
+- **Tier 1 — execution / risk / order paths:** every change is human-gated.
+  The exit test must prove the real broker/submission call is NOT invoked when
+  a guard refuses (fail-closed proof). No self-review; a second reviewer signs
+  before promote-to-live.
+- **Tier 2 — CRUD / copy / low-risk paths:** lightweight auto-review. Still
+  suite-locked and still `make ci` green — the throttle differs, not the loop.
+
+Default is Tier 1 when the tier is unknown.
 
 ## How to Review
 

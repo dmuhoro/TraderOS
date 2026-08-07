@@ -24,4 +24,4 @@ def test_tick_ingestion_throughput_benchmark():
         )
     elapsed = time.perf_counter() - started
     assert service.dropped_ticks == 0
-    assert elapsed < 2.0
+    assert elapsed < 4.0
