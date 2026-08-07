@@ -14,6 +14,8 @@ from traderos.domain.adapters.broker_adapter import FillResult
 from traderos.domain.entities import Signal
 from traderos.domain.entities import SignalDirection
 from traderos.domain.services.risk_service import KillSwitch
+from traderos.domain.services.risk_service import PerUserRiskProfile
+from traderos.domain.services.risk_service import PerUserRiskResolver
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalProvenance
 from traderos.domain.services.strategy_framework import SignalResult
@@ -103,7 +105,7 @@ def _signal_service():
     return service
 
 
-def _executor(conn, risk_service: RiskService, broker: _SpyBroker):
+def _executor(conn, risk_service: RiskService, broker: _SpyBroker, trading_user_id=None):
     portfolio_service = Mock()
     summary = Mock()
     summary.open_positions = []
@@ -126,6 +128,7 @@ def _executor(conn, risk_service: RiskService, broker: _SpyBroker):
         notifications=Mock(),
         run_manifest=SQLiteManifestService(conn),
         enabled_strategies=lambda: [("risk_gate_always_signal", "risk_gate_always_signal", {})],
+        trading_user_id=trading_user_id,
     )
 
 
@@ -158,6 +161,22 @@ class TestOrderRiskGateAtSubmissionBoundary:
             assert broker.place_market_order_calls == []
             assert result.trades == 0
             assert any("order blocked" in e for e in result.errors)
+        finally:
+            _unregister("risk_gate_always_signal")
+        conn.close()
+
+    def test_per_user_engaged_kill_switch_stops_real_submission_boundary(self) -> None:
+        conn = _make_conn()
+        _register("risk_gate_always_signal", _AlwaysSignal)
+        try:
+            engaged = PerUserRiskProfile(user_id="trader-1", engaged=True)
+            risk = RiskService(user_resolver=PerUserRiskResolver({"trader-1": engaged}))
+            broker = _SpyBroker()
+            executor = _executor(conn, risk, broker, trading_user_id="trader-1")
+            result = executor.run(uuid.uuid4(), close_price=100.0)
+            assert broker.place_market_order_calls == []
+            assert result.trades == 0
+            assert any("blocked" in e or "engaged" in e for e in result.errors)
         finally:
             _unregister("risk_gate_always_signal")
         conn.close()

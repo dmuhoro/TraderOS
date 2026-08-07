@@ -77,6 +77,7 @@ class TradingOrchestrator:
     strategy_repository: StrategyRepository | None = None
     workflow_repository: OperatorWorkflowRepository | None = None
     operator_workflow: OperatorWorkflow | None = None
+    trading_user_id: str | None = None
     strategy_catalog: StrategyCatalogService | None = None
     operator_session: OperatorSessionService | None = None
     live_readiness: LiveReadinessService | None = None
@@ -125,6 +126,7 @@ class TradingOrchestrator:
             knowledge_graph=self.knowledge_graph,
             research=self.research,
             flatten_service=self.flatten_service,
+            trading_user_id=self.trading_user_id,
         )
         self._daemon_controller = DaemonController(
             mode=self.mode,
