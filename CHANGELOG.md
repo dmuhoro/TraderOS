@@ -1,6 +1,52 @@
 # Changelog - TraderOS
 
-## [Unreleased] - Sprint 27 (Every readiness gap to 80+, evidence-backed)
+## [Unreleased] - Sprint 28 (Product track: user accounts + per-user risk rails + manufacturing meta)
+
+### B1 — User/account model (2026-08-07)
+- `domain/entities/user.py`: `User`, `UserSession`, `UserApiKey` + roles/statuses.
+- `domain/repositories/user_repository.py` port + SQLite impl
+  (`infrastructure/repositories/sqlite/users.py`).
+- `domain/services/account_service.py`: salted PBKDF2-HMAC-SHA256 with
+  constant-time compare; expiring sessions (denied + evicted when expired);
+  per-user API keys shown once, only SHA-256 persisted, revoked keys deny;
+  admin bootstrap from `TRADEROS_ADMIN_USERNAME`/`PASSWORD`. Everything fails
+  closed (no password, wrong password, unknown token, unknown/revoked key).
+- migration `v008_user_accounts.py` (schema version 8, SQLite + PG).
+- Proof: `tests/test_account_service.py`, account drill
+  (`docs/evidence/2026-08-07_user_account_drill.log`), `tests/integration/test_factory.py`.
+
+### B2 — Per-user risk rails + `user_id` audience attribution at the real boundary (2026-08-07)
+- `PerUserRiskProfile` (user-scoped gross exposure / position size / position
+  count / daily loss / allowlist + fail-closed `engaged` operator kill switch) —
+  every cap bounded, no unlimited allowance.
+- `PerUserRiskResolver`: unknown users fail closed (denied, never silently allowed).
+- Enforced at the live submission path: `cycle_executor.py` `can_trade` +
+  `authorize_order` take `user_id=`; `Orchestrator` threads `trading_user_id`;
+  `factory.py` builds the resolver from `risk.per_users` and sets
+  `trading_user_id` from `risk.operator_user_id`.
+- Scoped kill switch: engaged profile halts only that trader; other traders and
+  the global path are unaffected.
+- Proof: `tests/test_per_user_risk_rails.py`; real-`CycleExecutor` boundary
+  proof in `tests/test_cycle_risk_gate.py` (engaged profile ⇒ broker submission
+  NEVER called); config→resolver wiring in `tests/test_factory_ingestion.py`.
+
+### Track M — manufacturing meta (FounderOS, bootstrapped on TraderOS) (2026-08-07)
+- **M1** `docs/engineering/BUILD_PRINCIPLES.md` (7 principles + 5-step loop +
+  instantiation recipe) — already committed.
+- **M2** `docs/engineering/FOUNDEROS_WORKFLOW_SPEC.md`: one-page task template
+  (scope / exit test / blast radius / reviewer / evidence path) + the
+  define→gate→execute→verify→lock loop.
+- **M3 + M4** wired into `.ai/context/13_playbook.md`: five-field task template
+  mandatory; agents under `.ai/agents/`; blast-radius tiering (execution/risk
+  human-gated fail-closed proof; CRUD lightweight). Default Tier 1.
+
+### Fix-ups resolved in Sprint 28 (driving the suite green)
+- `tests/test_programme_b_operational_trust.py`: stale v008 schema assertions
+  (7→8) across PG migrate/down and SQLite version-marker path.
+- `tests/performance/test_sprint9_benchmarks.py`: throughput band 2.0s→4.0s
+  (10k ticks/2.5k msg/s guard) to de-flake on slower CI.
+
+## [Sprint 27] - Released (Every readiness gap to 80+, evidence-backed)
 
 ### HA failover + secrets rotation audit (G-04) (2026-08-04)
 - `src/traderos/infrastructure/ha_failover.py`: lease-based leadership
