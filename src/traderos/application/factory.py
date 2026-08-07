@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from traderos.domain.collectors.base import CollectorRegistry
 from traderos.domain.collectors.base import CollectorType
 from traderos.domain.exceptions import InfrastructureError
 from traderos.domain.ports import AuditPort
+from traderos.domain.ports import MetricsPort
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.broker_state_reconciliation_service import (
@@ -47,6 +49,8 @@ from traderos.infrastructure.ha_failover import FailoverManager
 from traderos.infrastructure.ha_failover import LeaseStore
 from traderos.infrastructure.health import HealthService as InMemoryHealthService
 from traderos.infrastructure.metrics import MetricsService as InMemoryMetricsService
+from traderos.infrastructure.notifiers.oncall_router import HttpOnCallTransport
+from traderos.infrastructure.notifiers.oncall_router import OnCallRouter
 from traderos.infrastructure.notifiers.webhook_notifier import WebhookNotifier
 from traderos.infrastructure.observability import SQLiteAuditService
 from traderos.infrastructure.observability import SQLiteHealthService
@@ -135,6 +139,7 @@ def build_orchestrator(
         audit = InMemoryAuditService()
         metrics = InMemoryMetricsService()
         run_manifest = InMemoryManifestService()
+    secret_rotator = _build_secret_rotator(audit, metrics)
     risk_service = RiskService(
         persistent_kill_switch=persistent_kill_switch,
         metrics=metrics,
@@ -145,7 +150,16 @@ def build_orchestrator(
     )
     portfolio_service.risk_service = risk_service
     webhook_notifier = WebhookNotifier()
-    notifications = NotificationService(notifier=webhook_notifier)
+    oncall_url = os.getenv("ONCALL_WEBHOOK_URL", "")
+    if oncall_url:
+        oncall = OnCallRouter(
+            [HttpOnCallTransport(oncall_url)],
+            audit=audit,
+            metrics=metrics,
+        )
+    else:
+        oncall = None
+    notifications = NotificationService(notifier=webhook_notifier, oncall=oncall)
 
     _sync_strategy_registry(db, backend)
 
@@ -231,20 +245,36 @@ def build_orchestrator(
 
     # --- Broker Selection ---
     broker: BrokerAdapter
-    if trading_mode == TradingMode.LIVE and cfg.alpaca_api_key and cfg.alpaca_secret_key:
+    if trading_mode == TradingMode.LIVE:
+        # A6 fail-closed: LIVE must resolve real broker credentials through the
+        # secret rotator (access audited). Access through the rotator / env is
+        # the only source of truth for live keys; a missing or unsupplied key
+        # aborts boot loudly instead of silently demoting to paper.
+        api_key = secret_rotator.get("ALPACA_API_KEY")
+        secret_key = secret_rotator.get("ALPACA_SECRET_KEY")
+        if not api_key or not secret_key:
+            raise RuntimeError(
+                "LIVE mode requires ALPACA_API_KEY and ALPACA_SECRET_KEY; "
+                "no credentials via secret manager/env — refusing to boot."
+            )
         try:
             from traderos.infrastructure.alpaca_broker import AlpacaBrokerAdapter
 
             broker = AlpacaBrokerAdapter(
-                api_key=cfg.alpaca_api_key,
-                secret_key=cfg.alpaca_secret_key,
+                api_key=api_key,
+                secret_key=secret_key,
                 paper=cfg.alpaca_paper,
                 symbol_map=symbol_map,
             )
-        except ImportError:  # pragma: no cover
-            broker = PaperBrokerAdapter(fill_probability=1.0)
-        except (ValueError, RuntimeError, OSError, InfrastructureError):  # pragma: no cover
-            broker = PaperBrokerAdapter(fill_probability=1.0)
+        except ImportError:
+            raise
+        except (ValueError, RuntimeError, OSError, InfrastructureError) as exc:
+            # Fail closed: live never silently falls back to paper on a
+            # credentials/adapter problem. Surfacing the error is the only
+            # safe outcome for real-capital mode.
+            raise RuntimeError(
+                f"LIVE broker init failed and will not degrade to paper: {exc}"
+            ) from exc
     else:
         broker = PaperBrokerAdapter(fill_probability=1.0)
 
@@ -387,7 +417,7 @@ def build_orchestrator(
         strategy_catalog=strategy_catalog,
         operator_session=operator_session,
         live_readiness=live_readiness,
-        secret_rotator=_build_secret_rotator(),
+        secret_rotator=secret_rotator,
         knowledge_graph=knowledge_graph,
         research=research,
         flatten_service=FlattenService(
@@ -453,8 +483,17 @@ def _resolve_allowed_markets(cfg: Config) -> frozenset[uuid.UUID]:
     )
 
 
-def _build_secret_rotator() -> SecretRotator:
-    rotator = SecretRotator()
+def _build_secret_rotator(
+    audit: AuditPort | None,
+    metrics: MetricsPort | None,
+) -> SecretRotator:
+    """Build the secret rotator wired to the real audit/metrics ports.
+
+    Every secret access and rotation is recorded to the durable audit trail
+    (value_redacted) so the G-04 "secret access/rotation is audited" claim is
+    true on the production orchestrator path — not just in isolated unit tests.
+    """
+    rotator = SecretRotator(audit=audit, metrics=metrics)
     rotator.add_provider(EnvSecretProvider())
     return rotator
 
