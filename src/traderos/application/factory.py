@@ -34,6 +34,9 @@ from traderos.domain.services.preflight_service import PreflightService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
 from traderos.domain.services.reconciliation_service import PersistentKillSwitch
 from traderos.domain.services.research_service import ResearchService
+from traderos.domain.services.risk_service import DEFAULT_DAILY_LOSS_PCT
+from traderos.domain.services.risk_service import PerUserRiskProfile
+from traderos.domain.services.risk_service import PerUserRiskResolver
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
@@ -147,6 +150,7 @@ def build_orchestrator(
         max_gross_exposure=float(cfg.get("risk.max_gross_exposure", 1.0)),
         max_data_staleness_seconds=float(cfg.get("risk.max_data_staleness_seconds", 300.0)),
         allowed_markets=_resolve_allowed_markets(cfg),
+        user_resolver=_resolve_per_user_profiles(cfg),
     )
     portfolio_service.risk_service = risk_service
     webhook_notifier = WebhookNotifier()
@@ -418,6 +422,7 @@ def build_orchestrator(
         operator_session=operator_session,
         live_readiness=live_readiness,
         secret_rotator=secret_rotator,
+        trading_user_id=cfg.get("risk.operator_user_id", None),
         knowledge_graph=knowledge_graph,
         research=research,
         flatten_service=FlattenService(
@@ -481,6 +486,41 @@ def _resolve_allowed_markets(cfg: Config) -> frozenset[uuid.UUID]:
     return frozenset(
         uuid.uuid5(uuid.NAMESPACE_DNS, f"traderos/{s}") for s in symbols if isinstance(s, str)
     )
+
+
+def _resolve_per_user_profiles(cfg: Config) -> PerUserRiskResolver:
+    """Resolve ``risk.per_users`` (list of per-trader rail dicts) to a resolver.
+
+    Each entry is ``{user_id, max_gross_exposure, max_position_size,
+    max_positions_total, daily_loss_pct, allowed_markets, engaged}``. An empty
+    or absent list yields a resolver that fails closed for every user (no
+    profile == denied), which is the safe default: per-user rails are opt-in and
+    never silently open.
+    """
+    entries = cfg.get("risk.per_users", [])
+    profiles: dict[str, PerUserRiskProfile] = {}
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            uid = entry.get("user_id")
+            if not isinstance(uid, str) or not uid:
+                continue
+            allowed = frozenset(
+                uuid.uuid5(uuid.NAMESPACE_DNS, f"traderos/{s}")
+                for s in entry.get("allowed_markets", [])
+                if isinstance(s, str)
+            )
+            profiles[uid] = PerUserRiskProfile(
+                user_id=uid,
+                max_gross_exposure=float(entry.get("max_gross_exposure", 1.0)),
+                max_position_size=float(entry.get("max_position_size", 0.25)),
+                max_positions_total=int(entry.get("max_positions_total", 10)),
+                daily_loss_pct=float(entry.get("daily_loss_pct", DEFAULT_DAILY_LOSS_PCT)),
+                allowed_markets=allowed,
+                engaged=bool(entry.get("engaged", False)),
+            )
+    return PerUserRiskResolver(profiles)
 
 
 def _build_secret_rotator(

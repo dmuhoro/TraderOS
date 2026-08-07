@@ -40,6 +40,40 @@ class TradeVerdict(NamedTuple):
     reason: str
 
 
+@dataclass(frozen=True)
+class PerUserRiskProfile:
+    """Per-trader risk rails (B2).
+
+    Fail-closed: every cap has a conservative non-unlimited default, so a user
+    who has no explicit profile still gets bounded risk — never an open
+    allowance.
+    """
+
+    user_id: str
+    max_gross_exposure: float = 1.0
+    max_position_size: float = 0.25
+    max_positions_total: int = 10
+    daily_loss_pct: float = DEFAULT_DAILY_LOSS_PCT
+    allowed_markets: frozenset[uuid.UUID] = frozenset()
+    engaged: bool = False
+
+
+class PerUserRiskResolver:
+    """Resolves a per-user risk profile; unknown users fail closed.
+
+    ``profiles`` maps a user_id to its rails. A user with no entry is resolved
+    to a conservative default profile (bounded, never unlimited) and the
+    ``enabled`` flag reflects that an explicit profile was found. When a user is
+    unknown the caller (RiskService) denies.
+    """
+
+    def __init__(self, profiles: dict[str, PerUserRiskProfile] | None = None) -> None:
+        self._profiles = profiles or {}
+
+    def resolve(self, user_id: str) -> PerUserRiskProfile | None:
+        return self._profiles.get(user_id)
+
+
 @dataclass
 class KillSwitch:
     consecutive_failures: int = 0
@@ -106,8 +140,34 @@ class RiskService:
     max_data_staleness_seconds: float = 300.0
     audit: AuditPort | None = None
     metrics: MetricsPort | None = None
+    user_resolver: PerUserRiskResolver | None = None
 
-    def can_trade(self, positions: list[Position]) -> TradeVerdict:
+    def _resolve_user(self, user_id: str | None) -> PerUserRiskProfile | None:
+        if self.user_resolver is None or user_id is None:
+            return None
+        return self.user_resolver.resolve(user_id)
+
+    def _audit_user(self, blocked: bool, user_id: str | None, reason: str) -> None:
+        actor = user_id or "system"
+        action = "risk.user_order_blocked" if blocked else "risk.user_allow"
+        if self.audit:
+            self.audit.record(action, actor, "trading", reason)
+        if self.metrics:
+            self.metrics.counter(action if blocked else "risk.order_allowed", 1.0)
+
+    def can_trade(self, positions: list[Position], user_id: str | None = None) -> TradeVerdict:
+        profile = self._resolve_user(user_id)
+        if user_id is not None and self.user_resolver is not None and profile is None:
+            reason = "No per-user risk profile configured for this trader"
+            self._audit_user(True, user_id, reason)
+            return TradeVerdict(False, reason)
+        if profile is not None and profile.engaged:
+            reason = "Kill switch engaged for this trader"
+            self._audit_user(True, user_id, reason)
+            return TradeVerdict(False, reason)
+        effective_max_positions = (
+            profile.max_positions_total if profile else self.max_positions_total
+        )
         verdict = self.kill_switch.can_trade()
         if not verdict.allowed:
             if self.audit:
@@ -122,8 +182,8 @@ class RiskService:
             if self.metrics:
                 self.metrics.counter("circuit_breaker.tripped", 1.0)
             return TradeVerdict(False, reason)
-        if len(positions) >= self.max_positions_total:
-            reason = f"Max positions ({self.max_positions_total}) reached"
+        if len(positions) >= effective_max_positions:
+            reason = f"Max positions ({effective_max_positions}) reached"
             if self.audit:
                 self.audit.record("risk.position_limit", "system", "trading", reason)
             return TradeVerdict(False, reason)
@@ -144,6 +204,7 @@ class RiskService:
         existing_gross_exposure: float = 0.0,
         last_candle_at: datetime | None = None,
         now: datetime | None = None,
+        user_id: str | None = None,
     ) -> TradeVerdict:
         """Per-order fail-closed gate at the live submission boundary.
 
@@ -154,26 +215,47 @@ class RiskService:
         total gross exposure past ``max_gross_exposure`` of equity. An
         unconfigured daily loss limit defaults to a conservative share of
         equity (``daily_loss_pct``), never unlimited.
+
+        When ``user_id`` is given and a per-user resolver is configured, the
+        trader's own rails (daily loss, allowlist, position size, gross
+        exposure) apply; an unknown trader is denied (fail-closed) and every
+        verdict is attributed to the ``user_id`` in the audit trail.
         """
+        profile = self._resolve_user(user_id)
+        if user_id is not None and self.user_resolver is not None and profile is None:
+            reason = "No per-user risk profile configured for this trader"
+            self._audit_user(True, user_id, reason)
+            return TradeVerdict(False, reason)
+        if profile is not None and profile.engaged:
+            reason = "Kill switch engaged for this trader"
+            self._audit_user(True, user_id, reason)
+            return TradeVerdict(False, reason)
         if equity <= 0:
             return self._block_order(
-                market_id, side, f"Cannot size order against non-positive equity: {equity}"
+                market_id,
+                side,
+                f"Cannot size order against non-positive equity: {equity}",
+                user_id=user_id,
             )
+        eff_daily_loss_pct = profile.daily_loss_pct if profile else self.daily_loss_pct
         daily_limit = self.kill_switch.daily_loss_limit
         if daily_limit is None:
-            daily_limit = equity * self.daily_loss_pct
+            daily_limit = equity * eff_daily_loss_pct
         realized = abs(self.kill_switch.daily_realized_pnl)
         if realized >= daily_limit:
             return self._block_order(
                 market_id,
                 side,
                 f"Daily loss limit reached: {realized:.2f} >= {daily_limit:.2f}",
+                user_id=user_id,
             )
-        if self.allowed_markets and market_id not in self.allowed_markets:
+        eff_allowed = profile.allowed_markets if profile else self.allowed_markets
+        if eff_allowed and market_id not in eff_allowed:
             return self._block_order(
                 market_id,
                 side,
                 f"Market {market_id} is not on the configured allowlist",
+                user_id=user_id,
             )
         if last_candle_at is not None and now is not None:
             staleness = (now - last_candle_at).total_seconds()
@@ -183,41 +265,52 @@ class RiskService:
                     side,
                     f"Market data stale: last candle {staleness:.0f}s old "
                     f"(threshold {self.max_data_staleness_seconds:.0f}s)",
+                    user_id=user_id,
                 )
         notional = quantity * price
-        cap = equity * self.max_position_size
+        eff_max_pos = profile.max_position_size if profile else self.max_position_size
+        cap = equity * eff_max_pos
         if notional > cap:
             return self._block_order(
                 market_id,
                 side,
                 f"Order notional {notional:.2f} exceeds max_position_size "
-                f"({self.max_position_size} of equity = {cap:.2f})",
+                f"({eff_max_pos} of equity = {cap:.2f})",
+                user_id=user_id,
             )
-        gross_cap = equity * self.max_gross_exposure
+        eff_gross = profile.max_gross_exposure if profile else self.max_gross_exposure
+        gross_cap = equity * eff_gross
         total_exposure = existing_gross_exposure + notional
         if existing_gross_exposure > gross_cap:
             return self._block_order(
                 market_id,
                 side,
                 f"Portfolio gross exposure {existing_gross_exposure:.2f} already "
-                f"exceeds cap ({self.max_gross_exposure} of equity = {gross_cap:.2f})",
+                f"exceeds cap ({eff_gross} of equity = {gross_cap:.2f})",
+                user_id=user_id,
             )
         if total_exposure > gross_cap:
             return self._block_order(
                 market_id,
                 side,
                 f"Order would push gross exposure to {total_exposure:.2f}, "
-                f"over cap ({self.max_gross_exposure} of equity = {gross_cap:.2f})",
+                f"over cap ({eff_gross} of equity = {gross_cap:.2f})",
+                user_id=user_id,
             )
         verdict = self.kill_switch.can_trade()
         if not verdict.allowed:
             return verdict
+        if user_id is not None and self.user_resolver is not None:
+            self._audit_user(False, user_id, f"order {market_id} allowed")
         return TradeVerdict(True, "")
 
-    def _block_order(self, market_id: uuid.UUID, side: str, reason: str) -> TradeVerdict:
+    def _block_order(
+        self, market_id: uuid.UUID, side: str, reason: str, user_id: str | None = None
+    ) -> TradeVerdict:
+        actor = user_id or "system"
         detail = f"side={side} market={market_id} reason={reason}"
         if self.audit:
-            self.audit.record("risk.order_blocked", "system", "trading", detail)
+            self.audit.record("risk.order_blocked", actor, "trading", detail)
         if self.metrics:
             self.metrics.counter("risk.order_blocked", 1.0)
         return TradeVerdict(False, reason)

@@ -67,6 +67,7 @@ class CycleExecutor:
         knowledge_graph: KnowledgeGraphService | None = None,
         research: ResearchService | None = None,
         flatten_service: FlattenService | None = None,
+        trading_user_id: str | None = None,
     ) -> None:
         self._mode = mode
         self._signal_service = signal_service
@@ -89,6 +90,7 @@ class CycleExecutor:
         self._knowledge_graph = knowledge_graph
         self._research = research
         self._flatten_service = flatten_service
+        self._trading_user_id = trading_user_id
 
     def _record_causal(
         self,
@@ -291,7 +293,9 @@ class CycleExecutor:
                                     errors.append(f"{name}: preflight: {f}")
                                 continue
                         positions = self._portfolio_service.get_summary(0).open_positions
-                        verdict = self._risk_service.can_trade(positions)
+                        verdict = self._risk_service.can_trade(
+                            positions, user_id=self._trading_user_id
+                        )
                         if not verdict.allowed:
                             if (
                                 self._flatten_service is not None
@@ -346,6 +350,7 @@ class CycleExecutor:
                             ),
                             last_candle_at=candles[-1].timestamp if candles else None,
                             now=candle_time or datetime.now(UTC),
+                            user_id=self._trading_user_id,
                         )
                         if not authorization.allowed:
                             errors.append(f"{name}: order blocked: {authorization.reason}")
