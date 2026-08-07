@@ -76,6 +76,48 @@ class TestServiceFactory:
         orch.stop()
         assert not orch.secret_rotator._bg_thread.is_alive()
 
+    def test_secret_rotator_brings_real_audit_and_metrics(self, monkeypatch) -> None:
+        """A6: the rotator must be wired to the orchestrator's real audit/metrics
+        so secret access/rotation is genuinely persisted on the production path
+        (not an isolated unit-test-only behaviour)."""
+        orch = build_orchestrator(mode="paper")
+        assert orch.secret_rotator is not None
+        assert orch.secret_rotator._audit is orch.audit
+        assert orch.secret_rotator._metrics is orch.metrics
+        monkeypatch.setenv("A6_DRILL_KEY", "some-secret-value")
+        orch.secret_rotator.get("A6_DRILL_KEY")
+        monkeypatch.setenv("A6_DRILL_KEY", "rotated-value")
+        orch.secret_rotator.rotate("A6_DRILL_KEY")
+        actions = [e.action for e in orch.audit.get_entries(limit=100)]
+        assert "secret.accessed" in actions
+        assert "secret.rotated" in actions
+        assert orch.metrics.get_counter("secret.accessed.read.provider") > 0
+        assert orch.metrics.get_counter("secret.rotated") > 0
+
+    def test_live_mode_fails_closed_without_broker_credentials(self, monkeypatch) -> None:
+        """A6 fail-closed gate: LIVE must never silently degrade to paper when
+        broker credentials are absent via the secret manager/env."""
+        monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+        monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="ALPACA_API_KEY and ALPACA_SECRET_KEY"):
+            build_orchestrator(mode="live")
+
+    def test_live_mode_papers_never_a_fallback(self, monkeypatch) -> None:
+        """A6: with credentials present but an unusable adapter, LIVE raises
+        rather than surfacing PaperBrokerAdapter (fail-closed, no silent demotion)."""
+        monkeypatch.setenv("ALPACA_API_KEY", "AK")
+        monkeypatch.setenv("ALPACA_SECRET_KEY", "SK")
+        monkeypatch.setenv("ALPACA_PAPER", "false")
+        import traderos.infrastructure.alpaca_broker as _ab
+
+        monkeypatch.setattr(
+            _ab,
+            "_TradingClient",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("cannot reach broker")),
+        )
+        with pytest.raises(RuntimeError, match="LIVE broker init failed"):
+            build_orchestrator(mode="live")
+
     def test_all_services_wired(self) -> None:
         orch = build_orchestrator(mode="paper")
         assert orch.analysis is not None
@@ -178,3 +220,60 @@ class TestPostgresParityDrill:
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "VERDICT: PASS" in proc.stdout
         assert "in_memory_fallback=No" in proc.stdout
+
+
+class TestSecretLifecycleDrill:
+    """A6 suite lock: the secret-lifecycle + fail-closed live drill must pass.
+    In-memory only (no network), so it runs unconditionally in CI."""
+
+    def test_secret_lifecycle_drill_passes(self) -> None:
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[2]
+            / "scripts"
+            / "evidence"
+            / "run_secret_lifecycle_drill.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[2],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout
+        for name in ("access_audited", "rotation_audited_versioned", "live_requires_credentials"):
+            assert f"[PASS] {name}" in proc.stdout
+
+
+class TestOnCallTransportDrill:
+    """A7 suite lock: the severity-routed on-call transport drill must pass.
+    Uses a real loopback HTTP server (no external network), so it runs in CI."""
+
+    def test_oncall_transport_drill_passes(self) -> None:
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            Path(__file__).resolve().parents[2] / "scripts" / "evidence" / "run_oncall_drill.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[2],
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "VERDICT: PASS" in proc.stdout
+        for name in (
+            "severity_routing",
+            "delivered_on_2xx",
+            "fail_closed_critical",
+        ):
+            assert f"[PASS] {name}" in proc.stdout

@@ -8,6 +8,7 @@ from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from enum import Enum
+from typing import Any
 from typing import NamedTuple
 
 from traderos.domain.ports import NotifierPort
@@ -42,6 +43,7 @@ class NotificationService:
     )
     log: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
     notifier: NotifierPort | None = None
+    oncall: Any | None = None
 
     def send(
         self,
@@ -66,6 +68,8 @@ class NotificationService:
             self._send_file(event)
         elif ch == NotificationChannel.WEBHOOK:
             self._send_webhook(event)
+        if self.oncall is not None:
+            self.oncall.route(event.level, event.title, event.message, event.metadata)
         return event
 
     def info(
