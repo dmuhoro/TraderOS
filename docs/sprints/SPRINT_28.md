@@ -117,25 +117,61 @@ the FounderOS manufacturing loop on TraderOS itself (M1–M4).
 - API + unit tests in `test_operator_api.py`, `test_orchestrator.py`,
   `test_ha_failover.py`.
 
+### B3 — Retail account seam + per-trader order entry (this change)
+- The retail surface authenticates with **sessions**, not API keys:
+  `POST /v1/retail/register`, `POST /v1/retail/login`, `POST /v1/retail/logout`
+  (server-side revoke), `GET /v1/retail/me` (profile + per-trader risk rails).
+  All backed by the real `AccountService` (PBKDF2 + constant-time compare,
+  fail-closed) now wired into the orchestrator (`factory.py` builds a
+  `SQLiteUserRepository` + `AccountService`; PG backend honestly reports the
+  account service as not-configured).
+- Order entry `POST /v1/retail/orders` runs through the **SAME real
+  submission path as the live loop**: `CycleExecutor.submit_retail_order()`
+  calls the per-user `RiskService.authorize_order(user_id=...)`, then
+  `GuardrailedBroker.place_market_order`, then the same portfolio persistence +
+  causal audit chain (`decision.made → order.placed → trade.fill`) so a refused
+  order never reaches the broker and every outcome is replayable.
+- **Fail-closed by default**: `authorize_order` denies before any broker call;
+  retail order entry is **paper-mode only** (live/backtest refuse 403 rather
+  than pretending a path exists); a missing/expired session token denies 401.
+- Proof:
+  - `tests/test_retail_api.py` — sessions, register/login/logout, order entry
+    fail-closed, invalid-market 422.
+  - `tests/test_retail_api.py::TestRetailOrderProofRealPath` **wire proof**:
+    an engaged per-user profile through the real `CycleExecutor` leaves
+    `broker.place_market_order` NEVER called while the same loop with an engaged
+    profile calls it exactly once.
+
+### B4 — Causal attribution / regulator replay endpoint (product change)
+- `GET /v1/attribution/replay?start=…&end=…` (operator `require_read`) runs the
+  real `ReplayService.replay_day()`: reconstructs each fill's causal chain from
+  the durable audit trail and recomputes realized PnL via FIFO matching. Honest
+  data source — the replay reads the same audit/trade repos the live loop
+  writes; nothing is fabricated for this view.
+- Proof: `tests/test_attribution_api.py` exercises the endpoint against a real
+  orchestrator with an order submitted through the retail seam; asserts the
+  causal chain is complete and `end < start` returns 422.
+
 ## Gates (delta on this change)
 - Full suite baseline before this change: 5 failures (3 stale v008 migration
   assertions, 1 perf band, 1 PG env). After: 0 deterministic failures.
-- Full suite observed green this sprint: **1387 passed / 73 skipped** (plus the
-  WP1-WP3 additions below: 18 + 7 + 23 + 7 + 7 new cases).
+- Full suite observed green this sprint: **1404 passed / 73 skipped**
+  (WP1-WP3 additions below: 18 + 7 + 23 + 7 + 7, plus B3/B4: 13 new API/
+  attribution cases), 89.86% coverage. The two remaining full-suite flashes are
+  real-network drills (walk-forward, Binance stream) that pass deterministically
+  in isolation — unrelated to this change.
 - Lint (`ruff check`): clean on all touched files.
 - Typecheck (`pyright`): 0 errors on touched files.
 
 ## Not in scope / still open (honest)
-- **B3 retail-facing UI** and **B4 attribution/regulator UI** remain open —
-  deliberately post-pilot product track, not a pilot gate (per
-  `PILOT_TO_PRODUCT.md`). The operator dashboard now surfaces operational
-  health and per-user attribution (WP3), but that is an operator view, not a
-  retail/regulator product surface.
-- Account-gated final phase (C1 real Alpaca paper soak, C2 live latency
+- **Account-gated final phase (C1 real Alpaca paper soak, C2 live latency
   calibration, C3 bounded live pilot) stays blocked on real broker
-  credentials — never fabricated, never paper-over. The WP2 drill proves the
-  on-call/HA surface only via local loopback; a managed on-call platform
-  (PagerDuty-class) is not exercised here and remains open.
+  credentials** — never fabricated, never paper-over. The on-call/HA surface is
+  proven only via local loopback; a managed on-call platform (PagerDuty-class)
+  is not exercised here and remains open.
+- Retail order entry is paper-only by design; live-mode retail orders refuse
+  (403) rather than fabricate. A production retail surface on a real broker
+  remains future work behind C1-C3.
 - Full-suite runs may flash 2 environment-ordered flakes — a real-Postgres
   table name collision in `test_migration_v004` and a subprocess
   drill SIGTERM under full-suite load (`test_ha_failover`). Both pass

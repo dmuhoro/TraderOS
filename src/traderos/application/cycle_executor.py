@@ -8,6 +8,7 @@ from datetime import UTC
 from datetime import datetime
 
 from traderos.application.models import CycleResult
+from traderos.application.models import RetailOrderResult
 from traderos.application.models import TradingMode
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.entities.trade import TradeSide
@@ -491,6 +492,156 @@ class CycleExecutor:
         )
 
         return CycleResult(market_id, signals_count, trades_count, errors, duration, t)
+
+    def submit_retail_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        close_price: float,
+        *,
+        user_id: str | None,
+        client_order_id: str | None = None,
+    ) -> RetailOrderResult:
+        """Order entry for the retail seam (B3).
+
+        Mirrors the live cycle submission path exactly: the SAME risk gate
+        (per-user authorize), the SAME broker (guardrail + rate-limit + journal
+        wrappers), the SAME portfolio persistence and the SAME causal audit
+        chain (decision.made -> order.placed -> trade.fill) so a refused retail
+        order never reaches the broker and every outcome is replayable.
+        """
+        cash = self._cash_balance()
+        signal_id = uuid.uuid4()
+        summary = self._portfolio_service.get_summary(cash)
+        equity = summary.total_equity
+        existing_gross = sum(
+            abs(float(p.quantity)) * float(p.current_price) for p in summary.open_positions
+        )
+        authorization = self._risk_service.authorize_order(
+            market_id=market_id,
+            side=side,
+            quantity=quantity,
+            price=close_price,
+            equity=equity,
+            existing_gross_exposure=existing_gross,
+            last_candle_at=None,
+            now=datetime.now(UTC),
+            user_id=user_id,
+        )
+        if not authorization.allowed:
+            self._record_causal(
+                "decision.made",
+                market_id,
+                "retail",
+                outcome="blocked",
+                reason=authorization.reason,
+                side=side,
+                qty=quantity,
+                price=close_price,
+                signal_id=str(signal_id),
+            )
+            self._metrics.counter("retail.orders.blocked")
+            self._audit.record(
+                "retail.order.blocked",
+                "retail",
+                "strategy",
+                json.dumps(
+                    {
+                        "market_id": str(market_id),
+                        "side": side,
+                        "qty": quantity,
+                        "user_id": user_id,
+                        "reason": authorization.reason,
+                        "signal_id": str(signal_id),
+                        "now": datetime.now(UTC).isoformat(),
+                    },
+                    default=str,
+                ),
+            )
+            return RetailOrderResult(False, authorization.reason, None, signal_id=str(signal_id))
+
+        final_id = client_order_id or str(uuid.uuid4())
+        self._record_causal(
+            "decision.made",
+            market_id,
+            "retail",
+            outcome="allowed",
+            side=side,
+            qty=quantity,
+            price=close_price,
+            user_id=user_id or "",
+            signal_id=str(signal_id),
+            client_order_id=final_id,
+        )
+        fill = self._broker.place_market_order(
+            market_id,
+            side,
+            quantity,
+            close_price=close_price,
+            client_order_id=final_id,
+        )
+        self._record_causal(
+            "order.placed",
+            market_id,
+            "retail",
+            side=side,
+            qty=quantity,
+            price=close_price,
+            status="filled" if fill.filled else "not_filled",
+            order_id=str(fill.order_id) if fill.order_id else "",
+            client_order_id=final_id,
+            broker_filled_quantity=fill.fill_quantity,
+            broker_filled_price=fill.fill_price,
+            signal_id=str(signal_id),
+        )
+        order_id: str | None = None
+        if fill.filled:
+            trade = self._portfolio_service.open_trade(
+                signal_id=signal_id,
+                market_id=market_id,
+                side=TradeSide.BUY if side == "buy" else TradeSide.SELL,
+                quantity=fill.fill_quantity,
+                price=fill.fill_price,
+            )
+            if fill.order_id:
+                trade.submit(str(fill.order_id))
+                self._portfolio_service.update_trade(trade)
+            self._portfolio_service.fill_trade(trade, fill_price=fill.fill_price)
+            order_id = str(fill.order_id or trade.id)
+            self._record_causal(
+                "trade.fill",
+                market_id,
+                "retail",
+                trade_id=str(trade.id),
+                side=side,
+                qty=fill.fill_quantity,
+                price=fill.fill_price,
+                filled_at=trade.filled_at.isoformat() if trade.filled_at else "",
+                user_id=user_id or "",
+                signal_id=str(signal_id),
+                strategy="retail-manual",
+            )
+            self._event_bus.publish(
+                Event(
+                    "trade.executed",
+                    {
+                        "market_id": str(market_id),
+                        "side": side,
+                        "qty": fill.fill_quantity,
+                        "price": fill.fill_price,
+                        "source": "retail",
+                        "user_id": user_id or "",
+                    },
+                )
+            )
+            self._risk_service.kill_switch.record_success()
+            self._metrics.counter("retail.orders.filled")
+        else:
+            self._risk_service.kill_switch.record_failure()
+            self._metrics.counter("retail.orders.rejected")
+
+        return RetailOrderResult(True, authorization.reason, order_id)
 
     def _cash_balance(self) -> float:
         if self._mode == TradingMode.LIVE:

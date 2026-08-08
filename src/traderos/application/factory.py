@@ -14,6 +14,7 @@ from traderos.domain.collectors.base import CollectorType
 from traderos.domain.exceptions import InfrastructureError
 from traderos.domain.ports import AuditPort
 from traderos.domain.ports import MetricsPort
+from traderos.domain.services.account_service import AccountService
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.broker_state_reconciliation_service import (
@@ -127,6 +128,7 @@ def build_orchestrator(
     signal_service = SignalService(repo=signal_repo)
     persistent_kill_switch = PersistentKillSwitch()
     portfolio_service = PortfolioService(trade_repo=trade_repo, position_repo=pos_repo)
+
     execution = ExecutionService()
     analysis = AnalysisService()
     event_bus = InMemoryEventBus()
@@ -146,6 +148,16 @@ def build_orchestrator(
         audit = InMemoryAuditService()
         metrics = InMemoryMetricsService()
         run_manifest = InMemoryManifestService()
+
+    account_service: AccountService | None = None
+    if backend != PG_BACKEND:
+        from traderos.infrastructure.repositories.sqlite.users import SQLiteUserRepository
+
+        account_repo_conn = db if db is not None else get_connection(cfg)
+        account_service = AccountService(
+            SQLiteUserRepository(account_repo_conn),
+            audit=audit,
+        )
     secret_rotator = _build_secret_rotator(audit, metrics)
     risk_service = RiskService(
         persistent_kill_switch=persistent_kill_switch,
@@ -429,6 +441,7 @@ def build_orchestrator(
         operator_workflow=operator_workflow,
         strategy_catalog=strategy_catalog,
         operator_session=operator_session,
+        account_service=account_service,
         live_readiness=live_readiness,
         secret_rotator=secret_rotator,
         trading_user_id=cfg.get("risk.operator_user_id", None),

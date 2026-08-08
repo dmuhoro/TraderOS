@@ -138,6 +138,14 @@ class AccountService:
             return None
         return self._repo.get_user(session.user_id)
 
+    def revoke_session(self, raw_token: str) -> None:
+        """Invalidate a session token server-side (fail-closed logout)."""
+        if not raw_token:
+            return
+        session = self._repo.get_session(self._hash_token(raw_token))
+        if session is not None:
+            self._repo.delete_session(session.token_hash)
+
     # --- per-user API keys ---
     def issue_api_key(self, user: User, label: str) -> tuple[str, UserApiKey] | None:
         if user.status != UserStatus.ACTIVE:

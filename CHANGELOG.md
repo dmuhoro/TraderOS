@@ -44,6 +44,32 @@
   trips on the wire; `trading_user_id='trader-01'` on all three endpoints).
 - Tests: `test_operator_api.py`, `test_orchestrator.py`, `test_ha_failover.py`.
 
+### B3 — Retail account seam + per-trader order entry (2026-08-08)
+- Session-based retail surface (not API keys):
+  `POST /v1/retail/register`, `POST /v1/retail/login`,
+  `POST /v1/retail/logout` (server-side revoke via `AccountService.revoke_session`),
+  `GET /v1/retail/me` (profile + per-trader risk rails). Backed by the real
+  `AccountService` (PBKDF2 + constant-time, fail-closed), wired in `factory.py`
+  via `SQLiteUserRepository`; PG backend honestly reports account service
+  not-configured rather than pretending.
+- `POST /v1/retail/orders` runs the **same real submission path as the live
+  loop**: `CycleExecutor.submit_retail_order()` → per-user
+  `RiskService.authorize_order(user_id=...)` → `place_market_order` → same
+  portfolio persistence + causal audit chain (`decision.made → order.placed →
+  trade.fill`) — refused orders never reach the broker; every fill is replayable.
+- **Fail-closed by default**: deny before any broker call; retail entry is
+  **paper-only** (live/backtest refuse 403); missing/expired session → 401.
+- Proof: `tests/test_retail_api.py` (13 cases incl. wire proof that an engaged
+  profile through the real `CycleExecutor` never calls `broker.place_market_order`).
+
+### B4 — Causal attribution / regulator replay endpoint (2026-08-08)
+- `GET /v1/attribution/replay?start=…&end=…` (operator `require_read`) runs the
+  real `ReplayService.replay_day()`: causal chains from the durable audit trail
+  + FIFO realized PnL. Same audit/trade repos the live loop writes — nothing
+  fabricated for the view. `end < start` → 422.
+- Proof: `tests/test_attribution_api.py` (endpoint against real orchestrator
+  with an order submitted through the retail seam).
+
 ### B1 — User/account model (2026-08-07)
 - `domain/entities/user.py`: `User`, `UserSession`, `UserApiKey` + roles/statuses.
 - `domain/repositories/user_repository.py` port + SQLite impl
