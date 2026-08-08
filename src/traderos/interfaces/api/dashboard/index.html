@@ -71,11 +71,27 @@
       </div>
     </section>
 
+    <section class="panel" id="ops-panel">
+      <h2>Operational health</h2>
+      <div class="metrics">
+        <div class="metric"><span class="k">HA role</span><span class="v" id="ops-ha">-</span></div>
+        <div class="metric"><span class="k">HA lease</span><span class="v" id="ops-lease">-</span></div>
+        <div class="metric"><span class="k">On-call</span><span class="v" id="ops-oncall">-</span></div>
+        <div class="metric"><span class="k">On-call deliveries</span><span class="v" id="ops-oncall-del">-</span></div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><span class="k">Trading user</span><span class="v" id="ops-user">-</span></div>
+        <div class="metric"><span class="k">Secrets</span><span class="v" id="ops-secrets">-</span></div>
+        <div class="metric"><span class="k">Rotation versions</span><span class="v" id="ops-versions">-</span></div>
+        <div class="metric"><span class="k">Secret accesses</span><span class="v" id="ops-access">-</span></div>
+      </div>
+    </section>
+
     <section class="panel span-2" id="positions-panel">
       <h2>Positions</h2>
       <table>
-        <thead><tr><th>Market</th><th>Qty</th><th>Entry</th><th>Current</th><th>PnL</th><th>Realized</th></tr></thead>
-        <tbody id="positions-body"><tr><td colspan="6" class="empty">no positions</td></tr></tbody>
+        <thead><tr><th>User</th><th>Market</th><th>Qty</th><th>Entry</th><th>Current</th><th>PnL</th><th>Realized</th></tr></thead>
+        <tbody id="positions-body"><tr><td colspan="7" class="empty">no positions</td></tr></tbody>
       </table>
     </section>
 
@@ -90,8 +106,8 @@
     <section class="panel span-2" id="trades-panel">
       <h2>Trades</h2>
       <table>
-        <thead><tr><th>Time</th><th>Market</th><th>Side</th><th>Qty</th><th>Price</th><th>Status</th></tr></thead>
-        <tbody id="trades-body"><tr><td colspan="6" class="empty">no trades</td></tr></tbody>
+        <thead><tr><th>Time</th><th>User</th><th>Market</th><th>Side</th><th>Qty</th><th>Price</th><th>Status</th></tr></thead>
+        <tbody id="trades-body"><tr><td colspan="7" class="empty">no trades</td></tr></tbody>
       </table>
     </section>
 

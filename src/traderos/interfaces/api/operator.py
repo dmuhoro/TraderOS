@@ -171,6 +171,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
         orch = orch_provider()
         positions = orch.portfolio_service.position_repo.list()
         return {
+            "trading_user_id": orch.trading_user_id,
             "positions": [
                 {
                     "id": str(p.id),
@@ -183,14 +184,14 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
                     "updated_at": p.updated_at.isoformat(),
                 }
                 for p in positions
-            ]
+            ],
         }
 
     @router.get("/orders", dependencies=[Depends(require_read)])
     def get_orders():
         orch = orch_provider()
         open_orders = orch.broker.get_open_orders()
-        return {"orders": open_orders}
+        return {"trading_user_id": orch.trading_user_id, "orders": open_orders}
 
     @router.get("/trades", dependencies=[Depends(require_read)])
     def get_trades(limit: int = 100):
@@ -201,6 +202,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             reverse=True,
         )[:limit]
         return {
+            "trading_user_id": orch.trading_user_id,
             "trades": [
                 {
                     "id": str(t.id),
@@ -215,7 +217,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
                     "created_at": t.created_at.isoformat(),
                 }
                 for t in trades
-            ]
+            ],
         }
 
     @router.get("/portfolio", dependencies=[Depends(require_read)])

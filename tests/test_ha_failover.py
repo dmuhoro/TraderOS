@@ -110,6 +110,38 @@ class TestLeaseSemantics:
         a.release()
         assert b.try_acquire_leadership() is True
 
+    def test_status_reflects_durable_lease_state(self, tmp_path) -> None:
+        """``status()`` must read the real in-process signal AND the durable
+        lease store — a standby sees who actually holds the lease, and the
+        reported action is the last line written, never fabricated."""
+        store = LeaseStore(tmp_path / "lease.jsonl")
+        clock = _FakeClock()
+        a = FailoverManager(
+            store=store,
+            notifications=Mock(),
+            audit=Mock(),
+            stale_after_seconds=90.0,
+            owner="alice",
+            now_fn=clock,
+        )
+        before = a.status()
+        assert before["leading"] is False
+        assert before["last_lease"] is None
+        a.try_acquire_leadership()
+        after = a.status()
+        assert after["leading"] is True
+        assert after["owner"] == "alice"
+        assert after["last_lease"]["action"] == "acquire"
+        assert after["last_lease"]["owner"] == "alice"
+        assert "lease_path" in after
+
+        # A second process on the same store sees a non-empty durable lease
+        # and correctly reports itself as non-leading standby.
+        b = _manager(tmp_path / "lease.jsonl", clock, "bob")
+        b_status = b.status()
+        assert b_status["leading"] is False
+        assert b_status["last_lease"]["action"] == "acquire"
+
 
 class _CountBroker(BrokerAdapter):
     def __init__(self) -> None:

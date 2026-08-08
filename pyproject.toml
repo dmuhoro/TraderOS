@@ -8,6 +8,7 @@ dependencies = [
     "pandas==3.0.5",
     "PyYAML==6.0.3",
     "python-dotenv==1.2.2",
+    "requests==2.32.4",
     "matplotlib==3.11.1",
     "seaborn==0.13.2",
     "tabulate==0.10.0",
@@ -70,6 +71,10 @@ ignore = ["I001"]
 "src/traderos/interfaces/cli/main.py" = ["BLE001", "PLR1722"]
 "tests/test_sprint9_infrastructure.py" = ["E501", "E702", "FURB157"]
 "tests/performance/test_sprint9_benchmarks.py" = ["E501"]
+"scripts/evidence/run_oncall_drill.py" = ["N802"]
+"scripts/evidence/run_operational_health_drill.py" = ["N802"]
+"scripts/evidence/run_trigger_alerting_drill.py" = ["N802"]
+"tests/test_trigger_alerting.py" = ["N802"]
 
 [tool.ruff.lint.isort]
 force-single-line = true

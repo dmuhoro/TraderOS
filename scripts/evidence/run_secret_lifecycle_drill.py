@@ -15,12 +15,12 @@ production:
   degrades to paper; with credentials present but an unusable adapter it also
   refuses rather than demoting.
 
-Honest scope: a real HashiCorp Vault / cloud KMS holding live broker keys, with
-real rotation against a running service, is account-vendor-gated and not present
-in this sandbox (no Vault, no KMS, no broker credentials). This drill therefore
-proves everything locally provable — the rotator-to-audit/metrics production
-wiring and the fail-closed live gate — against the same seams a managed install
-uses, and States that the vendor integration itself remains open.
+Honest scope: this drill proves the rotator-to-audit/metrics production wiring
+and the fail-closed live gate with env-only keys. The real HashiCorp Vault
+KV-v2 integration on the same LIVE boot path is proven separately in
+``run_vault_secret_manager_drill.py`` (`vault_secret_manager_drill.log` 5/5);
+a managed Vault/KMS instance with production rotation cadence remains
+account-vendor-gated.
 
 Run:  PYTHONPATH=src python3 scripts/evidence/run_secret_lifecycle_drill.py
 """

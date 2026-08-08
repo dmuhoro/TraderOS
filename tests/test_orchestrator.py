@@ -125,6 +125,35 @@ class TestTradingOrchestrator:
         assert "metrics" in status
         orch.stop()
 
+    def test_operational_status_defaults(self) -> None:
+        """No failover and no on-call configured must be reported as such —
+        never as protected. `trading_user_id` is surfaced as configured."""
+        orch = self._make()
+        orch.notifications.oncall = None
+        orch.trading_user_id = "trader-1"
+        status = orch.get_status()
+        ops = status["operational"]
+        assert ops["ha"] == {"configured": False, "leading": False}
+        assert ops["oncall"]["configured"] is False
+        assert ops["oncall"]["delivered"] == 0
+        assert ops["oncall"]["delivery_failed"] == 0
+        assert ops["trading_user_id"] == "trader-1"
+
+    def test_operational_status_reflects_live_counters(self) -> None:
+        """The on-call summary must read the same metrics counters the router
+        writes — a real delivery bumps `delivered`, never fabricated."""
+        orch = self._make()
+        orch.notifications.oncall = Mock()
+        orch.notifications.oncall.min_severity = Mock()
+        orch.notifications.oncall.min_severity.value = "critical"
+        orch.metrics.counter("oncall.delivered", 1.0)
+        orch.metrics.counter("oncall.delivery_failed", 1.0)
+        ops = orch.get_status()["operational"]
+        assert ops["oncall"]["configured"] is True
+        assert ops["oncall"]["min_severity"] == "critical"
+        assert ops["oncall"]["delivered"] == 1
+        assert ops["oncall"]["delivery_failed"] == 1
+
     def test_multiple_cycles(self) -> None:
         orch = self._make()
         orch.start()

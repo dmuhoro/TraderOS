@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from traderos.domain.ports import AuditPort
 from traderos.domain.services.notification_service import NotificationLevel
@@ -68,6 +69,10 @@ class LeaseStore:
     def __init__(self, path: Path | str) -> None:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def path(self) -> Path:
+        return self._path
 
     def append(self, record: LeaseRecord) -> None:
         with open(self._path, "a") as f:
@@ -112,6 +117,33 @@ class FailoverManager:
     @property
     def owner(self) -> str:
         return self._owner
+
+    def status(self) -> dict[str, Any]:
+        """Read-only summary of this daemon's failover/leadership state.
+
+        Exposes the live in-process signal (``leading``) and the last durable
+        lease record directly from the store — never derived, never fabricated.
+        An optional lease-holder pid is included so a "live lease" is visibly
+        not this process when a standby is refusing to trade.
+        """
+        last = self._store.last()
+        return {
+            "leading": self.leading,
+            "owner": self._owner,
+            "pid": os.getpid(),
+            "lease_path": str(self._store.path),
+            "stale_after_seconds": self._stale_after,
+            "last_lease": (
+                None
+                if last is None
+                else {
+                    "action": last.action,
+                    "ts": last.ts.isoformat(),
+                    "owner": last.owner,
+                    "pid": last.pid,
+                }
+            ),
+        }
 
     def _lease_is_valid(self, record: LeaseRecord) -> bool:
         if record.action == "release":

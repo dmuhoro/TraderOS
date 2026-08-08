@@ -67,7 +67,7 @@ class _Receiver:
 class _Capture(BaseHTTPRequestHandler):
     receiver: _Receiver = _Receiver()
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
         _Capture.receiver.handle(body)
@@ -80,7 +80,7 @@ class _Capture(BaseHTTPRequestHandler):
 
 
 class _Reject(BaseHTTPRequestHandler):
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", 0))
         self.rfile.read(length)
         self.send_response(503)

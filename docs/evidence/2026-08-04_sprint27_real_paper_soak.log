@@ -1,5 +1,5 @@
 REAL-PAPER SOAK HARNESS — G-02 unattended paper-broker soak
-started 2026-08-06T19:38:44.369239+00:00
+started 2026-08-08T10:39:43.596059+00:00
 FATAL: no ALPACA_API_KEY / ALPACA_SECRET_KEY (paper keys) in env.
 NO-GO: the soak requires real Alpaca paper credentials; the drill refuses to fabricate broker truth without them.
 VERDICT: NO-GO (credentials absent) — harness ready, soak not run

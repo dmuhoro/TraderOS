@@ -207,17 +207,43 @@ function renderPreflight(pf) {
   $("pf-check").style.color = pf.passed ? "var(--green)" : "var(--red)";
 }
 
+function renderOperationalHealth(orch) {
+  const ha = (orch.operational && orch.operational.ha) || { configured: false };
+  $("ops-ha").textContent = ha.configured
+    ? (ha.leading ? "leader" : "standby")
+    : "not configured";
+  $("ops-ha").style.color = ha.configured && ha.leading ? "var(--green)" : ha.configured ? "var(--amber)" : "var(--muted)";
+  const lease = ha.last_lease;
+  $("ops-lease").textContent = lease ? `${lease.action} ${lease.ts}` : (ha.configured ? "no lease" : "-");
+  $("ops-lease").title = ha.configured ? `owner: ${ha.owner}` : "";
+  const oc = (orch.operational && orch.operational.oncall) || { configured: false };
+  $("ops-oncall").textContent = oc.configured ? `routing ≥ ${oc.min_severity}` : "not configured";
+  $("ops-oncall").style.color = oc.configured ? "var(--green)" : "var(--muted)";
+  $("ops-oncall-del").textContent = `${oc.delivered} / ${oc.delivery_failed}`;
+  $("ops-user").textContent = orch.operational && orch.operational.trading_user_id
+    ? orch.operational.trading_user_id
+    : "unattributed";
+  const sec = orch.secret_rotation;
+  const metrics = orch.metrics || {};
+  const accessCount =
+    Number(metrics["secret.accessed.read.cached"] || 0) + Number(metrics["secret.accessed.read.provider"] || 0);
+  $("ops-secrets").textContent = sec ? `rotator: ${sec.total_secrets} secret(s)` : "not configured";
+  $("ops-versions").textContent = sec ? String(Object.keys(sec.versions || {}).length) : "-";
+  $("ops-access").textContent = accessCount ? `${accessCount} access(es)` : "-";
+}
+
 function renderPositions(data) {
+  const user = data.trading_user_id || "-";
   const rows = data.positions || [];
   $("positions-body").innerHTML = rows.length
     ? rows
         .map(
           (p) =>
-            `<tr><td>${esc(p.market_id)}</td><td>${esc(fmt(p.quantity))}</td><td>${esc(fmt(p.entry_price))}</td>` +
+            `<tr><td>${esc(user)}</td><td>${esc(p.market_id)}</td><td>${esc(fmt(p.quantity))}</td><td>${esc(fmt(p.entry_price))}</td>` +
             `<td>${esc(fmt(p.current_price))}</td><td>${fmtMoney(p.pnl)}</td><td>${fmtMoney(p.realized_pnl)}</td></tr>`
         )
         .join("")
-    : `<tr><td colspan="6" class="empty">no positions</td></tr>`;
+    : `<tr><td colspan="7" class="empty">no positions</td></tr>`;
 }
 
 function renderOrders(data) {
@@ -234,16 +260,17 @@ function renderOrders(data) {
 }
 
 function renderTrades(data) {
+  const user = data.trading_user_id || "-";
   const rows = data.trades || [];
   $("trades-body").innerHTML = rows.length
     ? rows
         .map(
           (t) =>
-            `<tr><td>${esc(t.filled_at || t.created_at || "")}</td><td>${esc(t.market_id)}</td><td>${esc(t.side)}</td>` +
+            `<tr><td>${esc(t.filled_at || t.created_at || "")}</td><td>${esc(user)}</td><td>${esc(t.market_id)}</td><td>${esc(t.side)}</td>` +
             `<td>${esc(fmt(t.quantity))}</td><td>${esc(fmt(t.filled_price || t.price))}</td><td>${esc(t.status)}</td></tr>`
         )
         .join("")
-    : `<tr><td colspan="6" class="empty">no trades</td></tr>`;
+    : `<tr><td colspan="7" class="empty">no trades</td></tr>`;
 }
 
 function renderStrategies(data) {
@@ -316,6 +343,7 @@ async function refreshPanels() {
   if (orch) {
     setBadge("orch-badge", `orchestrator: ${orch.running ? "running" : "idle"}`, orch.running ? "ok" : "idle");
     $("mode-badge").textContent = `mode: ${orch.mode || "-"}`;
+    renderOperationalHealth(orch);
   }
   $("last-refresh").textContent = `last refresh: ${new Date().toLocaleTimeString()}`;
 }

@@ -1,6 +1,6 @@
 ON-CALL TRANSPORT DRILL — A7 severity routing, fail-closed delivery
-started 2026-08-07T16:30:10.144682+00:00
-external transport listening at http://127.0.0.1:34895/oncall
+started 2026-08-08T10:38:10.100061+00:00
+external transport listening at http://127.0.0.1:40663/oncall
   INFO/WARNING/ERROR stayed local: True
 [PASS] severity_routing: INFO/WARNING/ERROR produced no external packet
 [PASS] delivered_on_2xx: CRITICAL POST captured on the wire: level=critical title=kill trip

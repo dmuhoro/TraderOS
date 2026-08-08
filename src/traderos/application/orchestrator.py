@@ -180,4 +180,30 @@ class TradingOrchestrator:
         status = self._daemon_controller.get_status()
         if self.secret_rotator is not None:
             status["secret_rotation"] = self.secret_rotator.stats
+        status["operational"] = self._operational_status()
         return status
+
+    def _operational_status(self) -> dict[str, Any]:
+        """Read-only operational summary for the dashboard (never fabricated).
+
+        Every field is derived from live runtime state: the durable HA lease
+        store, the on-call metrics counters the router itself writes, and the
+        configured wrist-watch user. When a subsystem is not configured it is
+        reported as such rather than claiming protection it does not provide.
+        """
+        failover: dict[str, Any] = {"configured": False, "leading": False}
+        if self.failover is not None:
+            failover = self.failover.status()
+            failover["configured"] = True
+
+        oncall = self.notifications.oncall
+        return {
+            "ha": failover,
+            "oncall": {
+                "configured": oncall is not None,
+                "min_severity": None if oncall is None else oncall.min_severity.value,
+                "delivered": int(self.metrics.get_counter("oncall.delivered")),
+                "delivery_failed": int(self.metrics.get_counter("oncall.delivery_failed")),
+            },
+            "trading_user_id": self.trading_user_id,
+        }

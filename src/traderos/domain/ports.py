@@ -149,6 +149,22 @@ class NotifierPort(Protocol):
     ) -> None: ...
 
 
+@runtime_checkable
+class SecretProviderPort(Protocol):
+    """Port for retrieving a secret value by key.
+
+    Implementations back the ``SecretRotator``'s live-key retrieval. A value
+    returned here may be cached inside the rotator; the port itself must never
+    write the value anywhere observable. Providers must fail closed: return
+    ``None`` for a key they do not have rather than raising so the rotator can
+    fall through to the next provider.
+    """
+
+    def get(self, key: str) -> str | None: ...
+
+    def __call__(self, key: str) -> str | None: ...
+
+
 class ManifestEntry(NamedTuple):
     run_id: uuid.UUID
     service: str

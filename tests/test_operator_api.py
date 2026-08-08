@@ -68,6 +68,31 @@ class TestOperatorApiBasics:
         assert "passed" in resp.json()
         assert "checks" in resp.json()
 
+    def test_positions_orders_trades_surface_trading_user(self, client: TestClient) -> None:
+        """The attribution field is threaded at the response seam so the
+        dashboard displays the operator identity — present even when empty."""
+        positions = client.get("/v1/positions").json()
+        assert "trading_user_id" in positions
+        assert positions["positions"] == []
+        orders = client.get("/v1/orders").json()
+        assert "trading_user_id" in orders
+        trades = client.get("/v1/trades").json()
+        assert "trading_user_id" in trades
+        assert trades["trading_user_id"] == positions["trading_user_id"]
+
+    def test_orchestrator_status_includes_operational(self, client: TestClient) -> None:
+        resp = client.get("/v1/orchestrator/status")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "operational" in body
+        ops = body["operational"]
+        assert "ha" in ops
+        assert "oncall" in ops
+        assert "trading_user_id" in ops
+        # Test env is unconfigured — must be reported as such, never as protected.
+        assert ops["ha"]["configured"] is False
+        assert ops["oncall"]["configured"] is False
+
 
 class TestOperatorApiKillSwitch:
     def test_engage_and_disengage(self, client: TestClient) -> None:

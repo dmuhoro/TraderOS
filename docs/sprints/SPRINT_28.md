@@ -73,17 +73,69 @@ the FounderOS manufacturing loop on TraderOS itself (M1–M4).
   human-gated (fail-closed real-submission proof required); CRUD/copy paths
   lightweight-gated. Default is Tier 1 when unknown.
 
+## Work Completed
+
+### A6 hardening — real HashiCorp Vault secret-manager integration
+- `SecretProviderPort` in `domain/ports.py`; `EnvSecretProvider` (default) +
+  `VaultSecretProvider` (KV-v2 via `requests`) in `infrastructure/secrets.py`.
+- Factory `_build_secret_rotator` resolves `VaultSecretProvider` when
+  `VAULT_ADDR`/`VAULT_TOKEN` are set; **never silently falls back to env** when
+  a provider is required — the boot path fails closed (`factory.py`).
+- `SecretRotator.get()` writes `secret.accessed` audit + metrics
+  (`read.cached`/`read.provider`); values never leave the process (only key
+  names + versions). Removed the built-in `os.getenv` bypass.
+- Proof: `scripts/evidence/run_vault_secret_manager_drill.py` →
+  `docs/evidence/2026-08-07_vault_secret_manager_drill.log` (5/5, against a
+  real dev Vault at 127.0.0.1:8200); `tests/test_secret_provider_port.py`
+  (11 tests: redaction, no-silent-fallback, fail-closed boundary seeding).
+
+### A7 work — real trigger paths feeding the on-call transport
+- Reconciliation failure wired at the **real detection seam**:
+  `BrokerStateReconciliationService` now takes notifications/audit/metrics and
+  delivers a CRITICAL alert when reconciliation fails; healthy reconciles stay
+  silent.
+- Proof: `scripts/evidence/run_trigger_alerting_drill.py` →
+  `docs/evidence/2026-08-07_trigger_alerting_drill.log` (6/6: reconciliation
+  failure, clean-silent, unclean shutdown, severity routing, live kill-switch
+  trip — all on a real loopback HTTP transport); `tests/test_trigger_alerting.py`.
+
+### WP3 — operational-health surfacing in the operator dashboard
+- `FailoverManager.status()` reads the durable lease file + the live in-process
+  signal (`leading`, `owner`, `lease_path`, `last_lease`).
+- `TradingOrchestrator.get_status()` now carries `operational`:
+  `ha` (configured / leading / last lease), `oncall` (`configured`,
+  `min_severity`, `delivered`, `delivery_failed` from the router's own metrics
+  counters), and `trading_user_id`. Unconfigured subsystems report
+  `configured=False` — never claimed as protected.
+- `trading_user_id` threaded into `/v1/positions`, `/v1/orders`, `/v1/trades`
+  at the response seam; the dashboard renders it as a per-row column and in the
+  new **Operational health** panel (`interfaces/api/dashboard/`).
+- Proof: `scripts/evidence/run_operational_health_drill.py` →
+  `docs/evidence/2026-08-08_operational_health_drill.log` (6/6: durable lease
+  source truth, on-call counter moves 0→1→2 exactly with real kill-switch
+  trips on the wire, `trading_user_id='trader-01'` on all three endpoints).
+- API + unit tests in `test_operator_api.py`, `test_orchestrator.py`,
+  `test_ha_failover.py`.
+
 ## Gates (delta on this change)
 - Full suite baseline before this change: 5 failures (3 stale v008 migration
   assertions, 1 perf band, 1 PG env). After: 0 deterministic failures.
+- Full suite observed green this sprint: **1387 passed / 73 skipped** (plus the
+  WP1-WP3 additions below: 18 + 7 + 23 + 7 + 7 new cases).
 - Lint (`ruff check`): clean on all touched files.
 - Typecheck (`pyright`): 0 errors on touched files.
 
 ## Not in scope / still open (honest)
 - **B3 retail-facing UI** and **B4 attribution/regulator UI** remain open —
   deliberately post-pilot product track, not a pilot gate (per
-  `PILOT_TO_PRODUCT.md`). The operator dashboard base exists
-  (`interfaces/api/dashboard/`).
+  `PILOT_TO_PRODUCT.md`). The operator dashboard now surfaces operational
+  health and per-user attribution (WP3), but that is an operator view, not a
+  retail/regulator product surface.
+- Account-gated final phase (C1 real Alpaca paper soak, C2 live latency
+  calibration, C3 bounded live pilot) stays blocked on real broker
+  credentials — never fabricated, never paper-over. The WP2 drill proves the
+  on-call/HA surface only via local loopback; a managed on-call platform
+  (PagerDuty-class) is not exercised here and remains open.
 - Full-suite runs may flash 2 environment-ordered flakes — a real-Postgres
   table name collision in `test_migration_v004` and a subprocess
   drill SIGTERM under full-suite load (`test_ha_failover`). Both pass
