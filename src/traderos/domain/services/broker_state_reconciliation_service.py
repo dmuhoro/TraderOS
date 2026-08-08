@@ -50,8 +50,17 @@ _STALE_THRESHOLD_SECONDS = 300
 
 
 class BrokerStateReconciliationService:
-    def __init__(self, broker: Any) -> None:
+    def __init__(
+        self,
+        broker: Any,
+        notifications: Any | None = None,
+        audit: Any | None = None,
+        metrics: Any | None = None,
+    ) -> None:
         self._broker = broker
+        self._notifications = notifications
+        self._audit = audit
+        self._metrics = metrics
         self._startup_reconciled: bool = False
         self._reconciled_at: datetime | None = None
         self._consecutive_failures: int = 0
@@ -72,6 +81,32 @@ class BrokerStateReconciliationService:
     def can_accept_orders(self) -> bool:
         return self._startup_reconciled
 
+    def _deliver_failure_alert(self, result: BrokerReconciliationResult) -> None:
+        """CRITICAL on-call alert when reconciliation fails (fail-closed).
+
+        Reconciliation failure means the broker may hold positions the local
+        journal does not know about — a real-money hazard (G-04/G-07). It must
+        never be silent: always fire on the existing notification seam (which
+        routes to the on-call transport when one is configured) and record an
+        audit + metric through the same ports the rest of the system uses.
+        """
+        summary = f"{len(result.errors)} error(s), {len(result.mismatches)} mismatch(es)"
+        titles = ", ".join(m.description[:80] for m in result.mismatches[:3])
+        detail = f"Broker reconciliation failed: {summary}. {titles}"
+        if self._notifications is not None:
+            from traderos.domain.services.notification_service import NotificationLevel
+
+            self._notifications.send(
+                NotificationLevel.CRITICAL,
+                "Reconciliation Failure",
+                detail,
+                metadata={"mismatch_count": float(len(result.mismatches))},
+            )
+        if self._audit:
+            self._audit.record("reconciliation.failed", "system", "broker-state", detail)
+        if self._metrics:
+            self._metrics.counter("reconciliation.failed", 1.0)
+
     def reconcile(
         self,
         local_positions: list[dict] | None = None,
@@ -90,13 +125,15 @@ class BrokerStateReconciliationService:
             errors.append(f"Failed to fetch broker state: {e}")
             mismatches.append(MismatchDetail(MismatchType.BROKER_FAILURE, str(e), severity=3))
             self._consecutive_failures += 1
-            return BrokerReconciliationResult(
+            result = BrokerReconciliationResult(
                 matched_positions=0,
                 reconciled_positions=0,
                 errors=errors,
                 mismatches=mismatches,
                 timestamp=datetime.now(UTC),
             )
+            self._deliver_failure_alert(result)
+            return result
 
         broker_positions = broker_positions or []
         broker_orders = broker_orders or []
@@ -242,13 +279,16 @@ class BrokerStateReconciliationService:
         if errors:
             self._consecutive_failures += len(errors)
 
-        return BrokerReconciliationResult(
+        result = BrokerReconciliationResult(
             matched_positions=matched_positions,
             reconciled_positions=reconciled_positions,
             errors=errors,
             mismatches=mismatches,
             timestamp=datetime.now(UTC),
         )
+        if result.failed:
+            self._deliver_failure_alert(result)
+        return result
 
     def _position_key(self, pos: dict) -> str:
         return str(pos.get("symbol", pos.get("market_id", pos.get("id", ""))))

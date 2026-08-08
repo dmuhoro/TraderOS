@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -91,8 +92,11 @@ from traderos.infrastructure.repositories.sqlite import SQLiteTradeRepository
 from traderos.infrastructure.run_manifest import RunManifestService as InMemoryManifestService
 from traderos.infrastructure.secrets import EnvSecretProvider
 from traderos.infrastructure.secrets import SecretRotator
+from traderos.infrastructure.secrets import VaultSecretProvider
 from traderos.infrastructure.supervision import JsonlHeartbeatStore
 from traderos.infrastructure.supervision import SupervisionService
+
+_LOGGER = logging.getLogger(__name__)
 
 PG_BACKEND = "postgres"
 
@@ -306,7 +310,12 @@ def build_orchestrator(
         if _journaled is not None:
             broker = _journaled
 
-    broker_reconciliation = BrokerStateReconciliationService(broker=broker)
+    broker_reconciliation = BrokerStateReconciliationService(
+        broker=broker,
+        notifications=notifications,
+        audit=audit,
+        metrics=metrics,
+    )
 
     preflight_service = PreflightService(
         audit=audit,
@@ -532,9 +541,26 @@ def _build_secret_rotator(
     Every secret access and rotation is recorded to the durable audit trail
     (value_redacted) so the G-04 "secret access/rotation is audited" claim is
     true on the production orchestrator path — not just in isolated unit tests.
+
+    Provider wiring (G-04 secret-manager integration):
+    - EnvSecretProvider is always registered as the local/paper default.
+    - When ``VAULT_ADDR`` (and optionally ``VAULT_TOKEN`` / ``VAULT_MOUNT``) is
+      set, the real HashiCorp Vault KV-v2 provider is registered FIRST (higher
+      trust priority). Live-key retrieval then comes from the real secret
+      manager, not plain env vars.
     """
     rotator = SecretRotator(audit=audit, metrics=metrics)
-    rotator.add_provider(EnvSecretProvider())
+    vault_addr = os.getenv("VAULT_ADDR", "")
+    if vault_addr:
+        token = os.getenv("VAULT_TOKEN", "traderos-dev-root")
+        mount = os.getenv("VAULT_MOUNT", "secret")
+        # No silent fallback to env when Vault is explicitly configured: the
+        # ctor is cheap (no network) so a configuration problem surfaces here
+        # loudly instead of silently demoting live key retrieval to env vars.
+        rotator.add_provider(VaultSecretProvider(url=vault_addr, token=token, mount=mount))
+    else:
+        _LOGGER.info("No VAULT_ADDR set — using EnvSecretProvider (local/paper default)")
+        rotator.add_provider(EnvSecretProvider())
     return rotator
 
 

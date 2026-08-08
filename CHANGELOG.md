@@ -2,6 +2,48 @@
 
 ## [Unreleased] - Sprint 28 (Product track: user accounts + per-user risk rails + manufacturing meta)
 
+### A6 hardening — real HashiCorp Vault secret-manager integration (2026-08-07)
+- `SecretProviderPort` in `domain/ports.py`; `EnvSecretProvider` (default) +
+  `VaultSecretProvider` (KV-v2 via `requests`) in `infrastructure/secrets.py`.
+- Factory `_build_secret_rotator` resolves `VaultSecretProvider` when
+  `VAULT_ADDR`/`VAULT_TOKEN` are set; **never silently falls back to env** when
+  a provider is required — the boot path fails closed (`factory.py`).
+- `SecretRotator.get()` writes `secret.accessed` audit + metrics
+  (`read.cached`/`read.provider`); values never leave the process (only key
+  names + versions). Built-in `os.getenv` bypass removed.
+- Proof: `scripts/evidence/run_vault_secret_manager_drill.py` →
+  `docs/evidence/2026-08-07_vault_secret_manager_drill.log` (5/5, real dev
+  Vault at 127.0.0.1:8200); `tests/test_secret_provider_port.py` (11 tests:
+  redaction, no-silent-fallback, fail-closed boundary seeding).
+
+### A7 work — real trigger paths feeding the on-call transport (2026-08-07)
+- `BrokerStateReconciliationService` now takes notifications/audit/metrics and
+  delivers a CRITICAL alert when reconciliation fails; healthy reconciles stay
+  silent — enforcement at the real detection seam, not a standalone notifier.
+- Proof: `scripts/evidence/run_trigger_alerting_drill.py` →
+  `docs/evidence/2026-08-07_trigger_alerting_drill.log` (6/6 on a real
+  loopback HTTP transport: reconciliation failure, clean-silent, unclean
+  shutdown, severity routing, live kill-switch trip);
+  `tests/test_trigger_alerting.py`.
+
+### WP3 — operational-health surfacing in the operator dashboard (2026-08-08)
+- `FailoverManager.status()` reads the durable lease file + the live
+  in-process signal (`leading`, `owner`, `lease_path`, `stale_after_seconds`,
+  `last_lease`).
+- `TradingOrchestrator.get_status()` now carries `operational`:
+  `ha` (configured / leading / last lease), `oncall` (`configured`,
+  `min_severity`, `delivered`, `delivery_failed` from the router's own metrics
+  counters) and `trading_user_id`. Unconfigured subsystems report
+  `configured=False` — never claimed as protected.
+- `trading_user_id` threaded into `/v1/positions`, `/v1/orders`, `/v1/trades`
+  at the response seam; the dashboard renders it as a per-row column and in the
+  new **Operational health** panel (`interfaces/api/dashboard/`).
+- Proof: `scripts/evidence/run_operational_health_drill.py` →
+  `docs/evidence/2026-08-08_operational_health_drill.log` (6/6: durable lease
+  source truth; on-call delivered moves 0→1→2 exactly with real kill-switch
+  trips on the wire; `trading_user_id='trader-01'` on all three endpoints).
+- Tests: `test_operator_api.py`, `test_orchestrator.py`, `test_ha_failover.py`.
+
 ### B1 — User/account model (2026-08-07)
 - `domain/entities/user.py`: `User`, `UserSession`, `UserApiKey` + roles/statuses.
 - `domain/repositories/user_repository.py` port + SQLite impl
