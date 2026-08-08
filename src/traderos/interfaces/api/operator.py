@@ -36,9 +36,19 @@ from traderos.domain.services.strategy_management import StrategyLifecycleError
 from traderos.interfaces.api.events import EventBroker
 from traderos.interfaces.api.events import get_broker
 from traderos.interfaces.api.events import publish_event
+from traderos.interfaces.api.schemas import EventTokenResponse
+from traderos.interfaces.api.schemas import KillSwitchResponse
+from traderos.interfaces.api.schemas import OrdersResponse
+from traderos.interfaces.api.schemas import PortfolioResponse
+from traderos.interfaces.api.schemas import PositionsResponse
+from traderos.interfaces.api.schemas import ReadinessResponse
+from traderos.interfaces.api.schemas import StrategiesResponse
+from traderos.interfaces.api.schemas import TradesResponse
 from traderos.interfaces.api.security import require_admin
 from traderos.interfaces.api.security import require_operate
 from traderos.interfaces.api.security import require_read
+from traderos.interfaces.api.security import require_sse
+from traderos.interfaces.api.sse_tokens import mint
 
 OrchestratorProvider = Callable[[], TradingOrchestrator]
 
@@ -78,6 +88,24 @@ def _catalog(orch: TradingOrchestrator):
     if orch.strategy_catalog is None:
         raise HTTPException(501, "Strategy catalog not configured")  # pragma: no cover
     return orch.strategy_catalog
+
+
+def _normalize_order(raw: dict) -> dict:
+    """Normalize a broker open-order dict to the dashboard's stable shape.
+
+    Broker adapters return heterogeneous field names (``qty``, ``type``, no
+    ``status``). The dashboard and its typed contract consume ``quantity``,
+    ``order_type`` and ``status`` — normalize here at the response seam, once,
+    so a frontend never has to branch on broker internals.
+    """
+    return {
+        "id": str(raw.get("id", raw.get("order_id", ""))),
+        "symbol": str(raw.get("symbol", raw.get("market_id", ""))),
+        "side": str(raw.get("side", "")),
+        "quantity": float(raw.get("quantity", raw.get("qty", 0.0))),
+        "order_type": str(raw.get("order_type", raw.get("type", "unknown"))),
+        "status": str(raw.get("status", "open")),
+    }
 
 
 def _lifecycle_error(exc: Exception) -> HTTPException:
@@ -152,7 +180,22 @@ async def event_stream(
 def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorProvider) -> None:
     # --- real-time feed (SSE) ---
 
-    @router.get("/events", dependencies=[Depends(require_read)])
+    @router.get(
+        "/events/token",
+        dependencies=[Depends(require_read)],
+        response_model=EventTokenResponse,
+    )
+    async def issue_event_token() -> EventTokenResponse:
+        """Mint a short-lived, single-purpose token for the browser SSE feed.
+
+        ``EventSource`` cannot send the ``X-API-Key`` header, so the dashboard
+        first exchanges its header-authenticated credential for a narrowly
+        scoped ``?token=`` that only the SSE route accepts.
+        """
+        token, expires_at = mint()
+        return EventTokenResponse(token=token, expires_at=int(expires_at))
+
+    @router.get("/events", dependencies=[Depends(require_sse)])
     async def stream_events():
         return StreamingResponse(
             event_stream(get_broker(), orch_provider),
@@ -166,7 +209,9 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
 
     # --- positions / orders / trades / portfolio ---
 
-    @router.get("/positions", dependencies=[Depends(require_read)])
+    @router.get(
+        "/positions", dependencies=[Depends(require_read)], response_model=PositionsResponse
+    )
     def get_positions():
         orch = orch_provider()
         positions = orch.portfolio_service.position_repo.list()
@@ -187,13 +232,16 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             ],
         }
 
-    @router.get("/orders", dependencies=[Depends(require_read)])
+    @router.get("/orders", dependencies=[Depends(require_read)], response_model=OrdersResponse)
     def get_orders():
         orch = orch_provider()
         open_orders = orch.broker.get_open_orders()
-        return {"trading_user_id": orch.trading_user_id, "orders": open_orders}
+        return {
+            "trading_user_id": orch.trading_user_id,
+            "orders": [_normalize_order(o) for o in open_orders],
+        }
 
-    @router.get("/trades", dependencies=[Depends(require_read)])
+    @router.get("/trades", dependencies=[Depends(require_read)], response_model=TradesResponse)
     def get_trades(limit: int = 100):
         orch = orch_provider()
         trades = sorted(
@@ -220,7 +268,9 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             ],
         }
 
-    @router.get("/portfolio", dependencies=[Depends(require_read)])
+    @router.get(
+        "/portfolio", dependencies=[Depends(require_read)], response_model=PortfolioResponse
+    )
     def get_portfolio():
         orch = orch_provider()
         cash = _cash(orch)
@@ -269,7 +319,9 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
 
     # --- risk / kill switch / preflight ---
 
-    @router.get("/kill-switch", dependencies=[Depends(require_read)])
+    @router.get(
+        "/kill-switch", dependencies=[Depends(require_read)], response_model=KillSwitchResponse
+    )
     def get_kill_switch():
         orch = orch_provider()
         ks = orch.risk_service.kill_switch
@@ -321,7 +373,9 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
             "timestamp": verdict.timestamp.isoformat(),
         }
 
-    @router.get("/readiness", dependencies=[Depends(require_read)])
+    @router.get(
+        "/readiness", dependencies=[Depends(require_read)], response_model=ReadinessResponse
+    )
     def get_readiness():
         orch = orch_provider()
         checks: dict[str, Any] = {}
@@ -400,7 +454,9 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
 
     # --- strategy catalog (C3) ---
 
-    @router.get("/strategies", dependencies=[Depends(require_read)])
+    @router.get(
+        "/strategies", dependencies=[Depends(require_read)], response_model=StrategiesResponse
+    )
     def list_catalog_strategies():
         orch = orch_provider()
         catalog = _catalog(orch)

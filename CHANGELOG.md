@@ -70,6 +70,35 @@
 - Proof: `tests/test_attribution_api.py` (endpoint against real orchestrator
   with an order submitted through the retail seam).
 
+### C — 7-route frontend contract (2026-08-08)
+- **CORS:** `CORS_ORIGINS` set on production
+  (`https://traderos-production.up.railway.app,http://localhost:3000`) and
+  verified live — pre-flight + cross-origin GET return
+  `access-control-allow-origin`, disallowed origins get no header. Was unset
+  (every browser cross-origin call refused).
+- **Orders contract:** `_normalize_order` at the response seam — `/v1/orders`
+  returns stable `id`/`symbol`/`side`/`quantity`/`order_type`/`status`
+  (tolerating paper `qty`/`type` and legacy `order_id`/`market_id` shapes)
+  instead of raw broker dicts. `interfaces/api/operator.py`.
+- **Error envelope:** all 7 in-scope routes (and FastAPI 422s via a
+  `RequestValidationError` handler) return the single
+  `{"error": {"code", "message"}}`; documented in OpenAPI `info.description`.
+- **Typed response models:** pydantic v2 models in
+  `interfaces/api/schemas.py` (`PortfolioResponse`, `PositionsResponse`,
+  `OrdersResponse`, `OrderItem`, `TradesResponse`, `KillSwitchResponse`,
+  `ReadinessResponse`, `StrategiesResponse`, `EventTokenResponse`) wired via
+  `response_model=` and exposed in `/openapi.json`.
+- **Authenticated browser SSE:** `sse_tokens.py` — short-lived (60 s TTL),
+  single-purpose, single-use, HMAC-signed tokens minted via authenticated
+  `GET /v1/events/token`; `require_sse` + the auth boundary accept the token
+  for the SSE route only. `EventSource` now works under auth (mints and
+  subscribes with `?token=`). Replay/expiry/bogus → 401; other endpoints
+  unchanged (`X-API-Key` only).
+- Proof: `tests/test_sse_token.py` (incl. real uvicorn subprocess),
+  `tests/test_order_contract.py` (real paper orchestrator + real open order),
+  envelope-consistency cases across all 7 routes. Suite: 1431 passed / 73
+  skipped / 89.96% coverage.
+
 ### B1 — User/account model (2026-08-07)
 - `domain/entities/user.py`: `User`, `UserSession`, `UserApiKey` + roles/statuses.
 - `domain/repositories/user_repository.py` port + SQLite impl

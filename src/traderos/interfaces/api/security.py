@@ -20,6 +20,7 @@ from fastapi import Request
 from traderos.infrastructure.auth import APIKeyAuthenticator
 from traderos.infrastructure.auth import Permission
 from traderos.infrastructure.auth import Role
+from traderos.interfaces.api import sse_tokens
 
 _authenticator: APIKeyAuthenticator | None = None
 
@@ -75,6 +76,34 @@ def _permission_dependency(permission: Permission):
 require_read = _permission_dependency(Permission.READ)
 require_operate = _permission_dependency(Permission.OPERATE)
 require_admin = _permission_dependency(Permission.ADMIN)
+
+
+def require_sse(request: Request) -> None:
+    """Authenticate the browser SSE feed.
+
+    ``EventSource`` cannot attach the ``X-API-Key`` header, so the dashboard
+    mints a short-lived single-purpose token (see ``sse_tokens``) through an
+    authenticated endpoint and passes it as ``?token=...``.
+
+    Two disjoint credentials, both fail-closed:
+
+    * ``?token=`` present -> the token is the credential. Invalid, expired or
+      replayed -> explicit 401; it can never silently fall back.
+    * No token -> the ordinary header seam applies unchanged.
+    """
+    token = request.query_params.get("token")
+    if token is not None:
+        if not sse_tokens.validate(token):
+            raise HTTPException(401, "Unauthorized: invalid, expired or reused event token")
+        return
+    if not get_authenticator().enabled:
+        return
+    role = get_authenticator().role_for_key(_header_key(request))
+    if role is None:
+        raise HTTPException(401, "Unauthorized: invalid or missing API key")
+    granted = get_authenticator().authorize(_header_key(request), Permission.READ)
+    if granted is None:
+        raise HTTPException(403, "Forbidden: insufficient permissions for this action")
 
 
 def auth_info(request: Request) -> dict[str, object]:
@@ -161,6 +190,13 @@ def enforce_auth_boundary(request: Request) -> None:
     if not _within_boundary(request.url.path):
         return
     if _public_path(request.url.path):
+        return
+    if request.url.path == "/v1/events" and sse_tokens.peek(request.query_params.get("token")):
+        # The browser SSE feed authenticates with a short-lived single-purpose
+        # token (EventSource cannot set X-API-Key). The boundary lets a
+        # well-formed unexpired token through; the route's require_sse check
+        # then performs the real consuming single-use validation, so a replayed
+        # token is still rejected end-to-end.
         return
     auth = get_authenticator()
     role = auth.role_for_key(_header_key(request))

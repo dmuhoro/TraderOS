@@ -1,5 +1,5 @@
 REAL-MARKET WALK-FORWARD — G-01 cost-adjusted, out-of-sample (A3)
-started 2026-08-08T14:01:53.080391+00:00
+started 2026-08-08T17:57:55.976577+00:00
 engine: next-bar fills, side-aware slippage 5bps, fee 10bps, latency 10bps
 dataset: real public Binance BTCUSDT 1h klines via REST (paginated)
   full series: 8880 candles (8880 hours, 370 days)
@@ -7,13 +7,13 @@ dataset: real public Binance BTCUSDT 1h klines via REST (paginated)
   frozen dataset pointer: docs/evidence/frozen/binance_btcusdt_1h_2026-08-06.csv
 
 === strategy: moving_average_trend ===
-  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=1.1490 positive_folds=1/5 mean_sharpe=-0.2285 mean_max_dd=0.5342
+  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=8.2621 positive_folds=2/5 mean_sharpe=-0.2453 mean_max_dd=0.5342
 
 === strategy: volatility_breakout ===
-  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=7.9119 positive_folds=3/5 mean_sharpe=-0.2414 mean_max_dd=5.3253
+  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=4.0787 positive_folds=2/5 mean_sharpe=-0.2491 mean_max_dd=5.3260
 
 === strategy: mean_reversion ===
-  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=-0.1991 positive_folds=3/5 mean_sharpe=0.5200 mean_max_dd=2.0608
+  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=-0.5135 positive_folds=3/5 mean_sharpe=0.2696 mean_max_dd=2.0618
 
 G-01 EXIT TEST (positive expectancy after full costs on real OOS data):
   (corrected label; exit criterion unchanged: all folds positive after costs)

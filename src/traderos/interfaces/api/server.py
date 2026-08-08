@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from fastapi import HTTPException
     from fastapi import Query
     from fastapi import Request
+    from fastapi.exceptions import RequestValidationError
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import Response
     from pydantic import BaseModel
@@ -48,6 +49,7 @@ else:
         from fastapi import HTTPException
         from fastapi import Query
         from fastapi import Request
+        from fastapi.exceptions import RequestValidationError
         from fastapi.middleware.cors import CORSMiddleware
         from fastapi.responses import Response
         from pydantic import BaseModel  # type: ignore[assignment]
@@ -61,7 +63,15 @@ else:
         HTTPException = None  # type: ignore[assignment]
         Query = None  # type: ignore[assignment]
         Request = None  # type: ignore[assignment]
+        _has_fastapi = False
+        APIRouter = None  # type: ignore[assignment]
+        BaseModel = object  # type: ignore[assignment]
+        FastAPI = None  # type: ignore[assignment]
+        HTTPException = None  # type: ignore[assignment]
+        Query = None  # type: ignore[assignment]
+        Request = None  # type: ignore[assignment]
         Depends = None  # type: ignore[assignment]
+        RequestValidationError = None  # type: ignore[assignment]
         CORSMiddleware = None  # type: ignore[assignment]
         Response = type("Response", (), {})  # type: ignore[assignment]
 
@@ -152,7 +162,15 @@ def build_app() -> Any:
     ensure_fastapi()
     setup_json_logging()
     _logger = logging.getLogger("traderos.api")
-    app = FastAPI(title="TraderOS API", version=version("traderos"))
+    app = FastAPI(
+        title="TraderOS API",
+        version=version("traderos"),
+        description=(
+            "TraderOS operator + retail API. Error envelope: every error "
+            'response is {"error": {"code": <http_status>, "message": '
+            "<human-readable>}} — including FastAPI 422 validation failures."
+        ),
+    )
     cors_origins = os.getenv("CORS_ORIGINS", "").strip()
     if cors_origins == "*":
         allowed_origins = ["*"]
@@ -168,6 +186,17 @@ def build_app() -> Any:
     @app.exception_handler(HTTPException)
     async def _http_exception_handler(request: Request, exc: HTTPException):
         return _error_response(exc.status_code, exc.detail)
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_exception_handler(request: Request, exc: RequestValidationError):
+        _logger.warning("validation_error", extra={"errors": exc.errors()})
+        first = exc.errors()[0] if exc.errors() else {}
+        loc = ".".join(str(part) for part in first.get("loc", ()) if part != "body")
+        message = "Request validation failed"
+        if loc:
+            message += f" at {loc}"
+        message += f": {first.get('msg', 'invalid input')}"
+        return _error_response(422, message)
 
     @app.middleware("http")
     async def _request_logger(request: Request, call_next):

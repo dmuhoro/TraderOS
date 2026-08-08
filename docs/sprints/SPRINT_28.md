@@ -152,16 +152,53 @@ the FounderOS manufacturing loop on TraderOS itself (M1–M4).
   orchestrator with an order submitted through the retail seam; asserts the
   causal chain is complete and `end < start` returns 422.
 
+### C — 7-route frontend contract (product change)
+Closes the production CORS gap and makes the CURRENT dashboard + friend beta a
+typed, authenticated consumer of the operator surface. Scope is exactly the
+7 in-scope routes; EVERYTHING else (pagination, `localStorage` XSS,
+PG-backed operator login, Market Overview/Research Lab screens, Next.js) stays
+explicitly out of scope.
+
+- **CORS (TASK 1):** `CORS_ORIGINS` unset in production meant every browser
+  cross-origin call was refused. Set
+  `https://traderos-production.up.railway.app,http://localhost:3000` on
+  Railway and verified live: pre-flight `OPTIONS` and cross-origin `GET` return
+  `access-control-allow-origin`; a disallowed origin gets no header. No
+  `CORS_ORIGINS=*`.
+- **Orders contract (TASK 2):** `/v1/orders` returned raw broker dicts
+  (`qty`/`type`, no `status`) that the dashboard could not render. Added
+  `_normalize_order` at the response seam — stable `id`, `symbol`, `side`,
+  `quantity` (float), `order_type`, `status` (default `open`), tolerating both
+  paper and legacy (`order_id`/`market_id`) broker shapes.
+- **Error envelope (TASK 3):** unified the 7 in-scope routes (and FastAPI 422
+  validation failures via a `RequestValidationError` handler) on the single
+  `{"error": {"code", "message"}}` envelope; shape documented in the OpenAPI
+  `info.description`.
+- **Typed response models (TASK 4):** pydantic v2 models in `schemas.py` wired
+  via `response_model=` on positions/orders/trades/portfolio/kill-switch/
+  readiness/strategies and exposed in `/openapi.json` — the real
+  prerequisite for a generated frontend client.
+- **Authenticated browser SSE (TASK 5):** `EventSource` cannot send
+  `X-API-Key`, so previously SSE only worked with auth open. `sse_tokens.py`
+  mints short-lived (TTL 60 s, `EVENT_TOKEN_TTL_SECONDS`), single-purpose,
+  single-use, HMAC-signed tokens via authenticated `GET /v1/events/token`;
+  `security.require_sse` + the boundary let a valid token open exactly the
+  SSE route and nothing else; replay/expiry/bogus → 401. The dashboard now
+  mints and subscribes with `?token=` when auth is required.
+- Proof exercises the real paths: `tests/test_sse_token.py` (incl. a real
+  uvicorn subprocess), `tests/test_order_contract.py` (real paper orchestrator
+  with a real open limit order), envelope-consistency cases across all 7
+  routes.
+
 ## Gates (delta on this change)
-- Full suite baseline before this change: 5 failures (3 stale v008 migration
-  assertions, 1 perf band, 1 PG env). After: 0 deterministic failures.
-- Full suite observed green this sprint: **1404 passed / 73 skipped**
-  (WP1-WP3 additions below: 18 + 7 + 23 + 7 + 7, plus B3/B4: 13 new API/
-  attribution cases), 89.86% coverage. The two remaining full-suite flashes are
-  real-network drills (walk-forward, Binance stream) that pass deterministically
-  in isolation — unrelated to this change.
-- Lint (`ruff check`): clean on all touched files.
-- Typecheck (`pyright`): 0 errors on touched files.
+- Full suite: **1431 passed / 73 skipped / 89.96% coverage** (was 1404/73/
+  89.86%). New: 27 cases (`test_sse_token.py` 11, `test_order_contract.py` 14,
+  updated SSE-route assertions).
+- Lint (`ruff check`) clean on all touched files; `black` reformat clean;
+  `pyright` 0 errors on touched files and the whole `interfaces/api` tree.
+- The 2 environment-ordered full-suite flashes (real-Postgres v004 migration
+  table collision; v003 subprocess SIGTERM under load) are unchanged and pass
+  isolately.
 
 ## Not in scope / still open (honest)
 - **Account-gated final phase (C1 real Alpaca paper soak, C2 live latency
