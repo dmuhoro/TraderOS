@@ -362,9 +362,31 @@ function clearPanels() {
   $("pf-pnl").textContent = "-";
 }
 
-function connectSse() {
+async function connectSse() {
+  // EventSource cannot send the X-API-Key header, so when auth is required we
+  // mint a short-lived single-purpose token (via the header-authenticated
+  // fetch seam) and subscribe with it as a query param. Without a token the
+  // stream stays open-endpoint, matching the open-auth deployment.
+  if (state.authRequired || state.role) {
+    try {
+      const sub = await api("/v1/events/token");
+      if (sub && sub.token) {
+        connectSseWithUrl(`/v1/events?token=${encodeURIComponent(sub.token)}`);
+      } else {
+        fallbackToPolling();
+      }
+      return;
+    } catch (_) {
+      fallbackToPolling();
+      return;
+    }
+  }
+  connectSseWithUrl("/v1/events");
+}
+
+function connectSseWithUrl(url) {
   let failures = 0;
-  const source = new EventSource("/v1/events");
+  const source = new EventSource(url);
   source.onopen = () => {
     failures = 0;
     state.sseMode = true;
@@ -381,14 +403,23 @@ function connectSse() {
   };
   source.onerror = () => {
     failures += 1;
-    $("conn-state").textContent = "SSE: disconnected (polling)";
-    $("conn-state").style.color = "var(--amber)";
-    state.sseMode = false;
-    if (!state.refreshTimer) {
+    fallbackToPolling();
+    if (failures > 0 && !state.refreshTimer) {
       state.refreshTimer = setInterval(refreshPanels, 5000);
     }
-    source.close();
+    if (failures >= 3) {
+      source.close();
+    }
   };
+}
+
+function fallbackToPolling() {
+  $("conn-state").textContent = "SSE: disconnected (polling)";
+  $("conn-state").style.color = "var(--amber)";
+  state.sseMode = false;
+  if (!state.refreshTimer) {
+    state.refreshTimer = setInterval(refreshPanels, 5000);
+  }
 }
 
 async function advanceWorkflow() {

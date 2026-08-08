@@ -164,10 +164,20 @@ class TestSseEvents:
         assert response.headers["Cache-Control"] == "no-cache"
         assert response.headers["X-Accel-Buffering"] == "no"
 
-    def test_sse_route_requires_read_permission(self) -> None:
+    def test_sse_route_requires_sse_credential(self) -> None:
         router = APIRouter()
         operator.register_operator_endpoints(router, lambda: object())
         route = next(r for r in router.routes if getattr(r, "path", "") == "/events")
+        deps = [d.dependency for d in route.dependencies]
+        # The SSE feed authenticates with the browser-token seam (require_sse,
+        # which still demands a valid header key when no token is present) and
+        # exposes the token-mint endpoint for the dashboard.
+        assert operator.require_sse in deps
+
+    def test_sse_route_mints_token_endpoint(self) -> None:
+        router = APIRouter()
+        operator.register_operator_endpoints(router, lambda: object())
+        route = next(r for r in router.routes if getattr(r, "path", "") == "/events/token")
         deps = [d.dependency for d in route.dependencies]
         assert operator.require_read in deps
 
