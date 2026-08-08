@@ -1,5 +1,5 @@
 WALK-FORWARD EVIDENCE — G-01 cost-adjusted, out-of-sample
-started 2026-08-08T10:38:52.696235+00:00
+started 2026-08-08T14:01:52.104650+00:00
 engine: next-bar fills, side-aware slippage 5bps, fee 10bps, latency 10bps
 dataset: frozen G-06 oracle candles (reproducible on any machine)
   full series: 120 candles

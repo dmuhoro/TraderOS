@@ -105,7 +105,16 @@ def auth_info(request: Request) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-PUBLIC_PATH_PREFIXES: tuple[str, ...] = ("/v1/healthz", "/v1/auth/me", "/v1/health")
+PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
+    "/v1/healthz",
+    "/v1/auth/me",
+    "/v1/health",
+    # The retail seam authenticates with SESSIONS (not API keys). Its own
+    # endpoints are still fail-closed: every retail handler depends on
+    # require_user() which 401s without a valid session token. The API-key
+    # boundary deliberately does not apply to it.
+    "/v1/retail",
+)
 
 # The auth boundary guards the operator/risk surface only: every request under
 # /v1/* (except the public prefixes) must be authenticated. Static assets,

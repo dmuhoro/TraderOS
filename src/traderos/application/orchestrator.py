@@ -10,6 +10,7 @@ from typing import Any
 from traderos.application.cycle_executor import CycleExecutor
 from traderos.application.daemon_controller import DaemonController
 from traderos.application.models import CycleResult
+from traderos.application.models import RetailOrderResult
 from traderos.application.models import TradingMode
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.ports import AuditPort
@@ -19,6 +20,7 @@ from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricsPort
 from traderos.domain.repositories.strategy_repository import StrategyRepository
 from traderos.domain.repositories.workflow_repository import OperatorWorkflowRepository
+from traderos.domain.services.account_service import AccountService
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.broker_state_reconciliation_service import (
@@ -80,6 +82,7 @@ class TradingOrchestrator:
     trading_user_id: str | None = None
     strategy_catalog: StrategyCatalogService | None = None
     operator_session: OperatorSessionService | None = None
+    account_service: AccountService | None = None
     live_readiness: LiveReadinessService | None = None
     secret_rotator: SecretRotator | None = None
     knowledge_graph: KnowledgeGraphService | None = None
@@ -172,6 +175,27 @@ class TradingOrchestrator:
         self, market_id: uuid.UUID, close_price: float, candle_time: datetime | None = None
     ) -> CycleResult:
         return self._cycle_executor.run(market_id, close_price, candle_time)
+
+    def submit_retail_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        close_price: float,
+        *,
+        user_id: str | None,
+        client_order_id: str | None = None,
+    ) -> RetailOrderResult:
+        """Retail order entry routed through the SAME risk gate + broker as the
+        live cycle (B3). Never bypasses the real submission boundary."""
+        return self._cycle_executor.submit_retail_order(
+            market_id,
+            side,
+            quantity,
+            close_price,
+            user_id=user_id,
+            client_order_id=client_order_id,
+        )
 
     def run_forever(self, interval_seconds: int = 60, shutdown_timeout: int = 30) -> None:
         self._daemon_controller.run_forever(interval_seconds, shutdown_timeout)

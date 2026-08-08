@@ -394,6 +394,12 @@ def build_app() -> Any:
     from traderos.interfaces.api.operator import register_operator_endpoints
 
     register_operator_endpoints(router, lambda: create_orchestrator())
+    from traderos.interfaces.api.retail import register_retail_endpoints
+
+    register_retail_endpoints(router, lambda: create_orchestrator())
+    from traderos.interfaces.api.attribution import register_attribution_endpoints
+
+    register_attribution_endpoints(router, lambda: create_orchestrator())
 
     app.include_router(router)
 
