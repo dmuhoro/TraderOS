@@ -13,6 +13,8 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
+import time
+import uuid
 from collections.abc import AsyncIterator
 from collections.abc import Callable
 from datetime import UTC
@@ -206,6 +208,88 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
                 "X-Accel-Buffering": "no",
             },
         )
+
+    # --- synthetic probes (run every 30s in prod; open for monitoring) ---
+
+    class ProbeResult(BaseModel):
+        ok: bool
+        latency_ms: float
+        detail: str
+
+    class ProbesSummary(BaseModel):
+        broker: ProbeResult
+        # vault: ProbeResult  # future
+        # postgres: ProbeResult  # future
+
+    def _probe_market_id(orch: TradingOrchestrator) -> uuid.UUID:
+        """Resolve a market_id for the probe via the orchestrator's real markets.
+
+        Uses the first configured market id so the probe exercises the same
+        symbol seam the live cycle uses (never the JSON config directly).
+        """
+        if orch.market_ids:
+            return orch.market_ids[0]
+        return uuid.uuid4()
+
+    def _run_broker_probe(orch: TradingOrchestrator) -> ProbeResult:
+        """Synthetic probe through the guardrailed broker's public API.
+
+        Exercises the exact order path a production *paper* trade takes — the
+        same ``place_limit_order``/``cancel_order`` the cycle executor and the
+        guardrail wrapper use — then cancels immediately. No private fields, no
+        bypass of the guardrails.
+
+        In LIVE mode the probe is deliberately read-only: a cyclic real-money
+        order round-trip (even placed+cancelled) is never acceptable, so the
+        probe degrades to a connectivity + open-orders round-trip on the same
+        adapters. ok=False when latency > 1000ms or the broker errors.
+        """
+        broker = orch.broker
+        market_id = _probe_market_id(orch)
+        start = time.perf_counter()
+        try:
+            if orch.mode == TradingMode.LIVE:
+                balance = broker.get_account_balance()
+                broker.get_open_orders()
+                total_ms = (time.perf_counter() - start) * 1000
+                ok = total_ms < 1000.0
+                detail = f"balance={balance:.2f} total={total_ms:.1f}ms (live read-only)"
+                if not ok:
+                    detail = f"SLOW: {detail}"
+                return ProbeResult(ok=ok, latency_ms=round(total_ms, 1), detail=detail)
+
+            placed = broker.place_limit_order(market_id, "buy", 1.0, 0.01, close_price=None)
+            place_ms = (time.perf_counter() - start) * 1000
+            if not placed.filled and placed.status != "pending":
+                return ProbeResult(
+                    ok=False,
+                    latency_ms=round(place_ms, 1),
+                    detail=f"order rejected by broker: {placed.status}",
+                )
+            if placed.order_id:
+                broker.cancel_order(placed.order_id)
+            total_ms = (time.perf_counter() - start) * 1000
+            ok = total_ms < 1000.0
+            detail = f"place={place_ms:.1f}ms total={total_ms:.1f}ms"
+            if not ok:
+                detail = f"SLOW: {detail}"
+            return ProbeResult(ok=ok, latency_ms=round(total_ms, 1), detail=detail)
+        except Exception as e:  # noqa: BLE001
+            return ProbeResult(ok=False, latency_ms=-1.0, detail=f"ERROR: {e}")
+
+    @router.get("/probes/broker", dependencies=[Depends(require_read)], response_model=ProbeResult)
+    def probe_broker() -> ProbeResult:
+        """Synthetic probe: place + cancel a limit order through the broker.
+
+        Returns ok=False when latency > 1000ms or any error.
+        Run every 30s from monitoring; alerts on ok=False.
+        """
+        return _run_broker_probe(orch_provider())
+
+    @router.get("/probes", dependencies=[Depends(require_read)], response_model=ProbesSummary)
+    def probes_summary() -> ProbesSummary:
+        """Aggregate all probe results for monitoring dashboards."""
+        return ProbesSummary(broker=_run_broker_probe(orch_provider()))
 
     # --- positions / orders / trades / portfolio ---
 

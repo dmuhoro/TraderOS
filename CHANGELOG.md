@@ -2,6 +2,31 @@
 
 ## [Unreleased] - Sprint 28 (Product track: user accounts + per-user risk rails + manufacturing meta)
 
+### AS-7 — Immune-system layer: broker circuit breaker + synthetic probes (2026-08-09)
+- `infrastructure/resilience.py` — dependency-free, thread-safe circuit breaker
+  (closed/open/half-open) with per-dependency preconfigured instances
+  (`BROKER_CB`, `VAULT_CB`, `PG_CB`), public config accessors and a
+  `get_breaker_status()` ops seam. `with_circuit_breaker(cb, timeout=...)`
+  bounds calls with a thread worker (mirrors `run_with_timeout`), not `SIGALRM`
+  — the SIGALRM draft only works from the main thread and is process-global,
+  and would be a crash vector inside the FastAPI threadpool.
+- `infrastructure/broker_circuit_breaker.py` — `CircuitBreakeredBroker`, a
+  `BrokerAdapter` delegate composed at the real boundary in `factory.py`
+  (outside `GuardrailedBroker`/`RateLimitedBroker`), so every order submit /
+  cancel from any caller is circuit-protected. Lives in `infrastructure`, not
+  domain, preserving the domain-never-imports-infrastructure ADR (draft that
+  violated it was caught by the architecture gate and corrected).
+- `interfaces/api/operator.py` — `GET /v1/probes/broker` and `GET /v1/probes`:
+  synthetic probe through the public broker API
+  (`place_limit_order(close_price=None)` → PENDING → `cancel_order`,
+  never private broker fields), latency round-trip, `ok=false` over 1000 ms.
+  LIVE mode degrades to a read-only balance/open-orders probe — no cyclic
+  real-money orders, fail-closed.
+- Proof: `tests/test_resilience.py` (16 cases incl. an end-to-end
+  open-circuit fail-fast assertion that the wrapped production broker refuses
+  and leaves zero orders). Full suite **1442 passed / 79 skipped / 89.84%**
+  coverage; lint/black/isort/pyright green.
+
 ### A6 hardening — real HashiCorp Vault secret-manager integration (2026-08-07)
 - `SecretProviderPort` in `domain/ports.py`; `EnvSecretProvider` (default) +
   `VaultSecretProvider` (KV-v2 via `requests`) in `infrastructure/secrets.py`.
