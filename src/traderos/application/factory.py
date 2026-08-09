@@ -57,6 +57,8 @@ from traderos.infrastructure.health import HealthService as InMemoryHealthServic
 from traderos.infrastructure.metrics import MetricsService as InMemoryMetricsService
 from traderos.infrastructure.notifiers.oncall_router import HttpOnCallTransport
 from traderos.infrastructure.notifiers.oncall_router import OnCallRouter
+from traderos.infrastructure.notifiers.oncall_router import PagerDutyTransport
+from traderos.infrastructure.notifiers.oncall_router import SlackTransport
 from traderos.infrastructure.notifiers.webhook_notifier import WebhookNotifier
 from traderos.infrastructure.observability import SQLiteAuditService
 from traderos.infrastructure.observability import SQLiteHealthService
@@ -158,7 +160,14 @@ def build_orchestrator(
         run_manifest = InMemoryManifestService()
 
     account_service: AccountService | None = None
-    if backend != PG_BACKEND:
+    if backend == PG_BACKEND:
+        from traderos.infrastructure.repositories.postgres.users import PostgresUserRepository
+
+        account_service = AccountService(
+            PostgresUserRepository(db),
+            audit=audit,
+        )
+    else:
         from traderos.infrastructure.repositories.sqlite.users import SQLiteUserRepository
 
         account_repo_conn = db if db is not None else get_connection(cfg)
@@ -166,6 +175,10 @@ def build_orchestrator(
             SQLiteUserRepository(account_repo_conn),
             audit=audit,
         )
+    # WP8: on first boot with TRADEROS_ADMIN_USERNAME/PASSWORD set, seed the
+    # PG-backed operator account so the session-login flow has an identity
+    # to authenticate (idempotent: no-op once the user exists).
+    account_service.bootstrap_admin_from_env()
     secret_rotator = _build_secret_rotator(audit, metrics)
     risk_service = RiskService(
         persistent_kill_switch=persistent_kill_switch,
@@ -178,10 +191,23 @@ def build_orchestrator(
     )
     portfolio_service.risk_service = risk_service
     webhook_notifier = WebhookNotifier()
-    oncall_url = os.getenv("ONCALL_WEBHOOK_URL", "")
-    if oncall_url:
+    # WP10 — real on-call transport fan-out, env-gated and fail closed. At
+    # least one provider must be explicitly configured for the router to exist;
+    # with none configured `oncall` stays None and no external alert is claimed.
+    oncall_transports: list[Any] = []
+    for provider_env, factory_fn in (
+        ("PAGERDUTY_ROUTING_KEY", lambda: PagerDutyTransport()),
+        ("SLACK_WEBHOOK_URL", lambda: SlackTransport()),
+        ("ONCALL_WEBHOOK_URL", lambda: HttpOnCallTransport(os.getenv("ONCALL_WEBHOOK_URL", ""))),
+    ):
+        if os.getenv(provider_env):
+            try:
+                oncall_transports.append(factory_fn())
+            except Exception as exc:  # noqa: BLE001 — a broken provider is a loud config error
+                _LOGGER.warning("on-call provider %s not wired: %s", provider_env, exc)
+    if oncall_transports:
         oncall = OnCallRouter(
-            [HttpOnCallTransport(oncall_url)],
+            oncall_transports,
             audit=audit,
             metrics=metrics,
         )

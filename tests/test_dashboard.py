@@ -72,5 +72,18 @@ class TestDashboardSurface:
             "Positions",
             "Strategy catalog",
             "Session report",
+            "Market Overview",
+            "Research Lab",
+            "Research journal",
         ):
             assert panel in html
+
+    def test_app_js_serves_wp9_endpoints(self) -> None:
+        app_js = (DASHBOARD_DIR / "app.js").read_text()
+        for endpoint in (
+            "/v1/market/overview",
+            "/v1/market/symbols",
+            "/v1/research/backtest",
+            "/v1/research/observations",
+        ):
+            assert endpoint in app_js

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Callable
 from typing import Any
 from typing import Protocol
 
@@ -36,6 +37,10 @@ log = logging.getLogger(__name__)
 #     means; the router below treats any transport failure as not-delivered.
 #   - ``HttpOnCallTransport``: one external webhook/PagerDuty/Slack-style URL,
 #     retried with backoff, 2xx required, auth via optional bearer token.
+#   - ``PagerDutyTransport`` (WP10): PagerDuty Events API v2 envelope,
+#     env-gated on ``PAGERDUTY_ROUTING_KEY``.
+#   - ``SlackTransport`` (WP10): Slack incoming-webhook payload,
+#     env-gated on ``SLACK_WEBHOOK_URL``.
 #   - ``OnCallRouter``: the severity-routing seam. Only events at/above
 #     ``min_severity`` are routed externally; lower severities stay local. Every
 #     routing outcome (delivered / delivery-failed) is written to the real
@@ -122,6 +127,183 @@ class HttpOnCallTransport:
             raise OnCallDeliveryError(
                 f"on-call transport {self.url!r} not delivered after {self.max_retries + 1} "
                 f"attempts: {exc}"
+            ) from exc
+
+
+# PagerDuty Events API v2 + Slack webhook provider transports (WP10).
+#
+# Both implement the same ``OnCallTransport`` protocol the router fans out to,
+# so severity routing, audit and metrics behave identically whatever provider
+# is configured. Payloads are provider-native: PagerDuty gets a proper
+# ``events/v2`` envelope (routing_key, event_action, dedup_key, severity,
+# custom_details), Slack gets a formatted webhook payload. Both are env-gated
+# and fail closed: a provider with no credential simply is not wired in
+# (factory), and any configured provider that cannot deliver raises instead of
+# silently dropping.
+
+_PD_EVENTS_URL = "https://events.pagerduty.com/v2/enqueue"
+# Map our NotificationLevel -> PagerDuty acknowledged severity values.
+_PD_SEVERITY = {
+    NotificationLevel.INFO: "info",
+    NotificationLevel.WARNING: "warning",
+    NotificationLevel.ERROR: "error",
+    NotificationLevel.CRITICAL: "critical",
+}
+
+
+class PagerDutyTransport:
+    """PagerDuty Events API v2 transport.
+
+    Requires ``PAGERDUTY_ROUTING_KEY``; constructed with it explicitly or read
+    from the environment (never committed). Delivery succeeds only on an HTTP
+    2xx with a recognized API status — anything else raises
+    ``OnCallDeliveryError``. ``dedup_key`` is taken from metadata so retried
+    incidents deduplicate instead of pagering repeatedly.
+    """
+
+    def __init__(
+        self,
+        routing_key: str | None = None,
+        *,
+        max_retries: int = 3,
+        timeout: float = 5.0,
+        base_url: str = _PD_EVENTS_URL,
+    ) -> None:
+        self.routing_key = routing_key or os.getenv("PAGERDUTY_ROUTING_KEY", "") or None
+        if not self.routing_key:
+            raise OnCallDeliveryError("PAGERDUTY_ROUTING_KEY is required to use PagerDutyTransport")
+        self.max_retries = max_retries
+        self.timeout = timeout
+        self.base_url = base_url
+        self.source = os.getenv("PAGERDUTY_SOURCE", "traderos")
+
+    def deliver(
+        self,
+        title: str,
+        message: str,
+        level: NotificationLevel,
+        metadata: dict[str, str | float | int | None],
+    ) -> None:
+        if not _has_urlopen or urlopen is None or Request is None:
+            raise OnCallDeliveryError("urllib.request.urlopen unavailable on this platform")
+        do_open: Callable[..., Any] = urlopen
+        build_request: Callable[..., Any] = Request
+        dedup = metadata.get("dedup_key") or metadata.get("alert_id") or f"traderos-{title}"
+        payload = json.dumps(
+            {
+                "routing_key": self.routing_key,
+                "event_action": "trigger",
+                "dedup_key": str(dedup),
+                "payload": {
+                    "summary": title,
+                    "source": self.source,
+                    "severity": _PD_SEVERITY[level],
+                    "custom_details": {
+                        "message": message,
+                        "metadata": metadata,
+                    },
+                },
+            }
+        ).encode()
+
+        def _post() -> Any:
+            resp = do_open(
+                build_request(
+                    self.base_url,
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                ),
+                timeout=self.timeout,
+            )
+            status = getattr(resp, "status", getattr(resp, "getcode", lambda: 200)())
+            if not (200 <= int(status) < 300):
+                raise RuntimeError(f"PagerDuty API returned HTTP {status}")
+            try:
+                body = json.loads(resp.read() or b"{}")
+            except Exception:  # noqa: BLE001
+                body = {}
+            if body.get("status") not in (None, "success", "triggered", "deduplicated"):
+                raise RuntimeError(f"PagerDuty API rejected event: {body.get('status')}")
+            return resp
+
+        try:
+            retry_with_backoff(_post, max_retries=self.max_retries, base_delay=0.2, max_delay=2.0)
+        except ServiceError as exc:
+            raise OnCallDeliveryError(
+                f"PagerDuty not delivered after {self.max_retries + 1} attempts: {exc}"
+            ) from exc
+
+
+class SlackTransport:
+    """Slack incoming-webhook transport.
+
+    Requires ``SLACK_WEBHOOK_URL`` (a Slack app/"Incoming Webhook" URL or any
+    generic webhook that speaks Slack's payload shape). Delivery succeeds only
+    on an HTTP 2xx with a JSON body of ``"ok": true`` — Slack returns ``"ok":
+    false`` plus an error string on rejection, which raises here. The whole webhook
+    URL is the credential, so no token is ever logged or committed.
+    """
+
+    def __init__(
+        self,
+        webhook_url: str | None = None,
+        *,
+        max_retries: int = 3,
+        timeout: float = 5.0,
+    ) -> None:
+        self.webhook_url = webhook_url or os.getenv("SLACK_WEBHOOK_URL", "") or None
+        if not self.webhook_url:
+            raise OnCallDeliveryError("SLACK_WEBHOOK_URL is required to use SlackTransport")
+        self.max_retries = max_retries
+        self.timeout = timeout
+        self.channel = os.getenv("SLACK_CHANNEL", "") or None
+
+    def deliver(
+        self,
+        title: str,
+        message: str,
+        level: NotificationLevel,
+        metadata: dict[str, str | float | int | None],
+    ) -> None:
+        if not _has_urlopen or urlopen is None or Request is None:
+            raise OnCallDeliveryError("urllib.request.urlopen unavailable on this platform")
+        do_open: Callable[..., Any] = urlopen
+        build_request: Callable[..., Any] = Request
+        url = self.webhook_url
+        if not url:
+            raise OnCallDeliveryError("SLACK_WEBHOOK_URL is required to use SlackTransport")
+        text = f"[{level.value}] {title}\n{message}"
+        if metadata:
+            text += "\n" + " ".join(f"{k}={v}" for k, v in metadata.items())
+        payload: dict[str, Any] = {"text": text}
+        if self.channel:
+            payload["channel"] = self.channel
+
+        def _post() -> Any:
+            resp = do_open(
+                build_request(
+                    url,
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                ),
+                timeout=self.timeout,
+            )
+            status = getattr(resp, "status", getattr(resp, "getcode", lambda: 200)())
+            if not (200 <= int(status) < 300):
+                raise RuntimeError(f"Slack webhook returned HTTP {status}")
+            try:
+                body = json.loads(resp.read() or b"{}")
+            except Exception:  # noqa: BLE001
+                body = {}
+            if body.get("ok") is False:
+                raise RuntimeError(f"Slack rejected message: {body.get('error')}")
+            return resp
+
+        try:
+            retry_with_backoff(_post, max_retries=self.max_retries, base_delay=0.2, max_delay=2.0)
+        except ServiceError as exc:
+            raise OnCallDeliveryError(
+                f"Slack webhook not delivered after {self.max_retries + 1} attempts: {exc}"
             ) from exc
 
 

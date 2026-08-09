@@ -65,6 +65,9 @@ _REPO_TABLES = (
     "backtest_results",
     "operator_workflow",
     "workflow_transitions",
+    "user_api_keys",
+    "user_sessions",
+    "users",
 )
 
 
@@ -502,3 +505,94 @@ class TestPostgresOperatorWorkflowRepository:
         assert reloaded is not None
         assert len(reloaded.transitions) == 1
         assert reloaded.transitions[0].to_step == OperatorStep.CONTROLLED_LIVE
+
+
+class TestPostgresUserRepository:
+    def test_user_crud_and_role_roundtrip(self, pg_conn) -> None:
+        from traderos.domain.entities.user import User
+        from traderos.domain.entities.user import UserRole
+        from traderos.domain.entities.user import UserStatus
+        from traderos.infrastructure.repositories.postgres.users import PostgresUserRepository
+
+        repo = PostgresUserRepository(pg_conn)
+        user = User(
+            id=uuid.uuid4(),
+            username="ops-admin",
+            password_hash="pbkdf2_sha256$100000$salt$digest",
+            role=UserRole.ADMIN,
+            status=UserStatus.ACTIVE,
+            created_at=datetime.now(UTC),
+        )
+        repo.create_user(user)
+        loaded = repo.get_user(user.id)
+        assert loaded is not None
+        assert loaded.username == "ops-admin"
+        assert loaded.role == UserRole.ADMIN
+        assert loaded.status == UserStatus.ACTIVE
+        by_name = repo.get_user_by_username("ops-admin")
+        assert by_name is not None and by_name.id == user.id
+        assert repo.get_user_by_username("missing") is None
+
+    def test_session_create_fetch_delete(self, pg_conn) -> None:
+        from traderos.domain.entities.user import User
+        from traderos.domain.entities.user import UserRole
+        from traderos.domain.entities.user import UserSession
+        from traderos.domain.entities.user import UserStatus
+        from traderos.infrastructure.repositories.postgres.users import PostgresUserRepository
+
+        repo = PostgresUserRepository(pg_conn)
+        user = User(
+            id=uuid.uuid4(),
+            username="ops-operator",
+            password_hash="h",
+            role=UserRole.OPERATOR,
+            status=UserStatus.ACTIVE,
+            created_at=datetime.now(UTC),
+        )
+        repo.create_user(user)
+        session = UserSession(
+            token_hash="abc123hash",
+            user_id=user.id,
+            expires_at=datetime.now(UTC) + timedelta(hours=2),
+            created_at=datetime.now(UTC),
+        )
+        repo.create_session(session)
+        fetched = repo.get_session("abc123hash")
+        assert fetched is not None
+        assert fetched.user_id == user.id
+        repo.delete_session("abc123hash")
+        assert repo.get_session("abc123hash") is None
+
+    def test_api_key_crud_and_revocation(self, pg_conn) -> None:
+        from traderos.domain.entities.user import User
+        from traderos.domain.entities.user import UserApiKey
+        from traderos.domain.entities.user import UserRole
+        from traderos.domain.entities.user import UserStatus
+        from traderos.infrastructure.repositories.postgres.users import PostgresUserRepository
+
+        repo = PostgresUserRepository(pg_conn)
+        user = User(
+            id=uuid.uuid4(),
+            username="uk-user",
+            password_hash="h",
+            role=UserRole.VIEWER,
+            status=UserStatus.ACTIVE,
+            created_at=datetime.now(UTC),
+        )
+        repo.create_user(user)
+        key = UserApiKey(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            label="instrument",
+            key_hash="key-hash-1",
+            prefix="trd_x",
+            created_at=datetime.now(UTC),
+        )
+        repo.create_api_key(key)
+        fetched = repo.get_api_key("key-hash-1")
+        assert fetched is not None and fetched.label == "instrument"
+        listed = repo.list_api_keys(user.id)
+        assert len(listed) == 1
+        repo.revoke_api_key(key.id)
+        revoked = repo.get_api_key("key-hash-1")
+        assert revoked is not None and revoked.revoked_at is not None

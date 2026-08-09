@@ -6,6 +6,7 @@ from traderos.infrastructure.repositories.postgres.strategies import (
 from traderos.infrastructure.repositories.postgres.strategies import PostgresStrategyRepository
 from traderos.infrastructure.repositories.postgres.trades import PostgresPositionRepository
 from traderos.infrastructure.repositories.postgres.trades import PostgresTradeRepository
+from traderos.infrastructure.repositories.postgres.users import PostgresUserRepository
 from traderos.infrastructure.repositories.postgres.workflows import (
     PostgresOperatorWorkflowRepository,
 )
@@ -18,4 +19,5 @@ __all__ = [
     "PostgresSignalRepository",
     "PostgresStrategyRepository",
     "PostgresTradeRepository",
+    "PostgresUserRepository",
 ]

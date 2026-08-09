@@ -87,6 +87,11 @@ class BacktestRequest(BaseModel):  # type: ignore[valid-type,misc]
     candles: int = 50
 
 
+class OperatorLoginRequest(BaseModel):  # type: ignore[valid-type,misc]
+    username: str
+    password: str
+
+
 class CreatePaperSessionRequest(BaseModel):  # type: ignore[valid-type,misc]
     market_ids: list[str] | None = None
 
@@ -271,8 +276,48 @@ def build_app() -> Any:
     def get_auth_me(request: Request):
         # Self-describing auth state for the login screen and ops tooling.
         # Never requires a key; returns whether authentication is required
-        # and whether the presented key is valid.
+        # and whether the presented credential (API key or session token) is
+        # valid.
         return auth_info(request)
+
+    @router.post("/auth/login")
+    def post_auth_login(req: OperatorLoginRequest):
+        # Operator login: validates a username/password against the PG-backed
+        # user store and mints a server-side session token (fail-closed, same
+        # PBKDF2 + constant-time verification the retail seam uses). The token
+        # is short-lived, revocable, and stored hashed server-side — the
+        # dashboard holds this session token, not a static API key, replacing
+        # the localStorage API-key interim model (WP8).
+        orch = create_orchestrator()
+        account = getattr(orch, "account_service", None)
+        if account is None:
+            raise HTTPException(501, "Account service not configured")
+        result = account.authenticate(req.username, req.password)
+        if not result.authenticated or result.user is None:
+            if getattr(orch, "audit", None) is not None:
+                orch.audit.record("operator.login_denied", req.username, "api", "denied")
+            raise HTTPException(401, "Invalid username or password")
+        token, session = account.create_session(result.user)
+        if getattr(orch, "audit", None) is not None:
+            orch.audit.record("operator.login", req.username, "api", "ok")
+        return {
+            "token": token,
+            "token_type": "session",
+            "expires_at": session.expires_at.isoformat(),
+            "user": {"username": result.user.username, "role": result.user.role.value},
+        }
+
+    @router.post("/auth/logout")
+    def operator_logout(request: Request):
+        orch = create_orchestrator()
+        account = getattr(orch, "account_service", None)
+        token = request.headers.get("X-Session-Token")
+        if account is not None and token:
+            user = account.validate_session(token)
+            account.revoke_session(token)
+            if getattr(orch, "audit", None) is not None:
+                orch.audit.record("operator.logout", user.username if user else "-", "api", "ok")
+        return {"logged_out": True}
 
     @router.get("/health")
     def get_health():
@@ -429,6 +474,34 @@ def build_app() -> Any:
     from traderos.interfaces.api.attribution import register_attribution_endpoints
 
     register_attribution_endpoints(router, lambda: create_orchestrator())
+
+    # WP9 — Market Overview + Research Lab served from the real runtime services
+    # (DataIngestionService + AnalysisService + ResearchService + strategy
+    # registry), each endpoint gated by the shared read permission boundary.
+    from traderos.interfaces.api.market import register_market_research_endpoints
+
+    register_market_research_endpoints(router, lambda: create_orchestrator())
+
+    # WP8 — operator login seam: install the X-Session-Token -> role resolver so
+    # the boundary and every permission dependency accept PG-backed sessions.
+    from traderos.infrastructure.auth import Role
+    from traderos.interfaces.api import security
+
+    def _resolve_session_role(token: str) -> Role | None:
+        orch = create_orchestrator()
+        account = getattr(orch, "account_service", None)
+        if account is None:
+            return None
+        user = account.validate_session(token)
+        if user is None:
+            return None
+        return {
+            "admin": Role.ADMIN,
+            "operator": Role.OPERATOR,
+            "viewer": Role.VIEWER,
+        }.get(user.role.value)
+
+    security.set_session_resolver(_resolve_session_role)
 
     app.include_router(router)
 

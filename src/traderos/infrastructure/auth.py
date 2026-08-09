@@ -46,6 +46,20 @@ def _split_keys(value: str) -> tuple[str, ...]:
     )
 
 
+def role_grants(role: Role | None, permission: Permission) -> Role | None:
+    """Return ``role`` if it holds ``permission`` (hierarchical), else None.
+
+    This is the pure role-check used by session-auth: the RBAC permission
+    lattice is applied to an already-verified identity, whether that identity
+    came from an API key or a server-issued session token.
+    """
+    if role is None:
+        return None
+    if _ROLE_RANK[role] >= _PERMISSION_RANK[permission]:
+        return role
+    return None
+
+
 @dataclass(frozen=True)
 class APIKeyAuthenticator:
     """Constant-time API-key authenticator with role resolution.
