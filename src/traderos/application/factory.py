@@ -303,6 +303,13 @@ def build_orchestrator(
 
     broker = GuardrailedBroker(RateLimitedBroker(broker))
 
+    # AS-7 immune system: route every broker submission through the broker
+    # circuit breaker so a hung/failing broker fails fast instead of being
+    # hammered by every caller (cycle executor, paper service, probe).
+    from traderos.infrastructure.broker_circuit_breaker import CircuitBreakeredBroker
+
+    broker = CircuitBreakeredBroker(broker)
+
     # CLOSURE-12: give the live broker a durable, restart-safe idempotency
     # journal. Every order intent is persisted before submission so a crashed
     # submit is never double-fired and broker-side truth can be reconciled
@@ -453,7 +460,7 @@ def build_orchestrator(
             notifications=notifications,
             audit=audit,
             metrics=metrics,
-            market_prices=lambda mid: (data_ingestion.get_latest_close(mid) or 0.0),
+            market_prices=lambda mid: data_ingestion.get_latest_close(mid) or 0.0,
         ),
         supervision=SupervisionService(
             store=JsonlHeartbeatStore(Path(cfg.data_dir) / "supervision.jsonl"),

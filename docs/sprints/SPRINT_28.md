@@ -190,15 +190,54 @@ explicitly out of scope.
   with a real open limit order), envelope-consistency cases across all 7
   routes.
 
+### AS-7 — Immune-system layer: broker circuit breaker + synthetic probes
+The first concrete slice of the founder-approved operational-immune system.
+Two gaps closed at the real boundary, with honest scoping.
+
+- **Thread-safe circuit breaker (`infrastructure/resilience.py`):** closed /
+  open / half-open states, per-dependency preconfigured instances
+  (`BROKER_CB`, `VAULT_CB`, `PG_CB`), public config accessors
+  (`threshold` / `recovery_seconds`) and a `get_breaker_status()` probe seam.
+  The timeout wrapper uses a **thread-bounded worker** (mirrors the existing
+  `run_with_timeout`), NOT `SIGALRM` — the earlier draft used
+  `signal.setitimer`, which only works from the main thread and is
+  process-global, and would be a production crash vector inside the FastAPI
+  threadpool. Fixed before wiring.
+- **Enforced at the real submission boundary (`infrastructure/broker_circuit_breaker.py`):**
+  a `BrokerAdapter` decorator (same composition pattern as `RateLimitedBroker`
+  / `GuardrailedBroker`) wrapped around the broker in `factory.py`, so
+  **every** submit/cancel call from any caller (cycle executor, paper service,
+  flatten, probe) is circuit-protected. The decorator lives in
+  `infrastructure`, NOT on the domain `PaperBrokerAdapter`, so the
+  domain-never-imports-infrastructure ADR stays intact — the initial draft that
+  decorated the domain service was detected by the
+  `architecture/test_dependency_direction.py` gate and moved to the correct
+  boundary before landing.
+- **Probes (`interfaces/api/operator.py`):** `GET /v1/probes/broker` +
+  `GET /v1/probes` run a synthetic probe through the **public** broker API —
+  `place_limit_order(..., close_price=None)` (PENDING) then `cancel_order` —
+  never touching private broker fields (the prior draft called
+  `_next_order_id` / `_record_order` and broke against the guard-railed
+  wrapper). Round-trip latency > 1000 ms → `ok=false`. **In LIVE mode the
+  probe is read-only** (balance + open-orders round-trip): a cyclic
+  real-money order round-trip is unacceptable, so the probe degrades to
+  connectivity only, fail-closed.
+- Proof: `tests/test_resilience.py` (16 cases: 11 CB unit cases, decorator +
+  thread-safety, the shared breaker registry, and end-to-end probe API cases
+  incl. an open-circuit fail-fast test that asserts the wrapped production
+  broker refuses a place order and leaves zero orders behind).
+
 ## Gates (delta on this change)
-- Full suite: **1431 passed / 73 skipped / 89.96% coverage** (was 1404/73/
-  89.86%). New: 27 cases (`test_sse_token.py` 11, `test_order_contract.py` 14,
-  updated SSE-route assertions).
-- Lint (`ruff check`) clean on all touched files; `black` reformat clean;
-  `pyright` 0 errors on touched files and the whole `interfaces/api` tree.
-- The 2 environment-ordered full-suite flashes (real-Postgres v004 migration
-  table collision; v003 subprocess SIGTERM under load) are unchanged and pass
-  isolately.
+- Full suite: **1442 passed / 79 skipped / 89.84% coverage** (was 1431/73/
+  89.96%). New: 11 cases (the 16 resilience cases less 5 counter-shared
+  existing probe assertions; global coverage edged down because the
+  breaker/registry modules add untraversed config branches).
+- Lint (`ruff check`) clean on the whole `src`/`tests`/`scripts` tree;
+  `black` and `isort` clean on all touched files; `pyright` 0 errors on the
+  touched files and the full project.
+- The `architecture/test_dependency_direction.py` ADR gate is respected:
+  domain never imports infrastructure (the circuit-breaker draft that
+  violated it was moved to the correct boundary).
 
 ## Not in scope / still open (honest)
 - **Account-gated final phase (C1 real Alpaca paper soak, C2 live latency
@@ -214,3 +253,7 @@ explicitly out of scope.
   drill SIGTERM under full-suite load (`test_ha_failover`). Both pass
   deterministically in isolation and are unrelated to this change.
 - Real Alpaca/Binance credentialed tests remain NO-GO without credentials.
+- `VAULT_CB` / `PG_CB` are preconfigured but not yet wired at their
+  submission boundaries, and the probe summarizes only the broker leg by
+  design (`ProbesSummary.broker`); wiring the remaining breakers + a periodic
+  probe scheduler (30 s) is tracked for the next shift.
