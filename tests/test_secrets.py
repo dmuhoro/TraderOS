@@ -67,3 +67,43 @@ class TestSecretRotator:
         rotator = SecretRotator()
         rotator.add_provider(lambda k: "custom-val" if k == "MY_KEY" else None)
         assert rotator.get("MY_KEY") == "custom-val"
+
+    def test_rotate_returns_false_when_no_provider_holds_key(self):
+        rotator = SecretRotator()
+        rotator.add_provider(lambda k: None)
+        assert rotator.rotate("NOT_IN_ANY_PROVIDER") is False
+
+    def test_rotate_custom_provider(self):
+        rotator = SecretRotator()
+        rotator.add_provider(lambda k: "rotated" if k == "ROTATE_ME" else None)
+        assert rotator.rotate("ROTATE_ME") is True
+        assert rotator.get("ROTATE_ME") == "rotated"
+        assert rotator.stats["versions"]["ROTATE_ME"] == 1
+
+    def _recording_observers(self):
+        class _Audit:
+            def __init__(self):
+                self.entries = []
+
+            def record(self, action, actor, resource, detail=""):
+                self.entries.append((action, actor, resource, detail))
+
+        class _Metrics:
+            def __init__(self):
+                self.counts = {}
+
+            def counter(self, name, delta=1.0):
+                self.counts[name] = self.counts.get(name, 0.0) + delta
+                return self.counts[name]
+
+        return _Audit(), _Metrics()
+
+    def test_get_and_rotate_record_metrics(self):
+        audit, metrics = self._recording_observers()
+        rotator = SecretRotator(audit=audit, metrics=metrics)
+        rotator.add_provider(lambda k: "v1" if k == "METRIC_KEY" else None)
+        rotator.get("METRIC_KEY")
+        assert metrics.counts.get("secret.accessed.read.provider") == 1.0
+        rotator.rotate("METRIC_KEY")
+        assert metrics.counts.get("secret.rotated") == 1.0
+        assert audit.entries and any(a == "secret.rotated" for a, _, _, _ in audit.entries)

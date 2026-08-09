@@ -1,5 +1,5 @@
 USER/ACCOUNT DRILL — B1 fail-closed credentials, sessions, per-user keys
-started 2026-08-09T04:38:08.694308+00:00
+started 2026-08-09T07:30:44.250348+00:00
 [PASS] password_hashed: credential stored as salted PBKDF2-SHA256, not plaintext
 [PASS] fail_closed_credentials: wrong password + ghost user denied
 [PASS] session_authenticates: issued session resolves to the user

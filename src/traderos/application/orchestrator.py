@@ -44,6 +44,7 @@ from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_management import StrategyCatalogService
 from traderos.infrastructure.ha_failover import FailoverManager
+from traderos.infrastructure.probe_scheduler import ProbeScheduler
 from traderos.infrastructure.secrets import SecretRotator
 from traderos.infrastructure.supervision import SupervisionService
 
@@ -92,6 +93,7 @@ class TradingOrchestrator:
     failover: FailoverManager | None = None
     streaming_feed: Any | None = None
     standby_poll_seconds: float = 5.0
+    probe_scheduler: ProbeScheduler | None = None
 
     def _pre_cycle_check(self) -> None:
         if self.preflight_service is not None:
@@ -163,12 +165,16 @@ class TradingOrchestrator:
             self.secret_rotator.start()
         if self.streaming_feed is not None:
             self.streaming_feed.start()
+        if self.probe_scheduler is not None:
+            self.probe_scheduler.start()
 
     def stop(self) -> None:
         if self.streaming_feed is not None:
             self.streaming_feed.stop()
         if self.secret_rotator is not None:
             self.secret_rotator.stop()
+        if self.probe_scheduler is not None:
+            self.probe_scheduler.stop()
         self._daemon_controller.stop()
 
     def run_cycle(
@@ -198,12 +204,23 @@ class TradingOrchestrator:
         )
 
     def run_forever(self, interval_seconds: int = 60, shutdown_timeout: int = 30) -> None:
-        self._daemon_controller.run_forever(interval_seconds, shutdown_timeout)
+        if self.probe_scheduler is not None:
+            self.probe_scheduler.start()
+        try:
+            self._daemon_controller.run_forever(interval_seconds, shutdown_timeout)
+        finally:
+            if self.probe_scheduler is not None:
+                self.probe_scheduler.stop()
 
     def get_status(self) -> dict[str, Any]:
         status = self._daemon_controller.get_status()
         if self.secret_rotator is not None:
             status["secret_rotation"] = self.secret_rotator.stats
+        if self.probe_scheduler is not None:
+            status["probes"] = {
+                name: {"ok": r.ok, "latency_ms": r.latency_ms, "detail": r.detail}
+                for name, r in self.probe_scheduler.latest.items()
+            }
         status["operational"] = self._operational_status()
         return status
 

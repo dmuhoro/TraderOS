@@ -15,12 +15,15 @@ import os
 import sqlite3
 
 import pytest
+import requests
 
 from traderos.infrastructure.database.migration_manager import migrate
 from traderos.infrastructure.observability import SQLiteAuditService as Audit
 from traderos.infrastructure.observability import SQLiteMetricsService as Metrics
+from traderos.infrastructure.resilience import VAULT_CB
 from traderos.infrastructure.secrets import EnvSecretProvider
 from traderos.infrastructure.secrets import SecretRotator
+from traderos.infrastructure.secrets import VaultFetchError
 from traderos.infrastructure.secrets import VaultSecretProvider
 
 VAULT_ADDR = "http://127.0.0.1:8200"
@@ -178,3 +181,55 @@ class TestDefaultFallbackIsEnv:
         rot2 = SecretRotator(audit=_audit(db))
         rot2.add_provider(EnvSecretProvider())
         assert rot2.get("ALPACA_API_KEY") == "env-key-must-not-leak"
+
+
+class TestVaultDecodeAndCall:
+    """Decoder branches and __call__ delegation, driven by a stubbed transport
+    so the outage paths are exercised without a live Vault."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_vault_breaker(self) -> None:
+        VAULT_CB.reset()
+        yield
+        VAULT_CB.reset()
+
+    def _stub_provider(self, response: requests.Response) -> VaultSecretProvider:
+        provider = VaultSecretProvider(url=VAULT_ADDR, token=VAULT_TOKEN)
+
+        def get(url, timeout=None):  # matching requests.Session.get signature
+            return response
+
+        provider._session.get = get
+        return provider
+
+    def test_non_json_200_body_is_an_outage(self) -> None:
+        """A 200 that is not JSON is not a secret — it is a corrupt store and
+        must surface as a VaultFetchError (VaultFetchError.secrets.py dip 1)."""
+        resp = requests.Response()
+        resp.status_code = 200
+        resp._content = b"<html>not-json</html>"
+        with pytest.raises(VaultFetchError):
+            self._stub_provider(resp).get("api/key")
+
+    def test_5xx_body_is_an_outage(self) -> None:
+        resp = requests.Response()
+        resp.status_code = 500
+        with pytest.raises(VaultFetchError):
+            self._stub_provider(resp).get("api/key")
+
+    def test_non_string_value_returns_none(self) -> None:
+        resp = requests.Response()
+        resp.status_code = 200
+        resp._content = b'{"data":{"data":{"value":123}}}'
+        assert self._stub_provider(resp).get("api/key") is None
+
+    def test_call_delegates_to_get(self, monkeypatch) -> None:
+        provider = VaultSecretProvider(url=VAULT_ADDR, token=VAULT_TOKEN)
+        monkeypatch.setattr(provider, "get", lambda key: "stubbed-value")
+        assert provider("api/key") == "stubbed-value"
+
+    def test_missing_key_returns_none_through_stubbed_transport(self) -> None:
+        resp = requests.Response()
+        resp.status_code = 404
+        # A 4xx is a data outcome, not an outage: the decoder must return None.
+        assert self._stub_provider(resp).get("api/missing-key") is None

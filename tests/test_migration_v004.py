@@ -78,6 +78,8 @@ class TestV004Sqlite:
 def pg_conn():
     conn = psycopg2.connect(PG_DSN)
     conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS trades")
     yield conn
     with conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS trades")

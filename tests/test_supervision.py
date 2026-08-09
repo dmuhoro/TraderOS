@@ -10,6 +10,7 @@ from datetime import timedelta
 
 from traderos.domain.services.notification_service import NotificationChannel
 from traderos.domain.services.notification_service import NotificationService
+from traderos.infrastructure.supervision import HeartbeatRecord
 from traderos.infrastructure.supervision import JsonlHeartbeatStore
 from traderos.infrastructure.supervision import SupervisionService
 
@@ -98,3 +99,64 @@ class TestSupervision:
         rec = _RecordingNotifier()
         assert _supervisor(store, rec).check_unclean_shutdown() is False
         assert rec.calls == []
+
+    def test_blank_line_store_is_treated_as_no_history(self, tmp_path) -> None:
+        store = JsonlHeartbeatStore(tmp_path / "supervision.jsonl")
+        with open(store._path, "w") as f:
+            f.write("\n\n")
+        assert store.last() is None
+        rec = _RecordingNotifier()
+        assert _supervisor(store, rec).check_unclean_shutdown() is False
+        assert rec.calls == []
+
+    def test_unclean_deaths_getter_counts_detections(self, tmp_path) -> None:
+        store = JsonlHeartbeatStore(tmp_path / "supervision.jsonl")
+        store.append(
+            HeartbeatRecord(ts=datetime.now(UTC), pid=999, action="heartbeat", component="daemon")
+        )
+        sup = _supervisor(store, _RecordingNotifier())
+        assert sup.check_unclean_shutdown() is True
+        assert sup.unclean_deaths == 1
+        assert sup.check_unclean_shutdown() is True
+        assert sup.unclean_deaths == 2
+
+    def test_unclean_detection_records_audit_entry_and_metric(self, tmp_path) -> None:
+        store = JsonlHeartbeatStore(tmp_path / "supervision.jsonl")
+        store.append(
+            HeartbeatRecord(ts=datetime.now(UTC), pid=42, action="heartbeat", component="daemon")
+        )
+
+        class _RecordingAudit:
+            def __init__(self) -> None:
+                self.entries: list[tuple] = []
+
+            def record(self, action, actor, resource, detail=""):
+                self.entries.append((action, actor, resource, detail))
+
+        class _RecordingMetrics:
+            def __init__(self) -> None:
+                self.calls: list[tuple] = []
+
+            def counter(self, name, delta=1.0):
+                self.calls.append((name, delta))
+                return 0.0
+
+        audit, metrics = _RecordingAudit(), _RecordingMetrics()
+        notifications = NotificationService(
+            channels={NotificationChannel.WEBHOOK}, notifier=_RecordingNotifier()
+        )
+        sup = SupervisionService(
+            store=store,
+            notifications=notifications,
+            audit=audit,
+            metrics=metrics,
+            stale_after_seconds=0.0,
+        )
+        sup._now = lambda: datetime.now(UTC) + timedelta(seconds=60)
+        assert sup.check_unclean_shutdown() is True
+        assert ("supervision.unclean_death", "system", "daemon") == (
+            audit.entries[0][0],
+            audit.entries[0][1],
+            audit.entries[0][2],
+        )
+        assert metrics.calls == [("supervision.unclean_death", 1.0)]

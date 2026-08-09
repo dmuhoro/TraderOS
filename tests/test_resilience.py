@@ -11,15 +11,21 @@ import threading
 import time
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 
+from traderos.infrastructure.database.connection import _connect_postgres
 from traderos.infrastructure.resilience import ALL_BREAKERS
+from traderos.infrastructure.resilience import PG_CB
+from traderos.infrastructure.resilience import VAULT_CB
 from traderos.infrastructure.resilience import CircuitBreaker
 from traderos.infrastructure.resilience import CircuitBreakerConfig
 from traderos.infrastructure.resilience import CircuitOpenError
 from traderos.infrastructure.resilience import get_breaker_status
 from traderos.infrastructure.resilience import reset_all_breakers
 from traderos.infrastructure.resilience import with_circuit_breaker
+from traderos.infrastructure.secrets import VaultFetchError
+from traderos.infrastructure.secrets import VaultSecretProvider
 from traderos.interfaces.api import server
 
 
@@ -258,3 +264,162 @@ class TestBrokerProbe:
         with pytest.raises(CircuitOpenError):
             broker.place_limit_order(orch.market_ids[0], "buy", 1.0, 0.01, close_price=None)
         assert broker.get_open_orders() == []
+
+
+class TestVaultCircuitWiring:
+    """VAULT_CB must trip on the real Vault fetch path and refuse fast.
+
+    A missing/forbidden key (4xx) is NOT an outage — it returns None and never
+    counts. Only transport failure / 5xx / corrupt body raises VaultFetchError
+    and, once the breaker opens, the protected call refuses with
+    CircuitOpenError (fail closed, never a silent demotion).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_breakers(self) -> None:
+        reset_all_breakers()
+        yield
+        reset_all_breakers()
+
+    def test_network_outage_opens_breaker_and_fails_fast(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        provider = VaultSecretProvider(url="http://127.0.0.1:1", token="t")
+
+        def _refuse(*_args: object, **_kwargs: object) -> None:
+            raise requests.ConnectionError("vault refused")
+
+        monkeypatch.setattr(provider._session, "get", _refuse)
+        for _ in range(VAULT_CB.threshold):
+            with pytest.raises(VaultFetchError):
+                provider.get("api/key")
+        assert VAULT_CB.state == "open"
+        with pytest.raises(CircuitOpenError):
+            provider.get("api/key")
+
+    def test_5xx_is_an_outage(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        provider = VaultSecretProvider(url="http://127.0.0.1:1", token="t")
+
+        class _Resp503:
+            status_code = 503
+
+        monkeypatch.setattr(provider._session, "get", lambda *_a, **_k: _Resp503())
+        with pytest.raises(VaultFetchError):
+            provider.get("api/key")
+        assert VAULT_CB.failure_count == 1
+
+    def test_404_missing_key_is_not_an_outage(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        provider = VaultSecretProvider(url="http://127.0.0.1:1", token="t")
+
+        class _Resp404:
+            status_code = 404
+
+        monkeypatch.setattr(provider._session, "get", lambda *_a, **_k: _Resp404())
+        assert provider.get("no/such/key") is None
+        assert provider.get("no/such/key") is None
+        assert VAULT_CB.state == "closed"
+        assert VAULT_CB.failure_count == 0
+
+    def test_recovers_after_outage_ends(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from traderos.infrastructure import resilience as resmod
+
+        clock = {"now": 1_000_000.0}
+        monkeypatch.setattr(resmod.time, "time", lambda: clock["now"])
+        provider = VaultSecretProvider(url="http://127.0.0.1:1", token="t")
+        mode = {"fail": True}
+
+        def _transport(*_args: object, **_kwargs: object) -> requests.Response:
+            if mode["fail"]:
+                raise requests.ConnectionError("refused")
+            resp = requests.Response()
+            resp.status_code = 200
+            resp._content = b'{"data":{"data":{"value":"live-key"}}}'
+            return resp
+
+        monkeypatch.setattr(provider._session, "get", _transport)
+        for _ in range(VAULT_CB.threshold):
+            with pytest.raises(VaultFetchError):
+                provider.get("api/key")
+        assert VAULT_CB.state == "open"
+
+        mode["fail"] = False
+        clock["now"] += VAULT_CB.recovery_seconds + 1
+        assert provider.get("api/key") == "live-key"  # half-open trial succeeds
+        provider.get("api/key")  # second consecutive success
+        assert VAULT_CB.state == "closed"
+        assert VAULT_CB.failure_count == 0
+
+
+class TestPostgresCircuitWiring:
+    """PG_CB must trip on the real psycopg2.connect path and refuse fast.
+
+    A missing driver (ImportError) is a packaging bug, NOT a database outage,
+    and must never trip PG_CB — only genuine connect failures do.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_breakers(self) -> None:
+        reset_all_breakers()
+        yield
+        reset_all_breakers()
+
+    def test_connect_failures_open_breaker_and_refuse(self, monkeypatch) -> None:
+        psycopg2 = pytest.importorskip("psycopg2")
+
+        def _boom(_dsn: str) -> None:
+            raise psycopg2.OperationalError("connection refused")
+
+        monkeypatch.setattr(psycopg2, "connect", _boom)
+        for _ in range(PG_CB.threshold):
+            with pytest.raises(psycopg2.OperationalError):
+                _connect_postgres("postgresql://u:p@h:1/db")
+        assert PG_CB.state == "open"
+        with pytest.raises(CircuitOpenError):
+            _connect_postgres("postgresql://u:p@h:1/db")
+
+    def test_import_error_does_not_trip_breaker(self, monkeypatch) -> None:
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _guarded(name: str, *args: object, **kwargs: object) -> object:
+            if name == "psycopg2":
+                raise ImportError("No module named 'psycopg2'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _guarded)
+        with pytest.raises(ImportError):
+            _connect_postgres("postgresql://u:p@h/db")
+        assert PG_CB.state == "closed"
+        assert PG_CB.failure_count == 0
+
+    def test_recovers_after_connect_succeeds(self, monkeypatch) -> None:
+        from traderos.infrastructure import resilience as resmod
+
+        psycopg2 = pytest.importorskip("psycopg2")
+        clock = {"now": 1_000_000.0}
+        monkeypatch.setattr(resmod.time, "time", lambda: clock["now"])
+        mode = {"fail": True}
+
+        class _FakeConn:
+            def __init__(self) -> None:
+                self.autocommit = None
+
+        def _transport(_dsn: str) -> _FakeConn:
+            if mode["fail"]:
+                raise psycopg2.OperationalError("refused")
+            return _FakeConn()
+
+        monkeypatch.setattr(psycopg2, "connect", _transport)
+        for _ in range(PG_CB.threshold):
+            with pytest.raises(psycopg2.OperationalError):
+                _connect_postgres("postgresql://u:p@h/db")
+        assert PG_CB.state == "open"
+
+        mode["fail"] = False
+        clock["now"] += PG_CB.recovery_seconds + 1
+        conn = _connect_postgres("postgresql://u:p@h/db")
+        assert conn.autocommit is False
+        _connect_postgres("postgresql://u:p@h/db")
+        assert PG_CB.state == "closed"
+        assert PG_CB.failure_count == 0

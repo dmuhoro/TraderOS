@@ -1,0 +1,70 @@
+TraderOS — Sprint 29 evidence: execution-immune-system hardening (WP1-WP4)
+==========================================================================
+Date: 2026-08-09   Environment: linux, .venv present (pytest from PATH), PG test container
+Run host: docker traderos-pg-test (postgres:16-alpine) on localhost:5433 (traderos_test)
+
+WP1 — breaker wiring at real boundaries (verified, not assumed)
+--------------------------------------------------------------
+- src/traderos/infrastructure/resilience.py        : BROKER_CB, VAULT_CB, PG_CB (dependency-free, thread-safe)
+- src/traderos/infrastructure/secrets.py:210        : @with_circuit_breaker(VAULT_CB) on VaultSecretProvider._fetch
+- src/traderos/infrastructure/database/connection.py: PG_CB on the real psycopg2.connect() boundary
+- src/traderos/infrastructure/broker_circuit_breaker.py: CircuitBreakeredBroker composed at factory boundary
+- tests/test_resilience.py                          : 24 cases (closed/open/half-open transitions, reset_all)
+  Proof: pytest tests/test_resilience.py -q -> 24 passed (2026-08-09)
+
+WP2 — probe scheduler (real on-call path)
+-----------------------------------------
+  src/traderos/infrastructure/probe_scheduler.py    : engine + health_probe, vault_probe, rate_limit_probe
+  src/traderos/application/factory.py              : probe list wired (broker + vault-if-VAULT_ADDR + rate_limit + health-if-PROBE_HEALTH_URL)
+  tests/test_probe_scheduler.py                   : 15 tests, incl. 4 forced-failure assertions
+    - health_probe -> 127.0.0.1:1 connection refused -> "Probe failed: health"
+    - vault_probe  -> VaultSecretProvider at 127.0.0.1:9 -> "Probe failed: vault"
+    - broker_health_probe with _BrokerUnreachable    -> "Probe failed: broker"
+    - rate_limit_probe budget=5 via _NeverRefusing   -> "Probe failed: rate_limit"
+  Proof: pytest tests/test_probe_scheduler.py -q -> 15 passed
+
+WP3 — targeted coverage delta (module -> %% before -> after)
+  traderos.infrastructure.retry         57%  -> 100%  (tests/test_retry.py, 5 cases)
+  traderos.infrastructure.run_manifest   *   -> 100%
+  traderos.infrastructure.supervision    *   -> 100%
+  traderos.infrastructure.secrets        *   -> 100%
+  probe_scheduler.py at 83% (marked error/budget branches untraversed, not claimed 100%)
+  Proof (full-suite run, 2026-08-09):
+    probe_scheduler 158 stmts/27 missing/83%; retry 100%; run_manifest 100%; secrets 100%; supervision 100%; TOTAL 93%
+
+WP4 — flake reproduced, fixed, removed
+  -----------------------------------
+  Flake A (observed, real): test_resilience.py::TestBreakerRegistry::test_reset_all_restores_closed
+    Root cause: WP2 vault-probe test leaves global VAULT_CB failure_count=1 -> trip loop hits
+      CircuitOpenError instead of expected RuntimeError (order-dependent shared-state leak).
+    Fix: conftest.py autouse fixture calls reset_all_breakers() before/after every test
+      (breaker state scoped per-test; not a retry wrapper).
+    Proof: pytest tests/test_probe_scheduler.py tests/test_resilience.py -q -> 39 passed
+
+  Flake B (named in directive, reproduced only with real PG):
+    tests/test_migration_v004.py::TestV004Postgres::test_up_adds_column_when_missing
+      psycopg2.errors.DuplicateTable: relation "trades" already exists
+    Root cause: bare CREATE TABLE "trades" in shared traderos_test colliding with the `trades`
+      relation bootstrapped earlier by the Postgres repository layer (test/order-dependent).
+    Fix: pg_conn fixture drops `trades` BEFORE and AFTER each test (per-test ownership of the name).
+    Proof with PG up: full suite x2 -> 1566 passed / 7 skipped both runs (was 1 failed).
+
+  Flake C (named, never reproduced in 7 full runs this session): test_ha_failover subprocess SIGTERM
+    drill under full-suite load -> passes in isolation and under load; no marker added.
+
+Final gates (2026-08-09):
+  - Full suite w/o PG (3 consecutive runs):  1494 passed / 79 skipped / 3x green
+  - Full suite WITH PG 16 (2 runs):          1566 passed /  7 skipped / 2x green  (post-fix)
+  - ruff check src tests                     : 0 errors
+  - black/isort --check                      : clean
+  - pyright src tests                        : 0 errors / 0 warnings
+  - ADR gate test_dependency_direction       : respected (probe/breaker never imported from domain)
+
+Honest residual gaps (not closed by this change):
+  - probe_scheduler 83% (edge/timing branches not unit-exercised; valid)
+  - No burst flood / load-shedding drill yet for the rate limiter; budget probe covers only
+    uncontended path.
+  - Wakeability (c3 C1-C3 credentialed broker live soak) remains blocked on real credentials — NO-GO,
+    not papered-over.
+  - Wdm pg test DB is ad-hoc Docker; a CI Postgres service would make the migration race tests
+    first-class in CI (recommendation, not implemented here).

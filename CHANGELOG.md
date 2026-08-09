@@ -1,5 +1,40 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 29 (Execution-immune-system hardening: WP1-WP4)
+
+### WP1 — Breaker wiring: verified at the real boundaries (2026-08-09)
+- Confirmed the uncommitted wrap-ins sit at the real submission/data paths, not a shared
+  helper: `@with_circuit_breaker(VAULT_CB)` on `VaultSecretProvider._fetch`
+  (`infrastructure/secrets.py`) and `PG_CB` on the real `psycopg2.connect()` boundary
+  (`infrastructure/database/connection.py`); `CircuitBreakeredBroker` composed in
+  `application/factory.py` outside `GuardrailedBroker`/`RateLimitedBroker`.
+- Proof: `tests/test_resilience.py` — 24 cases (closed/open/half-open, registry `reset_all()`).
+
+### WP2 — Probe scheduler on the real on-call path (2026-08-09)
+- `infrastructure/probe_scheduler.py` — added `health_probe`, `vault_probe`, `rate_limit_probe`
+  next to the existing `broker_health_probe`; threaded through `application/factory.py` (vault
+  only when `VAULT_ADDR` set, health only when `PROBE_HEALTH_URL` set, rate limit always).
+- 4 forced-failure proofs run the real scheduler + real loopback transport and assert
+  `Probe failed: <name>` (health, vault, broker, rate_limit). Tests:
+  `tests/test_probe_scheduler.py` (15 cases, inc. factory/lifecycle).
+
+### WP3 — Targeted coverage delta (2026-08-09)
+- `infrastructure/retry.py` 57% → 100% (`tests/test_retry.py`, 5 cases); `run_manifest.py`,
+  `supervision.py`, `secrets.py` → 100% (incl. metrics-record + Vault 5xx/non-string value
+  cases). `probe_scheduler.py` at 83% — edge/timing branches not unit-exercised, reported as-is.
+- Full-suite measurement (PG up): TOTAL 93%.
+
+### WP4 — Order-dependent flakes reproduced, fixed, and removed (2026-08-09)
+- Flake A: `TestBreakerRegistry::test_reset_all_restores_closed` — global `VAULT_CB`
+  failure-count leaked across tests from the WP2 vault probe; fixed with an autouse
+  `reset_all_breakers()` fixture in `conftest.py` (per-test breaker scope, both directions);
+  forced repro green 39/39.
+- Flake B: real-PG migration collision (`relation "trades" already exists`) — reproduced with
+  Postgres up; `tests/test_migration_v004.py` `pg_conn` fixture now drops `trades` before AND
+  after each test; full suite x2 with PG up = 1566 passed / 7 skipped both runs.
+- Full suite WITHOUT PG, 3 consecutive runs: 1494 passed / 79 skipped x3 (green proof).
+- `ruff`/`black`/`isort` clean on `src`+`tests`; `pyright src tests`: 0 errors.
+
 ## [Unreleased] - Sprint 28 (Product track: user accounts + per-user risk rails + manufacturing meta)
 
 ### AS-7 — Immune-system layer: broker circuit breaker + synthetic probes (2026-08-09)

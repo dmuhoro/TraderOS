@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +66,13 @@ from traderos.infrastructure.observability_postgres import PostgresAuditService
 from traderos.infrastructure.observability_postgres import PostgresHealthService
 from traderos.infrastructure.observability_postgres import PostgresManifestService
 from traderos.infrastructure.observability_postgres import PostgresMetricsService
+from traderos.infrastructure.probe_scheduler import ProbeResult
+from traderos.infrastructure.probe_scheduler import ProbeScheduler
+from traderos.infrastructure.probe_scheduler import broker_health_probe
+from traderos.infrastructure.probe_scheduler import health_probe
+from traderos.infrastructure.probe_scheduler import rate_limit_probe
+from traderos.infrastructure.probe_scheduler import vault_probe
+from traderos.infrastructure.rate_limiter import RateLimiter
 from traderos.infrastructure.repositories.in_memory import InMemoryBacktestResultRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryExperimentRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryExperimentResultRepository
@@ -471,6 +479,31 @@ def build_orchestrator(
         failover=_build_failover(cfg, notifications, audit),
         streaming_feed=streaming_feed,
     )
+
+    # WP2 probe scheduler: runs the real probes every 30s (env-overridable) and
+    # pages the real on-call transport on failure/recovery edges. Started with
+    # the orchestrator, so the deployed daemon + operator API both get it.
+    probes: list[Callable[[], ProbeResult]] = [
+        lambda: broker_health_probe(broker, trading_mode, mids),
+    ]
+    vault_reader = _vault_probe_reader(secret_rotator)
+    if vault_reader is not None:
+        probes.append(lambda: vault_probe(vault_reader, "ALPACA_API_KEY"))
+    rate_limits = int(os.getenv("RATE_LIMIT_MAX", "100"))
+    probes.append(
+        lambda: rate_limit_probe(RateLimiter(max_requests=rate_limits, window_seconds=60.0))
+    )
+    health_url = os.getenv("PROBE_HEALTH_URL", "")
+    if health_url:
+        probes.append(lambda: health_probe(health_url))
+
+    orch.probe_scheduler = ProbeScheduler(
+        probes,
+        oncall=notifications.oncall,
+        audit=audit,
+        metrics=metrics,
+        interval_seconds=int(os.getenv("PROBE_SCHEDULER_INTERVAL", "30")),
+    )
     return orch
 
 
@@ -582,6 +615,17 @@ def _build_secret_rotator(
         _LOGGER.info("No VAULT_ADDR set — using EnvSecretProvider (local/paper default)")
         rotator.add_provider(EnvSecretProvider())
     return rotator
+
+
+def _vault_probe_reader(rotator: SecretRotator) -> Callable[[str], str | None] | None:
+    """Return a reader bound to the real Vault provider (VAULT_CB-wrapped),
+    or None when no Vault is configured so no probe pages falsely."""
+    found: list[VaultSecretProvider] = [
+        p for p in rotator.providers() if isinstance(p, VaultSecretProvider)
+    ]
+    if not found:
+        return None
+    return found[0].get
 
 
 def _sync_strategy_registry(db: Any | None, backend: str = "sqlite") -> None:

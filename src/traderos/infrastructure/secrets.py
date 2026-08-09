@@ -14,6 +14,8 @@ import requests
 from traderos.domain.ports import AuditPort
 from traderos.domain.ports import MetricsPort
 from traderos.domain.ports import SecretProviderPort
+from traderos.infrastructure.resilience import VAULT_CB
+from traderos.infrastructure.resilience import with_circuit_breaker
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +58,10 @@ class SecretRotator:
 
     def add_provider(self, provider: SecretProviderPort) -> None:
         self._providers.append(provider)
+
+    def providers(self) -> list[SecretProviderPort]:
+        """Snapshot of registered providers (read-only surface for probes)."""
+        return list(self._providers)
 
     def get(self, key: str) -> str | None:
         with self._lock:
@@ -159,6 +165,16 @@ class EnvSecretProvider:
         return self.get(key)
 
 
+class VaultFetchError(RuntimeError):
+    """Vault itself is unreachable or misbehaving (network, timeout, corrupt body).
+
+    Distinct from a missing/forbidden key, which is a normal data outcome and
+    returns ``None``. Only genuine outages raise ; ``VAULT_CB`` counts them, so
+    a Vault outage fails closed and loudly instead of silently demoting secret
+    retrieval to a lower-trust provider (G-04 live-key boundary).
+    """
+
+
 class VaultSecretProvider:
     """Real HashiCorp Vault secret provider (KV v2) over the HTTP API.
 
@@ -167,9 +183,12 @@ class VaultSecretProvider:
     (default ``secret``). Secrets are read from ``<mount>/data/<key>`` —
     Vault's KV-v2 removed the ``value`` field to the nested ``data`` envelope.
 
-    Fail-closed: any non-2xx response, missing field, or network error returns
-    ``None`` so the rotator can fall through to a lower-trust provider; it
-    never raises on a failed retrieval.
+    Fail-closed: a missing key (HTTP 4xx) returns ``None`` so the rotator can
+    fall through to the next provider — a *missing secret* is not a Vault
+    outage. A genuine outage (network error, timeout, HTTP 5xx, corrupt body)
+    raises :class:`VaultFetchError`, which ``VAULT_CB`` counts and, once
+    tripped, surfaces as ``CircuitOpenError`` fast-fail so callers never get a
+    silently-degraded secret source.
     """
 
     def __init__(
@@ -188,16 +207,30 @@ class VaultSecretProvider:
     def get(self, key: str) -> str | None:
         path = key if not key.startswith("/") else key[1:]
         url = f"{self._url}/v1/{self._mount}/data/{path}"
+        body = self._fetch(url)
+        if body is None:
+            return None
+        data = body.get("data", {}).get("data", {})
+        value = data.get("value")
+        return value if isinstance(value, str) else None
+
+    @with_circuit_breaker(VAULT_CB)
+    def _fetch(self, url: str) -> dict[str, Any] | None:
+        """GET a KV-v2 secret; ``None`` on 4xx (missing/forbidden key)."""
         try:
             resp = self._session.get(url, timeout=5)
-            if resp.status_code != 200:
-                return None
-            body = resp.json()
-            data = body.get("data", {}).get("data", {})
-            value = data.get("value")
-            return value if isinstance(value, str) else None
-        except (requests.RequestException, ValueError):
+        except requests.RequestException as err:
+            raise VaultFetchError(f"Vault unreachable fetching {url}") from err
+        if resp.status_code >= 500:
+            # 5xx is a genuine store outage: trip the breaker, fail closed.
+            raise VaultFetchError(f"Vault returned HTTP {resp.status_code} for {url}")
+        if resp.status_code != 200:
+            # 4xx (missing/forbidden key) is a data outcome — not an outage.
             return None
+        try:
+            return resp.json()
+        except ValueError as err:
+            raise VaultFetchError(f"Vault returned a non-JSON 200 response for {url}") from err
 
     def __call__(self, key: str) -> str | None:
         return self.get(key)
