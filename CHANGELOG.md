@@ -1,5 +1,47 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 30 (Real Alpaca paper smoke-soak + WP6 latency + WP7 re-arm runway)
+
+### WP5 — G-02 real Alpaca paper soak: smoke PASS + production-defect fix (2026-08-09)
+- `scripts/evidence/run_real_paper_soak.py` now drives the real production
+  chain `CycleExecutor -> JournaledBroker -> AlpacaBrokerAdapter` against the
+  real Alpaca paper endpoint (previously fail-closed without keys; now actually
+  run with paper keys in env).
+- The real path exposed two live defects, both fixed in
+  `infrastructure/alpaca_broker.py`: (1) `TypeError` from string arithmetic on
+  Alpaca's `qty`/`filled_qty` (schema `_qty()` coercion added); (2) orders
+  reported `filled=True`/`status=filled` unconditionally — all four order
+  methods (market/limit/stop/trailing_stop) now report honest
+  `filled`/`status`/`remaining` from the broker detail.
+- Soak reads a stable `market_id -> AAPL` (fractionable in paper) instead of a
+  random UUID symbol; closes out only orders it owns (`latprobe-` prefix +
+  not-in-baseline), resets seed entitlements, and PASSes only from a clean
+  closed state. Evidence: `2026-08-09_smoke3.log` / `_smoke5.log` / `final_smoke.log`.
+- `scripts/evidence/run_unattended_paper_soak.py` (new): supervised 24–72h
+  window runner — per-batch real-path soaks, per-batch audited rows, aggregate
+  PASS only if every batch passes, fails closed (exit 2) without keys,
+  stderr captured (no silent drops). 5/5 batches PASS on a 60s window
+  (`2026-08-09_uattest2_aggregate.log`).
+
+### WP6 — Latency calibration riding the soak (2026-08-09)
+- `SOAK_LATENCY_PROBES` (≈10 per batch) report submit→ack ms through the real
+  path. Evidence across the three real-paper runs: min 269–306 ms, median
+  307–308 ms, max 308–356 ms (probes cancelled with the same run's residue,
+  account left at 0 open orders/positions).
+
+### WP7 — Live-pilot runway, authority-gated (2026-08-09)
+- New `docs/runbooks/WP5_WP7_PAPER_TO_LIVE.md`: GO is OPEX-gated; only a named
+  operator may re-arm live, daily check-in is a hard stop, no claim of PnL.
+- On-call drill OUT path day-aware (`run_oncall_drill.py` no longer clobbers an
+  old dated evidence file); 6/6 PASS `2026-08-09_oncall_transport_drill.log`.
+- Docs: SPRINT_30, GAP_READINESS G-02 row + status callout updated honestly
+  (bounded real-paper PASS; continuous 24–72h window still pending operator time).
+
+### Verification
+- Full suite WITHOUT PG: 1494 passed / 79 skipped (matches last green base).
+- Drill + soak + secret hygiene tests: 9 passed; `ruff` clean on changed core
+  files; `pyright src tests` 0 errors.
+
 ## [Unreleased] - Sprint 29 (Execution-immune-system hardening: WP1-WP4)
 
 ### WP1 — Breaker wiring: verified at the real boundaries (2026-08-09)

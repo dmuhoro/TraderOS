@@ -66,7 +66,18 @@ class AlpacaBrokerAdapter(BrokerAdapter):
     def _symbol(self, market_id: uuid.UUID) -> str:
         return self._symbol_map.get(market_id, str(market_id))
 
-    def _side(self, side: str) -> Any:
+    @staticmethod
+    def _qty(value: Any) -> float:
+        """Coerce Alpaca's string/Decimal quantities to float.
+
+        The real TradingClient returns ``qty`` / ``filled_qty`` as strings, and
+        this adapter must not do arithmetic on raw broker strings (crash on the
+        live path) nor treat ``"0"`` as truthy (filled-reporting lie).
+        """
+        return float(value or 0.0)
+
+    @staticmethod
+    def _side(side: str) -> Any:
         if _OrderSide is None:
             raise InfrastructureError("alpaca-py OrderSide not available")
         return _OrderSide.BUY if side == "buy" else _OrderSide.SELL
@@ -106,12 +117,19 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 )
 
             order = retry_with_backoff(_submit, max_retries=2)
+            filled_qty = self._qty(order.filled_qty)
+            total_qty = self._qty(order.qty)
+            filled = float(filled_qty) > 0
             return FillResult(
-                filled=True,
-                fill_quantity=float(order.filled_qty or quantity),
+                filled=filled,
+                fill_quantity=float(filled_qty),
                 fill_price=float(order.filled_avg_price or 0.0),
-                remaining=float(order.qty - (order.filled_qty or 0)),
-                status="filled",
+                remaining=float(total_qty - filled_qty),
+                status=(
+                    "filled"
+                    if filled and float(filled_qty) >= total_qty
+                    else "partially_filled" if filled else "pending"
+                ),
                 order_id=order.id,
             )
         except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
@@ -148,12 +166,19 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 )
 
             order = retry_with_backoff(_submit, max_retries=2)
+            filled_qty = self._qty(order.filled_qty)
+            total_qty = self._qty(order.qty)
+            filled = float(filled_qty) > 0
             return FillResult(
-                filled=bool(order.filled_qty),
-                fill_quantity=float(order.filled_qty or 0),
+                filled=filled,
+                fill_quantity=float(filled_qty),
                 fill_price=float(order.filled_avg_price or price),
-                remaining=float(order.qty - (order.filled_qty or 0)),
-                status="filled" if order.filled_qty == order.qty else "pending",
+                remaining=float(total_qty - filled_qty),
+                status=(
+                    "filled"
+                    if filled and float(filled_qty) >= total_qty
+                    else "partially_filled" if filled else "pending"
+                ),
                 order_id=order.id,
             )
         except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
@@ -192,11 +217,14 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 )
 
             order = retry_with_backoff(_submit, max_retries=2)
+            filled_qty = self._qty(order.filled_qty)
+            total_qty = self._qty(order.qty)
+            filled = float(filled_qty) > 0
             return FillResult(
-                filled=bool(order.filled_qty),
-                fill_quantity=float(order.filled_qty or 0),
+                filled=filled,
+                fill_quantity=float(filled_qty),
                 fill_price=float(order.filled_avg_price or 0.0),
-                remaining=float(order.qty - (order.filled_qty or 0)),
+                remaining=float(total_qty - filled_qty),
                 status="filled" if order.filled_qty == order.qty else "pending",
                 order_id=order.id,
             )
@@ -236,11 +264,14 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 )
 
             order = retry_with_backoff(_submit, max_retries=2)
+            filled_qty = self._qty(order.filled_qty)
+            total_qty = self._qty(order.qty)
+            filled = float(filled_qty) > 0
             return FillResult(
-                filled=bool(order.filled_qty),
-                fill_quantity=float(order.filled_qty or 0),
+                filled=filled,
+                fill_quantity=float(filled_qty),
                 fill_price=float(order.filled_avg_price or 0.0),
-                remaining=float(order.qty - (order.filled_qty or 0)),
+                remaining=float(total_qty - filled_qty),
                 status="filled" if order.filled_qty == order.qty else "pending",
                 order_id=order.id,
             )
@@ -311,6 +342,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 "qty": float(o.qty),
                 "side": o.side,
                 "type": o.type,
+                "client_order_id": str(getattr(o, "client_order_id", "") or ""),
             }
             for o in orders
         ]

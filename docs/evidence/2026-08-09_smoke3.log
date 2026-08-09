@@ -1,0 +1,14 @@
+REAL-PAPER SOAK HARNESS — G-02 unattended paper-broker soak
+started 2026-08-09T11:05:00.154121+00:00 finished 2026-08-09T11:05:05.607325+00:00
+cycles=5 orders_filled=0 submit_attempts=5
+journal_confirmed=5 journal_pending=0
+soak_open_orders=5 cancel_failures=0
+broker_open_orders_after=0
+local_positions=0
+reconcile_errors=0 mismatches=0
+
+0 lost orders (no pending intents):      True
+broker returned to pre-run state (0 uid): True
+reconcile clean vs real paper broker:    True
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-09_smoke3.log

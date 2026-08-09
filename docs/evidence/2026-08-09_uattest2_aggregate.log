@@ -1,0 +1,41 @@
+[2026-08-09T11:37:18.103157+00:00] batch=001 PASS
+runner closed out, broker at baseline:    True
+reconcile clean vs real paper broker:    True
+
+WP6 latency (submit->ack ms): n=10 min=274.4 median=306.3 max=977.2
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-09_uattest2_batch0001.log
+[2026-08-09T11:37:30.150072+00:00] batch=002 PASS
+runner closed out, broker at baseline:    True
+reconcile clean vs real paper broker:    True
+
+WP6 latency (submit->ack ms): n=10 min=306.2 median=307.4 max=384.5
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-09_uattest2_batch0002.log
+[2026-08-09T11:37:44.166501+00:00] batch=003 PASS
+runner closed out, broker at baseline:    True
+reconcile clean vs real paper broker:    True
+
+WP6 latency (submit->ack ms): n=10 min=282.1 median=307.4 max=331.3
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-09_uattest2_batch0003.log
+[2026-08-09T11:37:56.271769+00:00] batch=004 PASS
+runner closed out, broker at baseline:    True
+reconcile clean vs real paper broker:    True
+
+WP6 latency (submit->ack ms): n=10 min=307.3 median=615.0 max=1476.8
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-09_uattest2_batch0004.log
+[2026-08-09T11:38:14.901529+00:00] batch=005 PASS
+runner closed out, broker at baseline:    True
+reconcile clean vs real paper broker:    True
+
+WP6 latency (submit->ack ms): n=10 min=257.6 median=307.8 max=409.2
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-09_uattest2_batch0005.log
+
+finished 2026-08-09T11:38:27.118890+00:00
+batches_run=5 passed=5 failed=0
+window_seconds=60
+VERDICT: PASS (0 reconcile/dup/lost across all batches)
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-09_uattest2_aggregate.log
