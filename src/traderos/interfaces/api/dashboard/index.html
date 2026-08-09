@@ -18,7 +18,8 @@
       <span id="ks-badge" class="badge badge-ok">kill switch: closed</span>
       <span id="role-badge" class="badge badge-hidden">role: -</span>
       <div id="auth-box" class="auth-box">
-        <input id="key-input" type="password" placeholder="API key" autocomplete="off" />
+        <input id="key-input" type="text" placeholder="username" autocomplete="username" />
+        <input id="pw-input" type="password" placeholder="password" autocomplete="current-password" />
         <button id="login-btn" class="btn btn-primary">Sign in</button>
         <button id="logout-btn" class="btn hidden">Sign out</button>
       </div>
@@ -125,6 +126,38 @@
       <table>
         <thead><tr><th>Name</th><th>Template</th><th>Status</th><th>Version</th><th>Actions</th></tr></thead>
         <tbody id="strategies-body"></tbody>
+      </table>
+    </section>
+
+    <section class="panel span-2" id="market-panel">
+      <h2>Market Overview</h2>
+      <table>
+        <thead><tr><th>Symbol</th><th>Last</th><th>Change</th><th>Volume</th><th>SMA20</th><th>SMA50</th><th>RSI</th><th>ATR</th><th>State</th></tr></thead>
+        <tbody id="market-body"><tr><td colspan="9" class="empty">no market data</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel span-2" id="research-panel">
+      <h2>Research Lab</h2>
+      <div class="row">
+        <span class="col-hint">Select a symbol and run a registered strategy backtest against its candles.</span>
+      </div>
+      <div class="row">
+        <select id="research-symbol" class="input"></select>
+        <select id="research-strategy" class="input"></select>
+        <button id="research-run" class="btn btn-primary">Run backtest</button>
+        <span id="research-result" class="inline-msg"></span>
+      </div>
+      <div id="research-metrics" class="metrics-block"></div>
+      <h3>Research journal</h3>
+      <div class="row">
+        <input id="research-symbol-new" class="input" placeholder="symbol" />
+        <input id="research-content" class="input grow" placeholder="observation ..." />
+        <button id="research-log" class="btn">Log observation</button>
+      </div>
+      <table>
+        <thead><tr><th>Time</th><th>Symbol</th><th>Observation</th><th>Tags</th></tr></thead>
+        <tbody id="research-body"><tr><td colspan="4" class="empty">no observations yet</td></tr></tbody>
       </table>
     </section>
 

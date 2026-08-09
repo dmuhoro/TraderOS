@@ -1,7 +1,6 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const KEY_STORAGE = "traderos.api_key";
 
 const STEP_ORDER = [
   "start",
@@ -18,6 +17,7 @@ const STEP_ORDER = [
 
 const state = {
   apiKey: null,
+  sessionToken: null,
   role: null,
   authRequired: false,
   sseMode: false,
@@ -46,7 +46,8 @@ function fmtMoney(n) {
 
 async function api(path, opts = {}) {
   const headers = Object.assign({ Accept: "application/json" }, opts.headers || {});
-  if (state.apiKey) headers["X-API-Key"] = state.apiKey;
+  if (state.sessionToken) headers["X-Session-Token"] = state.sessionToken;
+  else if (state.apiKey) headers["X-API-Key"] = state.apiKey;
   if (opts.body) headers["Content-Type"] = "application/json";
   const resp = await fetch(path, {
     method: opts.method || "GET",
@@ -71,19 +72,41 @@ async function api(path, opts = {}) {
 }
 
 function loadAuthState() {
-  state.apiKey = localStorage.getItem(KEY_STORAGE);
+  // WP8: the dashboard keeps a short-lived server-side session token in the
+  // closing page session (sessionStorage), never a static API key. logout()
+  // clears it and the server revokes it, so nothing roamable persists.
+  try {
+    state.apiKey = null;
+    state.sessionToken = sessionStorage.getItem("traderos.session");
+  } catch (_) {
+    state.sessionToken = null;
+  }
 }
 
-function saveKey(key) {
-  state.apiKey = key;
-  localStorage.setItem(KEY_STORAGE, key);
+function saveSession(token) {
+  state.sessionToken = token;
+  state.apiKey = null;
+  try {
+    sessionStorage.setItem("traderos.session", token);
+  } catch (_) {
+    /* non-persistent storage unavailable: keep in-memory only */
+  }
 }
 
 function logout() {
+  const revoked = state.sessionToken;
+  state.sessionToken = null;
   state.apiKey = null;
-  localStorage.removeItem(KEY_STORAGE);
+  try {
+    sessionStorage.removeItem("traderos.session");
+  } catch (_) {
+    /* no-op */
+  }
   state.role = null;
   state.authRequired = false;
+  if (revoked) {
+    api("/v1/auth/logout", { method: "POST" }).catch(() => {});
+  }
   renderAuth();
   clearPanels();
 }
@@ -102,6 +125,7 @@ async function refreshAuth() {
 
 function renderAuth() {
   $("key-input").classList.toggle("hidden", state.authRequired && state.role !== null);
+  $("pw-input").classList.toggle("hidden", state.authRequired && state.role !== null);
   $("login-btn").classList.toggle("hidden", state.role !== null || !state.authRequired);
   $("logout-btn").classList.toggle("hidden", state.role === null);
   const roleBadge = $("role-badge");
@@ -275,6 +299,15 @@ function renderTrades(data) {
 
 function renderStrategies(data) {
   const rows = data.strategies || [];
+  const select = $("research-strategy");
+  const active = rows.filter((s) => s.status === "active").map((s) => s.name);
+  const current = select.value;
+  const choices = active.length ? active : rows.map((s) => s.name);
+  if (choices.length) {
+    select.innerHTML = choices.map((n) => `<option value="${esc(String(n))}">${esc(String(n))}</option>`).join("");
+    if (choices.includes(current)) select.value = current;
+    if (select.selectedIndex === -1) select.selectedIndex = 0;
+  }
   const canWrite = !state.authRequired || ["operate", "admin"].includes(state.role);
   $("strategies-body").innerHTML = rows.length
     ? rows
@@ -304,6 +337,90 @@ function renderReport(text) {
   $("report-body").textContent = text || "no session report yet";
 }
 
+function renderMarketOverview(data) {
+  const rows = (data && data.markets) || [];
+  $("market-body").innerHTML = rows.length
+    ? rows
+        .map(
+          (m) =>
+            `<tr>
+              <td>${esc(m.symbol)}</td>
+              <td>${fmt(m.last)}</td>
+              <td class="${Number(m.change_pct) >= 0 ? "pos" : "neg"}">${m.change_pct != null ? Number(m.change_pct).toFixed(2) + "%" : "-"}</td>
+              <td>${fmt(m.volume)}</td>
+              <td>${m.sma20 != null ? fmt(m.sma20) : "-"}</td>
+              <td>${m.sma50 != null ? fmt(m.sma50) : "-"}</td>
+              <td>${m.rsi != null ? fmt(m.rsi) : "-"}</td>
+              <td>${m.atr != null ? fmt(m.atr) : "-"}</td>
+              <td>
+                <span class="badge ${m.state === "uptrend" ? "badge-ok" : m.state === "downtrend" ? "badge-danger" : "badge-idle"}">${esc(m.state)}</span>
+              </td>
+            </tr>`
+        )
+        .join("")
+    : `<tr><td colspan="9" class="empty">no market data</td></tr>`;
+}
+
+function researchSymbolSelect() {
+  return $("research-symbol");
+}
+
+function populateResearchSymbols(symbols) {
+  const sel = researchSymbolSelect();
+  const current = sel.value;
+  sel.innerHTML = symbols.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  if (symbols.includes(current)) sel.value = current;
+  if (sel.selectedIndex === -1 && symbols.length) sel.selectedIndex = 0;
+}
+
+function renderResearchBacktest(data) {
+  const m = data || {};
+  const rows = [
+    ["Strategy", m.strategy],
+    ["Symbol", m.symbol],
+    ["Candles", m.candles],
+    ["Total return", m.total_return != null ? Number(m.total_return).toFixed(4) : "-"],
+    ["Sharpe", m.sharpe_ratio != null ? Number(m.sharpe_ratio).toFixed(4) : "-"],
+    ["Sortino", m.sortino_ratio != null ? Number(m.sortino_ratio).toFixed(4) : "-"],
+    ["Calmar", m.calmar_ratio != null ? Number(m.calmar_ratio).toFixed(4) : "-"],
+    ["Max drawdown", m.max_drawdown != null ? Number(m.max_drawdown).toFixed(4) : "-"],
+    ["Win rate", m.win_rate != null ? Number(m.win_rate).toFixed(4) : "-"],
+    ["Profit factor", m.profit_factor != null ? Number(m.profit_factor).toFixed(4) : "-"],
+    ["Expectancy", m.expectancy != null ? Number(m.expectancy).toFixed(4) : "-"],
+  ];
+  $("research-metrics").innerHTML = `<table>
+    <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+    <tbody>${rows.map(([k, v]) => `<tr><td>${esc(String(k))}</td><td>${esc(String(v))}</td></tr>`).join("")}</tbody>
+  </table>`;
+  $("research-result").textContent = data && data.strategy ? `backtest complete` : "";
+}
+
+function renderResearchObservations(data) {
+  const obs = (data && data.observations) || [];
+  $("research-body").innerHTML = obs.length
+    ? obs
+        .map(
+          (o) =>
+            `<tr>
+              <td>${esc((o.timestamp || "").slice(0, 19).replace("T", " "))}</td>
+              <td>${esc(o.symbol)}</td>
+              <td>${esc(o.content)}</td>
+              <td>${esc((o.tags || []).join(", "))}</td>
+            </tr>`
+        )
+        .join("")
+    : `<tr><td colspan="4" class="empty">no observations yet</td></tr>`;
+}
+
+function renderResearch(data) {
+  let markets = data && data.markets;
+  if (markets) renderMarketOverview(data);
+  const symbols = data && data.symbols;
+  if (symbols) {
+    populateResearchSymbols(symbols);
+  }
+}
+
 function appendEvent(evt) {
   const type = evt.type || "state";
   const data = typeof evt.data === "string" ? evt.data : JSON.stringify(evt.data || {});
@@ -327,6 +444,9 @@ async function refreshPanels() {
     ["/v1/orders", renderOrders],
     ["/v1/trades", renderTrades],
     ["/v1/strategies", renderStrategies],
+    ["/v1/market/overview", renderMarketOverview],
+    ["/v1/market/symbols", (d) => populateResearchSymbols(d.symbols)],
+    ["/v1/research/observations", renderResearchObservations],
   ];
   const results = await Promise.allSettled(
     calls.map(async ([path, fn]) => {
@@ -448,18 +568,28 @@ async function advanceWorkflow() {
 
 function wireEvents() {
   $("login-btn").addEventListener("click", async () => {
-    const key = $("key-input").value.trim();
-    if (!key) return;
-    saveKey(key);
-    const info = await api("/v1/auth/me").catch(() => null);
-    if (info && info.authenticated) {
-      state.role = info.role;
+    // WP8: authenticate with username/password against /v1/auth/login and
+    // hold the short-lived server-side session token. No static API key is
+    // ever persisted in localStorage.
+    const username = $("key-input").value.trim();
+    const password = $("pw-input").value;
+    if (!username || !password) return;
+    try {
+      const out = await api("/v1/auth/login", {
+        method: "POST",
+        body: { username, password },
+      });
+      saveSession(out.token);
+      const info = await api("/v1/auth/me");
+      state.role = info.authenticated ? info.role : null;
       state.authRequired = Boolean(info.required);
       renderAuth();
+      $("pw-input").value = "";
       refreshPanels();
-    } else {
+} catch (err) {
       logout();
-      $("key-input").value = "";
+      appendEvent({ type: "login_error", data: String(err.message) });
+      $("pw-input").value = "";
     }
   });
   $("logout-btn").addEventListener("click", () => {
@@ -500,9 +630,44 @@ function wireEvents() {
   $("report-load").addEventListener("click", async () => {
     const fmt = $("report-fmt").value;
     const url = fmt === "markdown" ? "/v1/reports/session?fmt=markdown" : "/v1/reports/session";
-    const resp = await fetch(url, { headers: state.apiKey ? { "X-API-Key": state.apiKey } : {} });
+    const headers = {};
+    if (state.sessionToken) headers["X-Session-Token"] = state.sessionToken;
+    else if (state.apiKey) headers["X-API-Key"] = state.apiKey;
+    const resp = await fetch(url, { headers });
     const text = await resp.text();
     renderReport(text);
+  });
+  $("research-run").addEventListener("click", () => {
+    const symbol = $("research-symbol").value;
+    const strategy = $("research-strategy").value;
+    if (!symbol || !strategy) return;
+    $("research-result").textContent = "running ...";
+    api("/v1/research/backtest", {
+      method: "POST",
+      body: { symbol, strategy },
+    })
+      .then((data) => {
+        renderResearchBacktest(data);
+        $("research-result").textContent = `backtest complete on ${data.symbol}`;
+      })
+      .catch((err) => {
+        $("research-result").textContent = `backtest failed: ${err.message}`;
+        $("research-result").style.color = "var(--red)";
+        appendEvent({ type: "error", data: err.message });
+      });
+  });
+  $("research-log").addEventListener("click", async () => {
+    const symbol = $("research-symbol-new").value.trim() || $("research-symbol").value;
+    const content = $("research-content").value.trim();
+    if (!symbol || !content) return;
+    try {
+      await api("/v1/research/observations", { method: "POST", body: { symbol, content } });
+      $("research-content").value = "";
+      const obs = await api("/v1/research/observations");
+      renderResearchObservations(obs);
+    } catch (err) {
+      appendEvent({ type: "error", data: err.message });
+    }
   });
 }
 

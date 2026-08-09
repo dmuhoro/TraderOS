@@ -1,5 +1,47 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 31 (Session-based operator auth + Market Overview/Research Lab + on-call providers)
+
+### WP8 — Operator login is session-based, not a static roaming API key (2026-08-09)
+- Dashboard sign-in is username+password against `/v1/auth/login` (PBKDF2 via
+  `AccountService`); the server mints a short-lived PG-backed session token
+  (`X-Session-Token`) held only in the closing page session; `/v1/auth/logout`
+  revokes it. No `localStorage` API-key persistence remains.
+- New `PostgresUserRepository` (users/user_sessions/user_api_keys) with parity
+  tests; `account_service` wired for a Postgres backend and
+  `bootstrap_admin_from_env()` runs at factory time.
+- `security.py` session seam: sessions are an RBAC-equivalent credential — a
+  viewer session can read but never operate or trip the kill switch (proven in
+  `test_operator_login.py`); invalid sessions are explicit 401s.
+- Session `login`/`login_denied` events land on the audit trail.
+
+### WP9 — Market Overview + Research Lab panes from the real runtime services (2026-08-09)
+- New endpoints `interfaces/api/market.py`: `/v1/market/overview`,
+  `/v1/market/candles`, `/v1/market/symbols`, `/v1/research/indicators`,
+  `/v1/research/backtest` (registered strategy vs the symbol's real candles),
+  `/v1/research/observations` (GET/POST) — all gated by the shared RBAC
+  dependencies, 404 on unknown symbols, 503 when a service is absent.
+- Dashboard gained "Market Overview" and "Research Lab" panels
+  (backtest metrics + research journal). Tests assert indicator values equal
+  `AnalysisService` output and that the boundary denies bogus/viewer sessions.
+
+### WP10 — Real on-call providers: PagerDuty + Slack (2026-08-09)
+- `PagerDutyTransport` (Events API v2 envelope, `dedup_key`, severity map) and
+  `SlackTransport` (webhook payload) implement the existing `OnCallTransport`
+  protocol; both env-gated (`PAGERDUTY_ROUTING_KEY` / `SLACK_WEBHOOK_URL`),
+  require a 2xx + provider ack, and raise `OnCallDeliveryError` on failure.
+- Factory fan-out wiring: all configured providers are built; none configured
+  leaves `oncall` as `None` (no external alert claimed). Prove on the real wire
+  in `test_oncall_providers.py`; delivery to a live account pending operator keys.
+
+### Verification
+- WP8/WP9/WP10 subset suites green after each package; full suite run three
+  times green on the final state (1528 passed / 82 skipped each); dashboard
+  `node --check` clean; `ruff`/`black --check`/`isort --check` clean on
+  changed files; `pyright src tests` 0 errors; `test_dashboard.py` core
+  assertions (Finish Line Dashboard, login/me/advance/kill-switch/report,
+  `EventSource`) unchanged.
+
 ## [Unreleased] - Sprint 30 (Real Alpaca paper smoke-soak + WP6 latency + WP7 re-arm runway)
 
 ### WP5 — G-02 real Alpaca paper soak: smoke PASS + production-defect fix (2026-08-09)

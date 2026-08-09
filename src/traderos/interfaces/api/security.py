@@ -11,6 +11,7 @@ the route's permission bucket (401 invalid, 403 insufficient role).
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import Depends
@@ -20,9 +21,16 @@ from fastapi import Request
 from traderos.infrastructure.auth import APIKeyAuthenticator
 from traderos.infrastructure.auth import Permission
 from traderos.infrastructure.auth import Role
+from traderos.infrastructure.auth import role_grants
 from traderos.interfaces.api import sse_tokens
 
 _authenticator: APIKeyAuthenticator | None = None
+# Optional session-authenticator: resolves an ``X-Session-Token`` to a validated
+# operator role. When set, the operator surface accepts the token as an
+# alternative credential to an API key (used for the PG-backed operator login
+# seam). Both fail closed: an invalid token is rejected, never silently
+# accepted, and a session token is never a downgrade path around the RBAC gate.
+_session_resolver: Callable[[str], Role | None] | None = None
 
 
 def get_authenticator() -> APIKeyAuthenticator:
@@ -33,8 +41,13 @@ def get_authenticator() -> APIKeyAuthenticator:
 
 
 def reset_authenticator() -> None:
-    global _authenticator
+    global _authenticator, _session_resolver
     _authenticator = None
+
+    # A stale session resolver would allow a token minted against a previous
+    # app/test DB to be validated. Reset it alongside the authenticator so
+    # isolation is deterministic.
+    _session_resolver = None
 
 
 def set_authenticator(auth: APIKeyAuthenticator) -> None:
@@ -42,12 +55,56 @@ def set_authenticator(auth: APIKeyAuthenticator) -> None:
     _authenticator = auth
 
 
+def reset_session_resolver() -> None:
+    global _session_resolver
+    _session_resolver = None
+
+
+def set_session_resolver(resolver: Callable[[str], Role | None] | None) -> None:
+    """Install the operator session->role resolver (integrates with the
+    boundary, permission dependencies and the SSE seam). The resolver must be
+    a callable ``(token: str) -> Role | None`` (None = invalid/expired)."""
+    global _session_resolver
+    _session_resolver = resolver
+
+
+def _session_token(request: Request) -> str | None:
+    return request.headers.get("X-Session-Token")
+
+
+def _session_role(request: Request) -> Role | None:
+    token = _session_token(request)
+    resolver = _session_resolver
+    if not token or resolver is None:
+        return None
+    return resolver(token)
+
+
 def _header_key(request: Request) -> str | None:
     return request.headers.get("X-API-Key")
 
 
+def _resolve_role(request: Request) -> Role | None:
+    """Resolve the caller's role from either credential seam, fail-closed.
+
+    Session token takes precedence when present: a presented-but-invalid token
+    is an explicit denial (never silent fall-through to the key seam). When no
+    token is presented the API-key seam applies unchanged.
+    """
+    token = _session_token(request)
+    if token is not None:
+        role = _session_role(request)
+        if role is None:
+            raise HTTPException(401, "Unauthorized: invalid or expired session token")
+        return role
+    return None
+
+
 def current_role(request: Request) -> Role | None:
-    """Resolve the caller's role; 401 on an invalid key when auth is enabled."""
+    """Resolve the caller's role; 401 on an invalid credential when auth is enabled."""
+    role = _resolve_role(request)
+    if role is not None:
+        return role
     auth = get_authenticator()
     if not auth.enabled:
         return None
@@ -62,6 +119,12 @@ def _permission_dependency(permission: Permission):
         request: Request,
         role: Annotated[Role | None, Depends(current_role)] = None,
     ) -> Role | None:
+        session = _resolve_role(request)
+        if session is not None:
+            granted = role_grants(session, permission)
+            if granted is None:
+                raise HTTPException(403, "Forbidden: insufficient permissions for this action")
+            return session
         auth = get_authenticator()
         if not auth.enabled:
             return None
@@ -96,7 +159,12 @@ def require_sse(request: Request) -> None:
         if not sse_tokens.validate(token):
             raise HTTPException(401, "Unauthorized: invalid, expired or reused event token")
         return
-    if not get_authenticator().enabled:
+    if not get_authenticator().enabled and _session_role(request) is None:
+        return
+    role = _session_role(request)
+    if role is not None:
+        if role_grants(role, Permission.READ) is None:
+            raise HTTPException(403, "Forbidden: insufficient permissions for this action")
         return
     role = get_authenticator().role_for_key(_header_key(request))
     if role is None:
@@ -109,6 +177,14 @@ def require_sse(request: Request) -> None:
 def auth_info(request: Request) -> dict[str, object]:
     """Self-describing auth state used by the login screen and ops tooling."""
     auth = get_authenticator()
+    session_role = _session_role(request)
+    if session_role is not None:
+        return {
+            "authenticated": True,
+            "required": auth.enabled,
+            "role": session_role.value,
+            "roles": auth.describe()["roles"],
+        }
     role = auth.role_for_key(_header_key(request)) if auth.enabled else None
     return {
         "authenticated": role is not None,
@@ -137,6 +213,7 @@ def auth_info(request: Request) -> dict[str, object]:
 PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/v1/healthz",
     "/v1/auth/me",
+    "/v1/auth/login",
     "/v1/health",
     # The retail seam authenticates with SESSIONS (not API keys). Its own
     # endpoints are still fail-closed: every retail handler depends on
@@ -197,6 +274,10 @@ def enforce_auth_boundary(request: Request) -> None:
         # well-formed unexpired token through; the route's require_sse check
         # then performs the real consuming single-use validation, so a replayed
         # token is still rejected end-to-end.
+        return
+    if _session_role(request) is not None:
+        # Operator session (X-Session-Token) is a valid boundary credential.
+        # An invalid session forces 401 below — never silent fall-through.
         return
     auth = get_authenticator()
     role = auth.role_for_key(_header_key(request))
