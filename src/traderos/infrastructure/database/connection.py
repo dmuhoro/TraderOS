@@ -10,6 +10,8 @@ from typing import Any
 from typing import Self
 
 from traderos.infrastructure.config.config_loader import Config
+from traderos.infrastructure.resilience import PG_CB
+from traderos.infrastructure.resilience import with_circuit_breaker
 
 POOL_SIZE_MIN = int(os.getenv("DB_POOL_MIN", "1"))
 POOL_SIZE_MAX = int(os.getenv("DB_POOL_MAX", "10"))
@@ -41,9 +43,22 @@ def _connect_postgres(database_url: str) -> Any:
             "psycopg2-binary is required for PostgreSQL. "
             "Install it with: pip install traderos[postgres]"
         ) from err
-    conn = psycopg2.connect(database_url)
+    conn = _pg_connect(psycopg2, database_url)
     conn.autocommit = False
     return conn
+
+
+@with_circuit_breaker(PG_CB, timeout=30.0)
+def _pg_connect(psycopg2: Any, database_url: str) -> Any:
+    """Connect to PostgreSQL under PG_CB.
+
+    Every real connect path funnels here (``get_connection`` and the connection
+    pool's ``_create_connection``), so a dead endpoint opens PG_CB exactly at
+    the boundary that matters. The driver availability probe stays OUTSIDE the
+    breaker (in ``_connect_postgres``): a missing driver is a packaging bug,
+    not a database outage, and must not trip the circuit.
+    """
+    return psycopg2.connect(database_url)
 
 
 def _connect_sqlite(config: Config) -> Any:
