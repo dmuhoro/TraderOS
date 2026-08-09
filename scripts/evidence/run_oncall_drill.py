@@ -44,7 +44,14 @@ from traderos.infrastructure.notifiers.oncall_router import OnCallRouter  # noqa
 from traderos.infrastructure.observability import SQLiteAuditService  # noqa: E402
 from traderos.infrastructure.observability import SQLiteMetricsService  # noqa: E402
 
-OUT = REPO_ROOT / "docs" / "evidence" / "2026-08-06_oncall_transport_drill.log"
+
+def _evidence_path() -> Path:
+    """Date-aware evidence path so a re-run never overwrites prior evidence."""
+    date = datetime.now(UTC).date().isoformat()
+    return REPO_ROOT / "docs" / "evidence" / f"{date}_oncall_transport_drill.log"
+
+
+OUT = _evidence_path()
 
 
 def _make_conn():

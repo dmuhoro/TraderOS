@@ -1,0 +1,16 @@
+REAL-PAPER SOAK HARNESS — G-02 unattended paper-broker soak
+started 2026-08-09T11:37:31.404739+00:00 finished 2026-08-09T11:37:43.805981+00:00
+cycles=2 orders_filled=0 submit_attempts=2
+journal_confirmed=2 journal_pending=0
+runner_open_orders=12 cancel_failures=0
+broker_open_orders_after=0 baseline_open_orders=0
+local_positions=0
+reconcile_errors=0 mismatches=0
+
+0 lost orders (no pending intents):       True
+runner closed out, broker at baseline:    True
+reconcile clean vs real paper broker:    True
+
+WP6 latency (submit->ack ms): n=10 min=306.2 median=307.4 max=384.5
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-09_uattest2_batch0002.log

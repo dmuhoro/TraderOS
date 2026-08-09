@@ -1,0 +1,13 @@
+ON-CALL TRANSPORT DRILL — A7 severity routing, fail-closed delivery
+started 2026-08-09T11:56:28.576157+00:00
+external transport listening at http://127.0.0.1:45125/oncall
+  INFO/WARNING/ERROR stayed local: True
+[PASS] severity_routing: INFO/WARNING/ERROR produced no external packet
+[PASS] delivered_on_2xx: CRITICAL POST captured on the wire: level=critical title=kill trip
+[PASS] delivery_audited: delivery recorded to the durable audit trail
+[PASS] delivery_metric: metrics: delivered=1.0 failed=0.0
+[PASS] fail_closed_critical: CRITICAL raised=True audited=True metric=True — no silent drop
+[PASS] low_severity_never_raises: WARNING below threshold returned True (stays local, not a failure)
+
+VERDICT: PASS — 6/6 on-call rails proven
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-09_oncall_transport_drill.log
