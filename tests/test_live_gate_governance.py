@@ -108,15 +108,74 @@ class TestLiveGate:
         monkeypatch.setenv("OPERATOR_ACK_DIR", str(tmp_path / "acks"))
         monkeypatch.setenv("OPERATOR_NAME", "Jane On-Call")
         monkeypatch.setenv("OPERATOR_ROLE", "on-call")
+        for var in (
+            "RISK_DAILY_LOSS_PCT",
+            "RISK_MAX_GROSS_EXPOSURE",
+            "RISK_MAX_POSITION_SIZE",
+            "RISK_MAX_POSITIONS_TOTAL",
+            "RISK_MAX_DATA_STALENESS_SECONDS",
+            "RISK_ALLOWED_MARKETS",
+            "RISK_REQUIRE_ALLOWLIST",
+        ):
+            monkeypatch.delenv(var, raising=False)
 
         artifact = tmp_path / "policy.md"
         artifact.write_text("# Live Run Policy\n")
         sign(artifact, "RELEASE_SIGNING_KEY")
         operator_ack(artifact)
 
+        # WP11: a live PASS now also requires explicit production risk rails.
+        settings = tmp_path / "settings.yaml"
+        settings.write_text(
+            "risk:\n"
+            "  daily_loss_pct: 0.02\n"
+            "  max_gross_exposure: 1.0\n"
+            "  max_position_size: 0.25\n"
+            "  max_positions_total: 10\n"
+            "  require_allowlist: true\n"
+            "  allowed_markets:\n"
+            "    - AAPL\n"
+        )
+
         from scripts.governance.live_gate import main as gate
 
-        assert gate(["--artifact", str(artifact)]) == 0
+        assert gate(["--artifact", str(artifact), "--settings", str(settings)]) == 0
+
+    def test_live_mode_requires_production_risk_rails(self, monkeypatch, tmp_path) -> None:
+        """WP11: every other GO condition met, but the numeric risk rails are
+        not explicitly configured -> the gate stays closed (fail-closed)."""
+        monkeypatch.setenv("TRADING_MODE", "live")
+        monkeypatch.setenv("ALPACA_API_KEY", "PK" + "LIVEGATEKEY1234567890")
+        monkeypatch.setenv("ALPACA_SECRET_KEY", "livesecretvalue123456")
+        monkeypatch.setenv("LIVE_TRADING_CONFIRMED", "true")
+        monkeypatch.setenv("GO_CONDITIONS_MET", "true")
+        monkeypatch.setenv("RELEASE_SIGNING_KEY", "drill-key")
+        monkeypatch.setenv("RELEASE_SIG_DIR", str(tmp_path / "sigs"))
+        monkeypatch.setenv("OPERATOR_ACK_DIR", str(tmp_path / "acks"))
+        monkeypatch.setenv("OPERATOR_NAME", "Jane On-Call")
+        monkeypatch.setenv("OPERATOR_ROLE", "on-call")
+        for var in (
+            "RISK_DAILY_LOSS_PCT",
+            "RISK_MAX_GROSS_EXPOSURE",
+            "RISK_MAX_POSITION_SIZE",
+            "RISK_MAX_POSITIONS_TOTAL",
+            "RISK_MAX_DATA_STALENESS_SECONDS",
+            "RISK_ALLOWED_MARKETS",
+            "RISK_REQUIRE_ALLOWLIST",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+        artifact = tmp_path / "policy.md"
+        artifact.write_text("# Live Run Policy\n")
+        sign(artifact, "RELEASE_SIGNING_KEY")
+        operator_ack(artifact)
+
+        settings = tmp_path / "settings.yaml"
+        settings.write_text("risk: {}\n")
+
+        from scripts.governance.live_gate import main as gate
+
+        assert gate(["--artifact", str(artifact), "--settings", str(settings)]) == 1
 
     def test_live_mode_requires_signed_artifact(self, monkeypatch, tmp_path) -> None:
         monkeypatch.setenv("TRADING_MODE", "live")

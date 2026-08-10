@@ -1,5 +1,59 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 32 (Production risk-rail config + kill-surface surfacing + regulator attribution view + CI evidence-drill job)
+
+### WP11 — G-03 production risk rails are configured AND enforced at boot (2026-08-10)
+- New `application/risk_config.py`: `resolve_risk_rails(risk_section, *, live)`
+  resolves the rails that arm the real `authorize_order` gate on the live
+  submission seam (`cycle_executor.py:343/521` over `place_market_order` at
+  `:384/577`). Every rail is range-checked; invalid values raise `ConfigError`
+  (never coerced). Env overrides (`RISK_*`) win over yaml.
+- **LIVE is fail-closed by construction**: missing/invalid/absent rails
+  (daily-loss, gross-exposure, position size, max positions, `require_allowlist`
+  + non-empty `allowed_markets`) abort boot — no permissive default.
+- `factory.py` now arms `RiskService` with `daily_loss_pct`,
+  `max_position_size`, `max_positions_total` (previously silently defaulted)
+  plus the existing rails, all from the one validated source.
+- `scripts/governance/live_gate.py` check #5 runs the same validator; a live
+  posture without production rails is blocked at the gate.
+- Tests: `tests/test_production_risk_config.py` (25) including a wiring test
+  where `daily_loss_pct=0.01` blocks a −10 loss on 1000 equity through the real
+  gate; `test_live_gate_governance.py` extended.
+
+### WP11b — G-03 kill switch is audited, metered, deliberate (2026-08-10)
+- `interfaces/api/operator.py`: engage/disengage write
+  `risk.kill_switch_engaged`/`risk.kill_switch_disengaged` to the durable audit
+  trail and bump `kill_switch.engaged`/`kill_switch.disengaged` metrics.
+- Dashboard requires explicit `window.confirm` before tripping or re-arming.
+- Tests: `test_operator_api.py` (audit + counters) and `test_dashboard.py`
+  (confirmation).
+
+### WP12 — G-05 regulator attribution view on the dashboard (2026-08-10)
+- New "Causal attribution (regulator view)" panel: date-window replay against
+  `/v1/attribution/replay`, rendering the signal → decision → order → fill chain
+  with per-fill realized PnL, blocked reasons, and steps. Read-only.
+- Tests: `test_dashboard.py` — panel surface, `attr-load` wiring, window
+  defaults, render keys.
+
+### WP13 — G-06 evidence drills run in CI (2026-08-10)
+- `scripts/evidence/run_ci_drills.py` runs the 15 credential-free drills as
+  subprocesses, aggregates verdicts into a date-aware evidence log, and fails
+  the job if ANY drill regresses. `KEY_GATED` (8 credential/network/instance-
+  gated drills) is asserted out of the deterministic drill job; the network-
+  gated real-market walk-forward stays exercised by the test suite when the
+  feed is reachable.
+- New `evidence-drills` job in `.github/workflows/ci.yml`; evidence log
+  uploaded as an artifact.
+- `run_secret_lifecycle_drill.py` also proves the WP11 fail-closed live rails
+  gate (supplies rails to reach the A6 credential check it already proved).
+- Tests: `tests/test_ci_drills_runner.py` (13).
+
+### Verification
+- Full suite run three times green on the final state (1572 passed / 82
+  skipped each); CI drill suite locally 15/15 PASS; `ruff`/`black --check`/
+  `isort --check` clean on changed files; `pyright src/traderos/` 0 errors;
+  dashboard `node --check` clean.
+
 ## [Unreleased] - Sprint 31 (Session-based operator auth + Market Overview/Research Lab + on-call providers)
 
 ### WP8 — Operator login is session-based, not a static roaming API key (2026-08-09)

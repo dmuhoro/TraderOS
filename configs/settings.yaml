@@ -43,6 +43,23 @@ liquidity:
     new_york: [13, 21]
     asian: [0, 8]
 
+# WP11 (G-03) — production risk rails. These arm the same authorize_order gate
+# that protects the real submission path. Paper runs on these conservative
+# values; LIVE refuses to boot unless every numeric rail is explicitly set AND
+# require_allowlist=true with a non-empty allowed_markets list. Each key can
+# also be supplied/overridden via env: RISK_DAILY_LOSS_PCT,
+# RISK_MAX_GROSS_EXPOSURE, RISK_MAX_POSITION_SIZE, RISK_MAX_POSITIONS_TOTAL,
+# RISK_MAX_DATA_STALENESS_SECONDS, RISK_ALLOWED_MARKETS (comma-separated),
+# RISK_REQUIRE_ALLOWLIST.
+risk:
+  daily_loss_pct: 0.02          # realized daily loss budget, share of equity
+  max_gross_exposure: 1.0       # gross exposure cap, multiple of equity
+  max_position_size: 0.25       # single-order notional cap, share of equity
+  max_positions_total: 10
+  max_data_staleness_seconds: 300.0
+  require_allowlist: false      # LIVE requires true + a non-empty allowlist
+  allowed_markets: []
+
 logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

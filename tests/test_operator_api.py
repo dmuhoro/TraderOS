@@ -104,6 +104,19 @@ class TestOperatorApiKillSwitch:
         status = client.get("/v1/kill-switch").json()
         assert status["engaged"] is False
 
+    def test_transitions_are_audited_and_counted(self, client: TestClient) -> None:
+        """WP11b: a kill-switch transition is never silent — every trip and
+        every re-arm lands on the durable audit trail and moves a metric."""
+        orch = server.create_orchestrator()
+        assert client.post("/v1/kill-switch/engage").status_code == 200
+        assert client.post("/v1/kill-switch/disengage").status_code == 200
+        engaged = orch.audit.find(action="risk.kill_switch_engaged")
+        disengaged = orch.audit.find(action="risk.kill_switch_disengaged")
+        assert engaged and engaged[-1].actor == "operator"
+        assert disengaged and disengaged[-1].actor == "operator"
+        assert orch.metrics.get_counter("kill_switch.engaged") >= 1.0
+        assert orch.metrics.get_counter("kill_switch.disengaged") >= 1.0
+
 
 class TestOperatorApiWorkflow:
     def test_initial_workflow_state(self, client: TestClient) -> None:

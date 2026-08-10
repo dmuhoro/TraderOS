@@ -421,6 +421,60 @@ function renderResearch(data) {
   }
 }
 
+function renderAttribution(data) {
+  const chains = (data && data.chains) || [];
+  $("attr-metrics").innerHTML = `
+    <span>mode: <b>${esc(data.mode || "-")}</b></span>
+    <span>chains: <b>${chains.length}</b></span>
+    <span>total realized PnL: <b>${esc(String(data.total_realized_pnl ?? 0))}</b></span>
+    <span>blocked: <b>${esc(String(data.total_blocked ?? 0))}</b></span>
+    <span>unfilled: <b>${esc(String(data.total_unfilled ?? 0))}</b></span>`;
+  $("attr-body").innerHTML = chains.length
+    ? chains
+        .map((c) => {
+          const fill = c.fill || {};
+          const steps = (c.steps || [])
+            .map((s) => `${s.action} (${s.actor})`)
+            .join(" -> ");
+          return `<tr title="${esc(steps)}">
+              <td>${esc((c.signal_at || "").slice(0, 19).replace("T", " "))}</td>
+              <td>${esc(c.strategy || "-")}</td>
+              <td>${esc(String(c.market_id || "-").slice(0, 8))}</td>
+              <td>${esc(c.direction || "-")}</td>
+              <td>${c.confidence != null ? Number(c.confidence).toFixed(2) : "-"}</td>
+              <td>${c.blocked ? "BLOCKED" : "-"}</td>
+              <td>${c.complete ? "yes" : "no"}</td>
+              <td>${esc(fill.order_status || "-")}</td>
+              <td>${fill.realized_pnl != null ? esc(String(fill.realized_pnl)) : "-"}</td>
+            </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="9" class="empty">no causal chains in this window</td></tr>`;
+}
+
+function loadAttribution() {
+  const start = $("attr-start").value;
+  const end = $("attr-end").value;
+  const msg = $("attr-result");
+  if (!start || !end) {
+    msg.textContent = "pick a start and end date";
+    return;
+  }
+  msg.textContent = "replaying…";
+  const params =
+    `start=${encodeURIComponent(`${start}T00:00:00+00:00`)}` +
+    `&end=${encodeURIComponent(`${end}T23:59:59+00:00`)}`;
+  api(`/v1/attribution/replay?${params}`)
+    .then((data) => {
+      renderAttribution(data);
+      msg.textContent = `${(data.chains || []).length} chains replayed`;
+    })
+    .catch((err) => {
+      msg.textContent = `replay failed: ${err.message}`;
+      appendEvent({ type: "error", data: err.message });
+    });
+}
+
 function appendEvent(evt) {
   const type = evt.type || "state";
   const data = typeof evt.data === "string" ? evt.data : JSON.stringify(evt.data || {});
@@ -597,11 +651,22 @@ function wireEvents() {
   });
   $("wf-advance").addEventListener("click", advanceWorkflow);
   $("ks-engage").addEventListener("click", () => {
+    // WP11b: tripping the kill switch is deliberate — explicit confirmation,
+    // never a fat-finger halt.
+    const ok = window.confirm(
+      "ENGAGE KILL SWITCH?\n\nAll trading halts immediately. This action is recorded on the audit trail."
+    );
+    if (!ok) return;
     api("/v1/kill-switch/engage", { method: "POST" })
       .then(refreshPanels)
       .catch((err) => appendEvent({ type: "error", data: err.message }));
   });
   $("ks-disengage").addEventListener("click", () => {
+    // WP11b: re-arming is equally deliberate — confirm before trading resumes.
+    const ok = window.confirm(
+      "DISENGAGE KILL SWITCH?\n\nTrading may resume once the circuit clears. This action is recorded on the audit trail."
+    );
+    if (!ok) return;
     api("/v1/kill-switch/disengage", { method: "POST" })
       .then(refreshPanels)
       .catch((err) => appendEvent({ type: "error", data: err.message }));
@@ -669,10 +734,14 @@ function wireEvents() {
       appendEvent({ type: "error", data: err.message });
     }
   });
+  $("attr-load").addEventListener("click", loadAttribution);
 }
 
 async function init() {
   loadAuthState();
+  const today = new Date().toISOString().slice(0, 10);
+  $("attr-end").value = today;
+  $("attr-start").value = today;
   wireEvents();
   await refreshAuth();
   if (!state.authRequired || state.role) {

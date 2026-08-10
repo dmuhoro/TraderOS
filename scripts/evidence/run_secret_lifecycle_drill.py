@@ -13,7 +13,10 @@ production:
 - **Fail-closed LIVE** — booting the orchestrator in LIVE mode without broker
   credentials via the secret manager/env raises loudly and never silently
   degrades to paper; with credentials present but an unusable adapter it also
-  refuses rather than demoting.
+  refuses rather than demoting;
+- **Fail-closed LIVE risk rails (WP11)** — even before credentials are
+  checked, a live boot without explicit production risk rails refuses
+  (config is a boot-time gate, not a paper default).
 
 Honest scope: this drill proves the rotator-to-audit/metrics production wiring
 and the fail-closed live gate with env-only keys. The real HashiCorp Vault
@@ -37,11 +40,32 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from traderos.application.factory import build_orchestrator  # noqa: E402
+from traderos.domain.exceptions import ConfigError  # noqa: E402
 from traderos.infrastructure.config.config_loader import Config  # noqa: E402
 
 OUT = REPO_ROOT / "docs" / "evidence" / "2026-08-06_secret_lifecycle_drill.log"
 LINES: list[str] = []
 RESULTS: list[tuple[str, bool, str]] = []
+
+
+def _live_config() -> Config:
+    """A LIVE-mode config that passes the WP11 production-risk-rail gate, so a
+    boot can reach the A6 credential check this drill is proving."""
+    return Config(
+        db_path=":memory:",
+        log_level="WARNING",
+        _raw_settings={
+            "risk": {
+                "daily_loss_pct": 0.02,
+                "max_gross_exposure": 1.0,
+                "max_position_size": 0.25,
+                "max_positions_total": 10,
+                "max_data_staleness_seconds": 300.0,
+                "allowed_markets": ["SPY"],
+                "require_allowlist": True,
+            }
+        },
+    )
 
 
 def _report() -> int:
@@ -126,12 +150,27 @@ def main() -> int:
 
     orch.stop()
 
-    # 4) Fail-closed live gate: no broker creds -> loud refusal (no paper).
+    # 4) Fail-closed live gate: no risk rails -> loud ConfigError naming them.
+    try:
+        try:
+            build_orchestrator(mode="live", config=Config(db_path=":memory:", log_level="WARNING"))
+            refused_no_rails = False
+            detail = "LIVE boot did NOT refuse without explicit risk rails"
+        except ConfigError as exc:
+            refused_no_rails = "production risk rails" in str(exc)
+            detail = f"refused missing risk rails: {exc}"[:120]
+        RESULTS.append(("live_requires_risk_rails", refused_no_rails, detail))
+        LINES.append(f"  LIVE without risk rails refused to boot (fail-closed): {refused_no_rails}")
+    except Exception as exc:  # noqa: BLE001 — any non-ConfigError abort is a defect
+        RESULTS.append(("live_requires_risk_rails", False, f"unexpected abort: {exc}"[:120]))
+
+    # 5) Fail-closed live gate: rails supplied, but no broker creds -> loud
+    #    RuntimeError (A6), never a silent demotion to paper.
     saved_api = os.environ.pop("ALPACA_API_KEY", None)
     saved_secret = os.environ.pop("ALPACA_SECRET_KEY", None)
     try:
         try:
-            build_orchestrator(mode="live", config=Config(db_path=":memory:", log_level="WARNING"))
+            build_orchestrator(mode="live", config=_live_config())
             refused_missing = False
             detail = "LIVE boot did NOT refuse without broker credentials"
         except RuntimeError as exc:

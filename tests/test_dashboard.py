@@ -64,6 +64,15 @@ class TestDashboardSurface:
         assert "/v1/reports/session" in app_js
         assert "EventSource" in app_js
 
+    def test_kill_switch_requires_explicit_confirmation(self) -> None:
+        """WP11b: tripping or re-arming the kill switch from the dashboard is
+        deliberate — both actions are wrapped in an explicit confirm()."""
+        app_js = (DASHBOARD_DIR / "app.js").read_text()
+        assert "ENGAGE KILL SWITCH?" in app_js
+        assert "DISENGAGE KILL SWITCH?" in app_js
+        # Both the trip and the re-arm must be wrapped in an explicit confirm.
+        assert app_js.count("window.confirm") >= 2
+
     def test_index_lists_core_panels(self) -> None:
         html = (DASHBOARD_DIR / "index.html").read_text()
         for panel in (
@@ -87,3 +96,44 @@ class TestDashboardSurface:
             "/v1/research/observations",
         ):
             assert endpoint in app_js
+
+    def test_attribution_panel_surface(self) -> None:
+        """WP12: the regulator view is present and driven by the replay endpoint."""
+        html = (DASHBOARD_DIR / "index.html").read_text()
+        app_js = (DASHBOARD_DIR / "app.js").read_text()
+        for marker in (
+            'id="attribution-panel"',
+            'id="attr-start"',
+            'id="attr-end"',
+            'id="attr-load"',
+            'id="attr-metrics"',
+            'id="attr-body"',
+        ):
+            assert marker in html
+        assert "/v1/attribution/replay" in app_js
+        # The replay button must actually be wired to the loader.
+        assert '$("attr-load").addEventListener("click", loadAttribution)' in app_js
+
+    def test_attribution_window_defaults_to_today(self) -> None:
+        """WP12: the replay window opens on the current day, UTC."""
+        app_js = (DASHBOARD_DIR / "app.js").read_text()
+        assert '$("attr-end").value = today' in app_js
+        assert '$("attr-start").value = today' in app_js
+
+    def test_attribution_render_keys(self) -> None:
+        """WP12: the regulator table renders the audit-chain fields the API returns."""
+        app_js = (DASHBOARD_DIR / "app.js").read_text()
+        for marker in (
+            "renderAttribution",
+            "loadAttribution",
+            "c.signal_at",
+            "c.strategy",
+            "c.market_id",
+            "c.direction",
+            "c.confidence",
+            "c.blocked",
+            "c.complete",
+            "fill.order_status",
+            "fill.realized_pnl",
+        ):
+            assert marker in app_js
