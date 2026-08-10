@@ -1,6 +1,6 @@
 # TraderOS — Gap-Readiness Checklist & Build Order
 
-**Generated:** 2026-08-10 · **Branch:** `main` · **HEAD:** pending Sprint 32 push
+**Generated:** 2026-08-10 · **Branch:** `main` · **HEAD:** `d6b2d05` (Sprint 32)
 **Method:** every item below is scored from *measured evidence in this repo*
 (test suite, drills in `docs/evidence/`, committed architecture) plus the
 verified live submission path. A score is not a promise — the "Exit test" is
