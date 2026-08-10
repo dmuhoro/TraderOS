@@ -52,6 +52,7 @@ DRILLS: tuple[tuple[str, str], ...] = (
     ("paper_soak", "run_paper_soak.py"),
     ("partial_fill_reconnect", "run_partial_fill_reconnect.py"),
     ("risk_rails", "run_risk_rails_drill.py"),
+    ("runbook_cli", "run_runbook_cli_drill.py"),
     ("secret_lifecycle", "run_secret_lifecycle_drill.py"),
     ("trigger_alerting", "run_trigger_alerting_drill.py"),
     ("walk_forward_evidence", "run_walk_forward_evidence.py"),
