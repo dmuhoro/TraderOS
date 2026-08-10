@@ -97,12 +97,19 @@ class TestCliHealth:
 
 
 class TestCliAudit:
+    def _svc(self):
+        from traderos.infrastructure.audit import AuditService
+
+        return AuditService()
+
     def test_audit_text(self):
-        output = _run(cli_main.cmd_audit, limit=5, json=False)
+        with patch("traderos.interfaces.cli.main._build_audit_service", return_value=self._svc()):
+            output = _run(cli_main.cmd_audit, limit=5, json=False)
         assert len(output) > 0
 
     def test_audit_json(self):
-        output = _run(cli_main.cmd_audit, limit=5, json=True)
+        with patch("traderos.interfaces.cli.main._build_audit_service", return_value=self._svc()):
+            output = _run(cli_main.cmd_audit, limit=5, json=True)
         data = json.loads(output)
         assert isinstance(data, list)
 
@@ -156,9 +163,134 @@ class TestCliMainDispatch:
         output = _run_main(["audit", "--limit", "3"])
         assert len(output) > 0
 
+    def test_main_audit_query(self):
+        output = _run_main(["audit", "query", "--filter", "action=crash.recovery"])
+        assert len(output) > 0
+
+    def test_main_status(self):
+        output = _run_main(["status"])
+        assert "Mode: paper" in output
+
     def test_main_notify(self):
         output = _run_main(["notify", "--level", "info", "--title", "Hello"])
         assert "Hello" in output
+
+
+class TestCliAuditQuery:
+    def _svc(self):
+        from traderos.infrastructure.audit import AuditService
+
+        svc = AuditService()
+        svc.record("crash.recovery", "system", "daemon", "recovered from crash")
+        svc.record("order.placed", "operator", "broker", "fill")
+        return svc
+
+    def test_filter_text(self):
+        with patch("traderos.interfaces.cli.main._build_audit_service", return_value=self._svc()):
+            output = _run(
+                cli_main.cmd_audit_query, filter="action=crash.recovery", limit=10, json=False
+            )
+        assert "crash.recovery" in output
+        assert "order.placed" not in output
+
+    def test_filter_json(self):
+        with patch("traderos.interfaces.cli.main._build_audit_service", return_value=self._svc()):
+            output = _run(
+                cli_main.cmd_audit_query, filter="action=crash.recovery", limit=10, json=True
+            )
+        data = json.loads(output)
+        assert len(data) == 1
+        assert data[0]["action"] == "crash.recovery"
+
+    def test_filter_no_match(self):
+        with patch("traderos.interfaces.cli.main._build_audit_service", return_value=self._svc()):
+            output = _run(
+                cli_main.cmd_audit_query, filter="action=does.not.exist", limit=10, json=False
+            )
+        assert "No audit entries match the filter" in output
+
+    def test_audit_trail_unavailable_fails_closed(self):
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("no such table: audit_log")
+
+        with patch("traderos.interfaces.cli.main._build_audit_service", side_effect=_raise):
+            out = StringIO()
+            with patch("sys.stdout", out):
+                try:
+                    cli_main.cmd_audit_query(
+                        argparse.Namespace(filter="action=crash.recovery", limit=10, json=False)
+                    )
+                except SystemExit as exc:
+                    assert exc.code == 1
+                else:
+                    raise AssertionError("cmd_audit_query must fail closed")
+        assert "Audit trail unavailable" in out.getvalue()
+
+
+class TestCliStatus:
+    def _orch(self):
+        from traderos.application.factory import build_orchestrator
+
+        return build_orchestrator(mode="paper")
+
+    def test_status_text(self):
+        with patch("traderos.interfaces.cli.main.build_orchestrator", return_value=self._orch()):
+            output = _run(cli_main.cmd_status, mode="paper", json=False)
+        assert "Mode: paper" in output
+        assert "Kill switch:" in output
+        assert "Order acceptance" in output
+
+    def test_status_json(self):
+        with patch("traderos.interfaces.cli.main.build_orchestrator", return_value=self._orch()):
+            output = _run(cli_main.cmd_status, mode="paper", json=True)
+        data = json.loads(output)
+        assert data["mode"] == "paper"
+        assert "orders_accepted" in data
+        assert "crash_recovered" in data
+
+
+class TestCliRun:
+    def test_run_starts_engine(self):
+        from unittest.mock import MagicMock
+
+        orch = MagicMock()
+        cfg = MagicMock()
+        with (
+            patch("traderos.interfaces.cli.main.build_orchestrator", return_value=orch),
+            patch("traderos.interfaces.cli.main.Config.load", return_value=cfg),
+        ):
+            _run(cli_main.cmd_run, mode="paper", interval=60)
+        orch.run_forever.assert_called_once_with(interval_seconds=60)
+
+
+class TestCliRiskStatus:
+    def _orch(self):
+        from traderos.application.factory import build_orchestrator
+
+        return build_orchestrator(mode="paper")
+
+    def test_status_orders_accepted_token(self):
+        with patch("traderos.interfaces.cli.main.build_orchestrator", return_value=self._orch()):
+            output = _run(cli_main.cmd_risk, risk_cmd="status", mode="paper", json=True)
+        data = json.loads(output)
+        assert "orders_accepted" in data
+
+    def test_reconcile_status(self):
+        orch = self._orch()
+        out = StringIO()
+        with (
+            patch("traderos.interfaces.cli.main.build_orchestrator", return_value=orch),
+            patch("sys.stdout", out),
+        ):
+            try:
+                cli_main.cmd_risk(
+                    argparse.Namespace(
+                        risk_cmd="reconcile", mode="paper", verb="status", json=False
+                    )
+                )
+            except SystemExit:
+                pass
+        assert "Reconciliation gate" in out.getvalue()
 
 
 class TestCliPilot:
@@ -259,7 +391,7 @@ class TestCliEdgeCases:
 
         svc = AuditService()
         svc._entries = []
-        with patch("traderos.interfaces.cli.main.AuditService", return_value=svc):
+        with patch("traderos.interfaces.cli.main._build_audit_service", return_value=svc):
             output = _run(cli_main.cmd_audit, limit=5, json=False)
         assert "No audit entries" in output
 

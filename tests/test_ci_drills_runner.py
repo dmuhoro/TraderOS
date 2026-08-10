@@ -32,6 +32,7 @@ class TestDrillInventory:
             "paper_soak",
             "partial_fill_reconnect",
             "risk_rails",
+            "runbook_cli",
             "secret_lifecycle",
             "trigger_alerting",
             "walk_forward_evidence",
@@ -128,4 +129,4 @@ class TestEvidenceLog:
         assert runner.main(["--list"]) == 0
         out = capsys.readouterr().out
         assert "risk_rails: run_risk_rails_drill.py" in out
-        assert "15 credential-free drills" in out
+        assert "16 credential-free drills" in out

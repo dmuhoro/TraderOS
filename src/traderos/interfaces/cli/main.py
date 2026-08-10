@@ -12,13 +12,13 @@ from traderos.domain.exceptions import ConfigError
 from traderos.domain.services.backtesting_service import BacktestingService
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
-from traderos.infrastructure.audit import AuditService
 from traderos.infrastructure.config.config_loader import Config
 from traderos.infrastructure.database.backup import create_backup
 from traderos.infrastructure.database.backup import list_backups
 from traderos.infrastructure.database.backup import restore_backup
 from traderos.infrastructure.database.connection import close_all_pools
 from traderos.infrastructure.database.connection import get_connection
+from traderos.infrastructure.database.connection import resolve_backend
 from traderos.infrastructure.database.migration_manager import get_current_version
 from traderos.infrastructure.database.migration_manager import migrate
 from traderos.infrastructure.health import HealthService
@@ -78,11 +78,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("health", help="System health status")
 
-    p_audit = sub.add_parser("audit", help="View audit trail / verify chain")
+    p_audit = sub.add_parser("audit", help="View audit trail / verify chain / query")
     p_audit.add_argument("--limit", type=int, default=10, help="Number of entries")
-    p_audit.add_argument(
-        "verify", nargs="?", default=None, const="verify", help="Verify the audit chain"
+    p_audit_sub = p_audit.add_subparsers(dest="audit_cmd")
+    p_audit_sub.add_parser("verify", help="Verify the audit chain integrity")
+    p_audit_query = p_audit_sub.add_parser("query", help="Query audit entries")
+    p_audit_query.add_argument(
+        "--filter",
+        default="",
+        help='Filter entries, e.g. "action=crash.recovery" or "actor=system"',
     )
+    p_audit_query.add_argument("--limit", type=int, default=10, help="Number of entries")
 
     p_notify = sub.add_parser("notify", help="Send a test notification")
     p_notify.add_argument(
@@ -99,11 +105,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_daemon.add_argument("--interval", type=int, default=60, help="Cycle interval in seconds")
     p_daemon.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
 
+    p_run = sub.add_parser("run", help="Run the trading engine (alias of daemon start)")
+    p_run.add_argument("--interval", type=int, default=60, help="Cycle interval in seconds")
+    p_run.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
+
+    p_status = sub.add_parser(
+        "status", help="System status (mode, health, kill switch, reconciliation)"
+    )
+    p_status.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
+
     p_risk = sub.add_parser("risk", help="Risk / kill-switch controls (ADR-007)")
     p_risk_sub = p_risk.add_subparsers(dest="risk_cmd")
-    for _cmd in ("status", "check", "reset", "kill", "reconcile"):
+    for _cmd in ("status", "check", "reset", "kill"):
         _p = p_risk_sub.add_parser(_cmd, help=f"Risk: {_cmd}")
         _p.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
+    p_reconcile = p_risk_sub.add_parser("reconcile", help="Risk: reconcile broker/journal state")
+    p_reconcile.add_argument("--mode", default="paper", choices=["paper", "live", "backtest"])
+    p_reconcile.add_argument(
+        "verb",
+        nargs="?",
+        default=None,
+        const="status",
+        help="Optional: 'status' for gate status only",
+    )
 
     p_metrics = sub.add_parser("metrics", help="Metrics controls")
     p_metrics_sub = p_metrics.add_subparsers(dest="metrics_cmd")
@@ -152,7 +176,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_db_sub.add_parser("backup", help="Create a database backup")
     p_db_restore = p_db_sub.add_parser("restore", help="Restore from a backup")
-    p_db_restore.add_argument("--backup", required=True, help="Path to backup file")
+    p_db_restore.add_argument("backup", nargs="?", help="Path to backup file")
+    p_db_restore.add_argument("--backup", dest="backup_flag", help="Path to backup file")
+    p_db_restore.add_argument(
+        "--latest", action="store_true", help="Restore from the newest backup"
+    )
 
     p_db_sub.add_parser("list-backups", help="List available backups")
 
@@ -299,9 +327,35 @@ def cmd_health(args: argparse.Namespace) -> None:
         print(f"  [{status}] {name}")
 
 
+def _build_audit_service() -> Any:
+    """Durable audit on the configured DB — the same backend the daemon writes.
+
+    ``audit``/``audit query``/``audit verify`` must read the real trail, not a
+    fresh in-memory one, or the runbook's "review the audit log for crash
+    events" step would silently report nothing on the one process that matters.
+    """
+    cfg = Config.load()
+    conn = get_connection(cfg)
+    if resolve_backend(cfg.database_url) == "postgres":
+        from traderos.infrastructure.observability_postgres import PostgresAuditService
+
+        return PostgresAuditService(conn)
+    from traderos.infrastructure.observability import SQLiteAuditService
+
+    return SQLiteAuditService(conn)
+
+
+def _read_audit(limit: int = 10) -> list[Any]:
+    try:
+        svc = _build_audit_service()
+        return svc.get_entries(limit=limit)
+    except Exception as e:
+        print(f"Audit trail unavailable: {e}. Run `python -m traderos db migrate` first.")
+        sys.exit(1)
+
+
 def cmd_audit(args: argparse.Namespace) -> None:
-    svc = AuditService()
-    entries = svc.get_entries(limit=args.limit)
+    entries = _read_audit(limit=args.limit)
     if args.json:
         print(
             json.dumps(
@@ -327,10 +381,55 @@ def cmd_audit(args: argparse.Namespace) -> None:
 
 
 def cmd_audit_verify(args: argparse.Namespace) -> None:
-    svc = AuditService()
-    ok = svc.verify_chain()
+    try:
+        svc = _build_audit_service()
+        ok = svc.verify_chain()
+    except Exception as e:
+        print(f"Audit trail unavailable: {e}. Run `python -m traderos db migrate` first.")
+        sys.exit(1)
     print("Audit chain verification:", "PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)
+
+
+_AUDIT_FILTER_FIELDS = ("action", "actor", "resource", "detail")
+
+
+def cmd_audit_query(args: argparse.Namespace) -> None:
+    entries = _read_audit(limit=getattr(args, "limit", 10))
+    filters: dict[str, str] = {}
+    for token in (getattr(args, "filter", "") or "").split(","):
+        key, sep, value = token.partition("=")
+        key = key.strip().lower()
+        if sep and key in _AUDIT_FILTER_FIELDS and value:
+            filters[key] = value.strip()
+    filtered = [
+        e
+        for e in entries
+        if all(needle in getattr(e, field, "") for field, needle in filters.items())
+    ]
+    if args.json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "timestamp": e.timestamp.isoformat(),
+                        "action": e.action,
+                        "actor": e.actor,
+                        "resource": e.resource,
+                        "detail": e.detail,
+                    }
+                    for e in filtered
+                ],
+                indent=2,
+                default=str,
+            )
+        )
+        return
+    if not filtered:
+        print("No audit entries match the filter")
+        return
+    for e in filtered:
+        print(f"  [{e.timestamp.isoformat()}] {e.action} by {e.actor} on {e.resource} ({e.detail})")
 
 
 def cmd_risk(args: argparse.Namespace) -> None:
@@ -344,7 +443,16 @@ def cmd_risk(args: argparse.Namespace) -> None:
             else False
         )
         halted = not verdict.allowed
-        print("Kill switch:", "OPEN (trading halted)" if halted else "closed")
+        data = {
+            "kill_switch": "OPEN (trading halted)" if halted else "closed",
+            "trading_halted": halted,
+            "reason": verdict.reason,
+            "orders_accepted": acc,
+        }
+        if args.json:
+            print(json.dumps(data, indent=2, default=str))
+            return
+        print("Kill switch:", data["kill_switch"])
         print("Order acceptance (reconciled):", "allowed" if acc else "blocked")
         return
     if args.risk_cmd == "check":
@@ -365,6 +473,11 @@ def cmd_risk(args: argparse.Namespace) -> None:
         if orch.broker_reconciliation is None:
             print("Broker reconciliation not available")
             sys.exit(1)
+        if getattr(args, "verb", None) == "status":
+            accepted = orch.broker_reconciliation.can_accept_orders
+            print("Reconciliation gate:", "allowed" if accepted else "blocked")
+            sys.exit(0 if accepted else 1)
+            return
         pending = _pending_from_broker(orch)
         res = orch.broker_reconciliation.reconcile(journal_pending=pending)
         accepted = orch.broker_reconciliation.can_accept_orders
@@ -457,6 +570,44 @@ def cmd_daemon(args: argparse.Namespace) -> None:
     cfg.validate()
     orch = build_orchestrator(mode=args.mode, config=cfg)
     orch.run_forever(interval_seconds=args.interval)
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    cfg = Config.load()
+    cfg.validate()
+    orch = build_orchestrator(mode=args.mode, config=cfg)
+    orch.run_forever(interval_seconds=args.interval)
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    orch = build_orchestrator(mode=getattr(args, "mode", "paper"))
+    status = orch.get_status()
+    verdict = orch.risk_service.can_trade([])
+    acc = (
+        orch.broker_reconciliation.can_accept_orders
+        if orch.broker_reconciliation is not None
+        else False
+    )
+    data: dict[str, Any] = {
+        "mode": status.get("mode"),
+        "running": status.get("running", False),
+        "markets": status.get("markets", 0),
+        "crash_recovered": status.get("crash_recovered", False),
+        "trading_halted": not verdict.allowed,
+        "reason": verdict.reason,
+        "orders_accepted": acc,
+        "health": status.get("health", {}),
+    }
+    if args.json:
+        print(json.dumps(data, indent=2, default=str))
+        return
+    print(f"Mode: {data['mode']}  Running: {data['running']}  Markets: {data['markets']}")
+    print(f"Crash recovered: {data['crash_recovered']}")
+    print("Kill switch:", "OPEN (trading halted)" if data["trading_halted"] else "closed")
+    print("Order acceptance (reconciled):", "allowed" if acc else "blocked")
+    print("Health:")
+    for name, healthy in sorted(data["health"].items()):
+        print(f"  [{'PASS' if healthy else 'FAIL'}] {name}")
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -599,7 +750,17 @@ def cmd_db(args: argparse.Namespace) -> None:
             path = create_backup(cfg)
             print(f"Backup created: {path}")
         elif args.db_cmd == "restore":
-            result = restore_backup(args.backup, cfg)
+            path = getattr(args, "backup_flag", None) or getattr(args, "backup", None)
+            if getattr(args, "latest", False):
+                backups = list_backups()
+                if not backups:
+                    print("No backups found.")
+                    return
+                path = backups[0]["path"]
+            if not path:
+                print("No backup specified. Use <path>, --backup <path>, or --latest.")
+                sys.exit(1)
+            result = restore_backup(path, cfg)
             if result:
                 print(f"Database restored: {result}")
             else:
@@ -630,8 +791,10 @@ def main() -> None:
     elif args.command == "health":
         cmd_health(args)
     elif args.command == "audit":
-        if getattr(args, "verify", None) == "verify":
+        if args.audit_cmd == "verify":
             cmd_audit_verify(args)
+        elif args.audit_cmd == "query":
+            cmd_audit_query(args)
         else:
             cmd_audit(args)
     elif args.command == "notify":
@@ -640,6 +803,10 @@ def main() -> None:
         cmd_signal(args)
     elif args.command == "daemon":
         cmd_daemon(args)
+    elif args.command == "run":
+        cmd_run(args)
+    elif args.command == "status":
+        cmd_status(args)
     elif args.command == "db":
         cmd_db(args)
     elif args.command == "validate":

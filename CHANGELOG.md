@@ -1,5 +1,49 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 33 (Disaster-recovery runbook commands run via `python -m traderos`)
+
+### WP1 — module entrypoint + parser/handler wiring (2026-08-10)
+- New `src/traderos/__main__.py` so `python -m traderos` matches the
+  `traderos` console script exactly (runbook commands were previously
+  console-script-only).
+- `audit verify` moved from positional-only to a real subcommand; new
+  `audit query --filter <key=value,...>` with `--limit`, JSON/text, substring
+  matching on `action`/`actor`/`resource`/`detail`.
+- New `run` (alias of `daemon start`, `--interval`/`--mode`) and `status`
+  (mode, running state, market count, crash-recovery state, kill switch,
+  `orders_accepted`, health summary; JSON supported).
+- `db restore` accepts a positional path, `--backup <path>`, and the runbook's
+  `--latest`; no backup → fails closed (rc=1) with a clear message.
+- `risk status` gains `--json` and the `orders_accepted` output token;
+  `risk reconcile status` reports the reconciliation gate without running one.
+
+### WP2 — durable audit reads (DR-01 false-gate closure) (2026-08-10)
+- CLI `audit`/`audit query`/`audit verify` now read the configured
+  SQLite/Postgres audit service (`_build_audit_service` mirrors
+  `factory.py:122/145-157`) instead of a fresh in-memory `AuditService` — the
+  runbook's "review the audit log" step now sees the same durable entries the
+  daemon records (`daemon_controller.py:216`).
+- Missing audit schema fails closed: `Audit trail unavailable: <e>. Run
+  python -m traderos db migrate first.` (rc=1) — never a silent empty result.
+
+### WP3 — evidence drill + CI registration (2026-08-10)
+- New `scripts/evidence/run_runbook_cli_drill.py` (13 cases) runs every
+  documented runbook command as a real `python -m traderos` subprocess on a
+  scratch DB: backup→corrupt→restore (`--backup`/`--latest`/positional),
+  fail-closed no-arg restore, migrate+check, and a durable `crash.recovery`
+  entry that `audit query --filter` must return (and exclude `order.placed`).
+- Registered as `runbook_cli` in the credential-free CI drill set
+  (`run_ci_drills.py`), now 16 drills; inventory test updated.
+
+### Verification
+- Full suite green on the final state: **1658 passed / 7 skipped**, coverage
+  **76.6%** (gate 70%). CI drill suite locally **16/16 PASS** including
+  `runbook_cli` (`docs/evidence/2026-08-10_runbook_cli_drill.log`).
+- `ruff check .` 0, `pyright` 0 errors, `black --check` + `isort --check`
+  clean on changed files. Real-path smoke: `python -m traderos audit` reads
+  the durable trail, `audit verify` PASS, `run --mode paper` starts the engine
+  and stops cleanly on SIGTERM.
+
 ## [Unreleased] - Sprint 32 (Production risk-rail config + kill-surface surfacing + regulator attribution view + CI evidence-drill job)
 
 ### WP11 — G-03 production risk rails are configured AND enforced at boot (2026-08-10)
