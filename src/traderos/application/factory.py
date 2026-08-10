@@ -9,6 +9,7 @@ from typing import Any
 
 from traderos.application.orchestrator import TradingMode
 from traderos.application.orchestrator import TradingOrchestrator
+from traderos.application.risk_config import resolve_risk_rails
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.collectors.base import CollectorRegistry
 from traderos.domain.collectors.base import CollectorType
@@ -180,13 +181,23 @@ def build_orchestrator(
     # to authenticate (idempotent: no-op once the user exists).
     account_service.bootstrap_admin_from_env()
     secret_rotator = _build_secret_rotator(audit, metrics)
+    # WP11 (G-03): resolve the production risk rails from settings.yaml /
+    # RISK_* env overrides and validate them BEFORE the loop is armed. LIVE
+    # refuses to boot unless every rail is explicitly configured and sane
+    # (ConfigError aborts loudly); paper keeps the conservative defaults.
+    # The resolved rails arm the very authorize_order gate that protects the
+    # real submission path (CycleExecutor -> broker).
+    risk_rails = resolve_risk_rails(cfg.get("risk"), live=TradingMode(mode) == TradingMode.LIVE)
     risk_service = RiskService(
         persistent_kill_switch=persistent_kill_switch,
         metrics=metrics,
         audit=audit,
-        max_gross_exposure=float(cfg.get("risk.max_gross_exposure", 1.0)),
-        max_data_staleness_seconds=float(cfg.get("risk.max_data_staleness_seconds", 300.0)),
-        allowed_markets=_resolve_allowed_markets(cfg),
+        daily_loss_pct=risk_rails.daily_loss_pct,
+        max_position_size=risk_rails.max_position_size,
+        max_positions_total=risk_rails.max_positions_total,
+        max_gross_exposure=risk_rails.max_gross_exposure,
+        max_data_staleness_seconds=risk_rails.max_data_staleness_seconds,
+        allowed_markets=_resolve_allowed_markets(risk_rails.allowed_markets),
         user_resolver=_resolve_per_user_profiles(cfg),
     )
     portfolio_service.risk_service = risk_service
@@ -375,7 +386,7 @@ def build_orchestrator(
         broker_reconciliation=broker_reconciliation,
         kill_switch=risk_service.kill_switch,
         allowed_markets=risk_service.allowed_markets,
-        require_allowlist=bool(cfg.get("risk.require_allowlist", False)),
+        require_allowlist=risk_rails.require_allowlist,
     )
 
     paper: PaperTradingService | None = None
@@ -560,20 +571,17 @@ def _build_failover(
     )
 
 
-def _resolve_allowed_markets(cfg: Config) -> frozenset[uuid.UUID]:
-    """Resolve ``risk.allowed_markets`` (symbol strings) to market ids.
+def _resolve_allowed_markets(symbols: tuple[str, ...]) -> frozenset[uuid.UUID]:
+    """Map allowlisted symbols to market ids.
 
     Uses the same deterministic ``uuid5("traderos/{symbol}")`` scheme as the
     data-ingestion wiring, so an allowlisted symbol maps to the market the
-    loop trades. Empty list = unrestricted (unless ``risk.require_allowlist``
-    forces one via preflight in live mode).
+    loop trades. Symbols arrive pre-resolved (settings yaml merged with the
+    ``RISK_ALLOWED_MARKETS`` env override, see ``risk_config``). Empty =
+    unrestricted (unless ``risk.require_allowlist`` forces one via preflight;
+    LIVE always requires a non-empty allowlist).
     """
-    symbols = cfg.get("risk.allowed_markets", [])
-    if not isinstance(symbols, list):
-        return frozenset()
-    return frozenset(
-        uuid.uuid5(uuid.NAMESPACE_DNS, f"traderos/{s}") for s in symbols if isinstance(s, str)
-    )
+    return frozenset(uuid.uuid5(uuid.NAMESPACE_DNS, f"traderos/{s}") for s in symbols)
 
 
 def _resolve_per_user_profiles(cfg: Config) -> PerUserRiskResolver:

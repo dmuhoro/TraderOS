@@ -161,6 +161,24 @@
       </table>
     </section>
 
+    <section class="panel span-2" id="attribution-panel">
+      <h2>Causal attribution (regulator view)</h2>
+      <div class="row">
+        <span class="col-hint">Replays the durable audit chain (signal → decision → order → fill) for a window, with per-fill realized PnL and blocked reasons. Read-only.</span>
+      </div>
+      <div class="row">
+        <input id="attr-start" type="date" class="input" />
+        <input id="attr-end" type="date" class="input" />
+        <button id="attr-load" class="btn btn-primary">Replay window</button>
+        <span id="attr-result" class="inline-msg"></span>
+      </div>
+      <div id="attr-metrics" class="metrics-block"></div>
+      <table>
+        <thead><tr><th>Signal at</th><th>Strategy</th><th>Market</th><th>Dir</th><th>Conf</th><th>Blocked</th><th>Complete</th><th>Order</th><th>Realized PnL</th></tr></thead>
+        <tbody id="attr-body"><tr><td colspan="9" class="empty">no replay loaded</td></tr></tbody>
+      </table>
+    </section>
+
     <section class="panel span-2" id="report-panel">
       <h2>Session report</h2>
       <div class="row">

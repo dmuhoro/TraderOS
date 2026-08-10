@@ -14,6 +14,25 @@ from traderos.infrastructure.config.config_loader import Config
 from traderos.infrastructure.secrets import SecretRotator
 
 
+def _live_rails_config() -> Config:
+    """A LIVE-mode config that clears the WP11 production-risk-rail gate so a
+    boot reaches the A6 credential check these tests prove."""
+    return Config(
+        db_path=":memory:",
+        _raw_settings={
+            "risk": {
+                "daily_loss_pct": 0.02,
+                "max_gross_exposure": 1.0,
+                "max_position_size": 0.25,
+                "max_positions_total": 10,
+                "max_data_staleness_seconds": 300.0,
+                "allowed_markets": ["SPY"],
+                "require_allowlist": True,
+            }
+        },
+    )
+
+
 class TestServiceFactory:
     def test_build_paper_orchestrator(self) -> None:
         orch = build_orchestrator(mode="paper")
@@ -96,11 +115,12 @@ class TestServiceFactory:
 
     def test_live_mode_fails_closed_without_broker_credentials(self, monkeypatch) -> None:
         """A6 fail-closed gate: LIVE must never silently degrade to paper when
-        broker credentials are absent via the secret manager/env."""
+        broker credentials are absent via the secret manager/env. WP11 rails are
+        supplied so this test exercises the credential gate specifically."""
         monkeypatch.delenv("ALPACA_API_KEY", raising=False)
         monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
         with pytest.raises(RuntimeError, match="ALPACA_API_KEY and ALPACA_SECRET_KEY"):
-            build_orchestrator(mode="live")
+            build_orchestrator(mode="live", config=_live_rails_config())
 
     def test_live_mode_papers_never_a_fallback(self, monkeypatch) -> None:
         """A6: with credentials present but an unusable adapter, LIVE raises
@@ -116,7 +136,7 @@ class TestServiceFactory:
             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("cannot reach broker")),
         )
         with pytest.raises(RuntimeError, match="LIVE broker init failed"):
-            build_orchestrator(mode="live")
+            build_orchestrator(mode="live", config=_live_rails_config())
 
     def test_all_services_wired(self) -> None:
         orch = build_orchestrator(mode="paper")

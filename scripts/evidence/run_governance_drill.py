@@ -49,8 +49,18 @@ def main() -> int:
             "OPERATOR_NAME",
             "OPERATOR_ROLE",
             "TRADING_MODE",
+            "RISK_DAILY_LOSS_PCT",
+            "RISK_MAX_GROSS_EXPOSURE",
+            "RISK_MAX_POSITION_SIZE",
+            "RISK_MAX_POSITIONS_TOTAL",
+            "RISK_MAX_DATA_STALENESS_SECONDS",
+            "RISK_ALLOWED_MARKETS",
+            "RISK_REQUIRE_ALLOWLIST",
         )
     }
+    for k in old_env:
+        if k.startswith("RISK_"):
+            os.environ.pop(k, None)
     os.environ["RELEASE_SIGNING_KEY"] = DRILL_KEY
     os.environ["RELEASE_SIG_DIR"] = str(Path(tmp) / "sigs")
     os.environ["OPERATOR_ACK_DIR"] = str(Path(tmp) / "acks")
@@ -72,13 +82,28 @@ def main() -> int:
         os.environ["ALPACA_API_KEY"] = "PK" + "GOVERNANCEDRILLKEY1234567890"
         os.environ["ALPACA_SECRET_KEY"] = "governancedrillsecret123456"
 
+        # WP11: a live PASS now also requires explicit production risk rails —
+        # the drill supplies them in a temp settings file (never the committed
+        # one), so the gate is proven to enforce the full documented GO set.
+        drill_settings = Path(tmp) / "settings.yaml"
+        drill_settings.write_text(
+            "risk:\n"
+            "  daily_loss_pct: 0.02\n"
+            "  max_gross_exposure: 1.0\n"
+            "  max_position_size: 0.25\n"
+            "  max_positions_total: 10\n"
+            "  require_allowlist: true\n"
+            "  allowed_markets:\n"
+            "    - AAPL\n"
+        )
+
         from scripts.governance.live_gate import main as gate
 
-        blocked = gate(["--artifact", str(artifact)]) == 1
+        blocked = gate(["--artifact", str(artifact), "--settings", str(drill_settings)]) == 1
         results.append(("live_gate_fails_closed_without_go", blocked))
 
         os.environ["GO_CONDITIONS_MET"] = "true"
-        passed = gate(["--artifact", str(artifact)]) == 0
+        passed = gate(["--artifact", str(artifact), "--settings", str(drill_settings)]) == 0
         results.append(("live_gate_passes_with_go_and_ack", passed))
     finally:
         for k, v in old_env.items():

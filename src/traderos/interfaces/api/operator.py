@@ -384,6 +384,12 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
     def engage_kill_switch():
         orch = orch_provider()
         orch.risk_service.kill_switch.engage()
+        # WP11b: every manual trip is recorded on the durable audit trail and
+        # counted — a kill-switch transition is never silent.
+        orch.audit.record(
+            "risk.kill_switch_engaged", "operator", "trading", "manual operator action"
+        )
+        orch.metrics.counter("kill_switch.engaged", 1.0)
         orch.notifications.send(
             NotificationLevel.CRITICAL,
             "Kill switch engaged",
@@ -397,6 +403,11 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
     def disengage_kill_switch():
         orch = orch_provider()
         orch.risk_service.kill_switch.disengage()
+        # WP11b: re-arming is audited and counted exactly like tripping.
+        orch.audit.record(
+            "risk.kill_switch_disengaged", "operator", "trading", "manual operator action"
+        )
+        orch.metrics.counter("kill_switch.disengaged", 1.0)
         orch.notifications.send(
             NotificationLevel.WARNING,
             "Kill switch disengaged",

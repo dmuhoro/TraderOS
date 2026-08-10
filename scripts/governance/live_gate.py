@@ -8,9 +8,12 @@ Checks (when TRADING_MODE=live):
   3. Live confirmation: LIVE_TRADING_CONFIRMED=true.
   4. Allowlist: risk.require_allowlist=true requires a non-empty
      risk.allowed_markets list.
-  5. Release signing: the artifact (default docs/engineering/LIVE_RUN_POLICY.md)
+  5. Production risk rails (WP11): every numeric rail (daily-loss %,
+     gross-exposure cap, position-size cap, max positions) explicitly
+     configured and within sane bounds, with a mandatory non-empty allowlist.
+  6. Release signing: the artifact (default docs/engineering/LIVE_RUN_POLICY.md)
      must carry a valid signature.
-  6. GO declaration: GO_CONDITIONS_MET=true, set only by the documented GO
+  7. GO declaration: GO_CONDITIONS_MET=true, set only by the documented GO
      review (never by code).
 
 Run:  python3 scripts/governance/live_gate.py [--artifact <path>] [--key-var NAME]
@@ -105,6 +108,15 @@ def main(argv: list[str]) -> int:
         "allowlist gate",
         not require_allowlist or bool(allowed),
         "risk.require_allowlist=true but risk.allowed_markets empty",
+    )
+
+    from traderos.application.risk_config import validate_production_risk_settings
+
+    rail_problems = validate_production_risk_settings(settings.get("risk", {}))
+    check(
+        "production risk rails configured (WP11)",
+        not rail_problems,
+        "; ".join(rail_problems) or "risk rails invalid",
     )
 
     check(
