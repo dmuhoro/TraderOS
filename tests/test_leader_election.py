@@ -172,3 +172,24 @@ class TestFileBasedLeaderElection:
         election.stop()
         assert election.is_leader is False
         assert not os.path.exists(lock_path)
+
+    def test_release_tolerates_flock_failure(self, lock_path: str, monkeypatch):
+        import fcntl
+
+        election = FileBasedLeaderElection(lock_path)
+        assert election.try_acquire() is True
+
+        def _boom(*_args, **_kwargs):
+            raise OSError("lock gone")
+
+        monkeypatch.setattr(fcntl, "flock", _boom)
+        election.release()
+        assert election.is_leader is False
+
+    def test_stop_tolerates_missing_lock_file(self, lock_path: str):
+        election = FileBasedLeaderElection(lock_path)
+        assert election.try_acquire() is True
+        election.release()
+        os.unlink(lock_path)  # lock file removed externally before stop
+        election.stop()
+        assert election.is_leader is False

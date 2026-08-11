@@ -36,6 +36,11 @@ class TestMarketSession:
         assert session.contains(datetime(2026, 7, 29, 5, 0, tzinfo=UTC))
         assert not session.contains(datetime(2026, 7, 29, 17, 30, tzinfo=UTC))
 
+    def test_contains_24h_session(self) -> None:
+        session = MarketSession(open=time(0, 0), close=time(0, 0))
+        assert session.contains(datetime(2026, 7, 29, 12, 0, tzinfo=UTC))
+        assert session.contains(datetime(2026, 7, 29, 0, 0, tzinfo=UTC))
+
 
 class TestMarketHoursEngineIsOpen:
     def test_unknown_symbol_always_open(self) -> None:

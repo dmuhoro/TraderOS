@@ -27,6 +27,7 @@ from traderos.domain.entities import Position
 from traderos.domain.entities import Signal
 from traderos.domain.entities import SignalDirection
 from traderos.domain.entities import Strategy
+from traderos.domain.entities import StrategyStatus
 from traderos.domain.entities import Timeframe
 from traderos.domain.entities import Trade
 from traderos.domain.entities import TradeSide
@@ -506,3 +507,160 @@ class TestSQLiteIndicatorFunctional:
         repo = SQLiteIndicatorRepository(_db())
         repo.add(_indicator())
         assert repo.get_latest(uuid.uuid4(), "RSI") is None
+
+
+class TestSQLiteObservationFunctional:
+    def test_get_by_symbol(self) -> None:
+        repo = SQLiteObservationRepository(_db())
+        a = _observation()
+        b = _observation()
+        repo.add(a)
+        repo.add(b)
+        assert [o.id for o in repo.get_by_symbol(a.symbol)] == [a.id, b.id]
+        assert repo.get_by_symbol("NOSUCH") == []
+
+
+class TestSQLiteHypothesisFunctional:
+    def test_get_by_observation(self) -> None:
+        repo = SQLiteHypothesisRepository(_db())
+        a = _hypothesis()
+        b = _hypothesis()
+        repo.add(a)
+        repo.add(b)
+        assert [h.id for h in repo.get_by_observation(a.observation_id)] == [a.id]
+        assert repo.get_by_observation(uuid.uuid4()) == []
+
+
+class TestSQLiteExperimentFunctional:
+    def test_get_by_hypothesis(self) -> None:
+        repo = SQLiteExperimentRepository(_db())
+        a = _experiment()
+        b = _experiment()
+        repo.add(a)
+        repo.add(b)
+        assert [e.id for e in repo.get_by_hypothesis(a.hypothesis_id)] == [a.id]
+        assert repo.get_by_hypothesis(uuid.uuid4()) == []
+
+
+class TestSQLiteExperimentResultFunctional:
+    def test_get_by_experiment(self) -> None:
+        repo = SQLiteExperimentResultRepository(_db())
+        a = _experiment_result()
+        b = _experiment_result()
+        repo.add(a)
+        repo.add(b)
+        assert [r.id for r in repo.get_by_experiment(a.experiment_id)] == [a.id]
+        assert repo.get_by_experiment(uuid.uuid4()) == []
+
+
+class TestSQLiteLessonFunctional:
+    def test_get_by_result(self) -> None:
+        repo = SQLiteLessonRepository(_db())
+        a = _lesson()
+        b = _lesson()
+        repo.add(a)
+        repo.add(b)
+        assert [lesson.id for lesson in repo.get_by_result(a.result_id)] == [a.id]
+        assert repo.get_by_result(uuid.uuid4()) == []
+
+    def test_get_by_tags(self) -> None:
+        repo = SQLiteLessonRepository(_db())
+        a = Lesson(result_id=uuid.uuid4(), content="one", tags=["alpha", "beta"])
+        b = Lesson(result_id=uuid.uuid4(), content="two", tags=["gamma"])
+        repo.add(a)
+        repo.add(b)
+        assert [lesson.id for lesson in repo.get_by_tags(["alpha"])] == [a.id]
+        assert [lesson.id for lesson in repo.get_by_tags(["beta", "gamma"])] == [a.id, b.id]
+        assert repo.get_by_tags(["omega"]) == []
+
+
+class TestSQLiteStrategyFunctional:
+    def test_list_active_filters_status(self) -> None:
+        repo = SQLiteStrategyRepository(_db())
+        draft = _strategy()
+        active = replace(_strategy(), status=StrategyStatus.ACTIVE)
+        repo.add(draft)
+        repo.add(active)
+        ids = [s.id for s in repo.list_active()]
+        assert active.id in ids and draft.id not in ids
+
+
+class TestSQLiteBacktestResultFunctional:
+    def test_roundtrip_preserves_equity_curve_points(self) -> None:
+        repo = SQLiteBacktestResultRepository(_db())
+        now = datetime.now(tz=UTC)
+        result = BacktestResult(
+            strategy_id=uuid.uuid4(),
+            market_id=uuid.uuid4(),
+            metrics=Metrics(),
+            equity_curve=EquityCurve(points=((now, 100.0), (now, 105.0))),
+            period_start=now,
+            period_end=now,
+        )
+        repo.add(result)
+        fetched = repo.get(result.id)
+        assert fetched is not None
+        assert len(fetched.equity_curve.points) == 2
+        assert fetched.equity_curve.points[1][1] == 105.0
+
+    def test_get_by_strategy(self) -> None:
+        repo = SQLiteBacktestResultRepository(_db())
+        a = _backtest_result()
+        b = _backtest_result()
+        repo.add(a)
+        repo.add(b)
+        assert [r.id for r in repo.get_by_strategy(a.strategy_id)] == [a.id]
+        assert repo.get_by_strategy(uuid.uuid4()) == []
+
+    def test_get_by_market(self) -> None:
+        repo = SQLiteBacktestResultRepository(_db())
+        a = _backtest_result()
+        b = _backtest_result()
+        repo.add(a)
+        repo.add(b)
+        assert [r.id for r in repo.get_by_market(a.market_id)] == [a.id]
+        assert repo.get_by_market(uuid.uuid4()) == []
+
+
+class TestSQLiteTradeFunctional:
+    def test_get_by_signal(self) -> None:
+        repo = SQLiteTradeRepository(_db())
+        a = _trade()
+        b = _trade()
+        repo.add(a)
+        repo.add(b)
+        assert [t.id for t in repo.get_by_signal(a.signal_id)] == [a.id]
+        assert repo.get_by_signal(uuid.uuid4()) == []
+
+    def test_get_by_market(self) -> None:
+        repo = SQLiteTradeRepository(_db())
+        a = _trade()
+        b = _trade()
+        repo.add(a)
+        repo.add(b)
+        assert [t.id for t in repo.get_by_market(a.market_id)] == [a.id]
+        assert repo.get_by_market(uuid.uuid4()) == []
+
+
+class TestSQLiteBaseHelpers:
+    def test_from_json_none_returns_none(self) -> None:
+        from traderos.infrastructure.repositories.sqlite.base import from_json
+
+        assert from_json(None) is None
+
+    def test_default_table_name_derives_from_class(self) -> None:
+        from traderos.infrastructure.repositories.sqlite.base import SQLiteRepository
+
+        class Bare(SQLiteRepository):
+            def _create_table(self) -> None:
+                pass
+
+            def _to_row(self, entity: object) -> dict:
+                return {"id": str(entity)}
+
+            def _from_row(self, row: object) -> object:
+                return row
+
+        repo = Bare(_db())
+        assert repo._table_name == "bare"
+        assert repo._to_row("x") == {"id": "x"}

@@ -92,6 +92,25 @@ class TestStrategyCatalogLifecycle:
         else:
             raise AssertionError("expected StrategyLifecycleError")
 
+    def test_clone_duplicate_target_raises(self) -> None:
+        self.catalog.create("ma_fast", "moving_average_trend")
+        self.catalog.clone("ma_fast", "ma_fast_clone")
+        try:
+            self.catalog.clone("ma_fast", "ma_fast_clone")
+        except StrategyLifecycleError as exc:
+            assert "already exists" in str(exc)
+        else:
+            raise AssertionError("expected StrategyLifecycleError")
+
+    def test_disable_retired_raises(self) -> None:
+        self.catalog.archive("mean_reversion")
+        try:
+            self.catalog.disable("mean_reversion")
+        except StrategyLifecycleError as exc:
+            assert "retired" in str(exc)
+        else:
+            raise AssertionError("expected StrategyLifecycleError")
+
     def test_enable_and_disable(self) -> None:
         self.catalog.create("ma_fast", "moving_average_trend")
         enabled = self.catalog.enable("ma_fast")
@@ -156,6 +175,43 @@ class TestStrategyCatalogLifecycle:
     def test_get_enabled_returns_sorted(self) -> None:
         names = [s.name for s in self.catalog.get_enabled()]
         assert names == sorted(names)
+
+    def test_enable_active_returns_strategy_unchanged(self) -> None:
+        seeded = self.catalog.get("moving_average_trend")
+        assert seeded.status == StrategyStatus.ACTIVE
+        again = self.catalog.enable("moving_average_trend")
+        assert again.status == StrategyStatus.ACTIVE
+        assert again.id == seeded.id
+
+    def test_disable_disabled_returns_strategy_unchanged(self) -> None:
+        self.catalog.disable("moving_average_trend")
+        disabled = self.catalog.get("moving_average_trend")
+        again = self.catalog.disable("moving_average_trend")
+        assert again.status == StrategyStatus.DISABLED
+        assert again.id == disabled.id
+
+    def test_promote_retired_raises(self) -> None:
+        self.catalog.archive("mean_reversion")
+        try:
+            self.catalog.promote("mean_reversion")
+        except StrategyLifecycleError as exc:
+            assert "retired" in str(exc)
+        else:
+            raise AssertionError("expected StrategyLifecycleError")
+
+    def test_compare_without_backtest_raises(self) -> None:
+        catalog = StrategyCatalogService(
+            repo=InMemoryStrategyRepository(),
+            backtest=None,
+            backtest_results=InMemoryBacktestResultRepository(),
+        )
+        catalog.ensure_seeded()
+        try:
+            catalog.compare(["moving_average_trend"])
+        except StrategyLifecycleError as exc:
+            assert "Backtesting not configured" in str(exc)
+        else:
+            raise AssertionError("expected StrategyLifecycleError")
 
 
 class TestStrategyCatalogAnalysis:

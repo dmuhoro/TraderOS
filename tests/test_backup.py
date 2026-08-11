@@ -14,6 +14,8 @@ from traderos.infrastructure.database.backup import backup_postgres
 from traderos.infrastructure.database.backup import backup_sqlite
 from traderos.infrastructure.database.backup import create_backup
 from traderos.infrastructure.database.backup import list_backups
+from traderos.infrastructure.database.backup import restore_backup
+from traderos.infrastructure.database.backup import restore_postgres
 from traderos.infrastructure.database.backup import restore_sqlite
 
 
@@ -106,6 +108,58 @@ class TestBackupPostgres:
             pytest.raises(BackupError, match="pg_dump failed"),
         ):
             backup_postgres("postgresql://localhost/test")
+
+
+class TestRestore:
+    def test_restore_plain_sqlite_file(self, temp_db: str, tmp_path: Path) -> None:
+        from shutil import copy2
+
+        plain = tmp_path / "plain.db"
+        copy2(temp_db, plain)
+        target = str(tmp_path / "restored.db")
+        restore_sqlite(plain, target)
+        conn = sqlite3.connect(target)
+        row = conn.execute("SELECT value FROM test WHERE id = 1").fetchone()
+        assert row[0] == "hello"
+        conn.close()
+
+    def test_restore_postgres_calls_pg_restore(self, clean_backup_dir: None) -> None:
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            restore_postgres(Path("x.dump"), "postgresql://localhost/test")
+        args = mock_run.call_args[0][0]
+        assert "pg_restore" in args
+
+    def test_restore_postgres_missing_pg_restore(self, clean_backup_dir: None) -> None:
+        with (
+            patch("subprocess.run", side_effect=FileNotFoundError()),
+            pytest.raises(BackupError, match="pg_restore not found"),
+        ):
+            restore_postgres(Path("x.dump"), "postgresql://localhost/test")
+
+    def test_restore_postgres_pg_restore_fails(self, clean_backup_dir: None) -> None:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=__import__("subprocess").CalledProcessError(
+                    1, "pg_restore", stderr="connection failed"
+                ),
+            ),
+            pytest.raises(BackupError, match="pg_restore failed"),
+        ):
+            restore_postgres(Path("x.dump"), "postgresql://localhost/test")
+
+    def test_restore_backup_postgres_branch(self, clean_backup_dir: None) -> None:
+        mock_cfg = MagicMock()
+        mock_cfg.database_url = "postgresql://localhost/test"
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        with patch("subprocess.run", return_value=mock_result):
+            result = restore_backup(Path("x.dump"), mock_cfg)
+        assert result is None
 
 
 class TestListBackups:

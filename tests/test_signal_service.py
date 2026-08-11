@@ -87,6 +87,57 @@ class TestSignalService:
         assert len(result) == 1
         assert result[0].confidence == 0.9
 
+    def test_deduplicate_empty(self) -> None:
+        svc = SignalService(InMemorySignalRepository())
+        assert svc.deduplicate([]) == []
+
+    def test_deduplicate_latest_policy(self) -> None:
+        svc = SignalService(InMemorySignalRepository())
+        mid = uuid.uuid4()
+        now = datetime.now(UTC)
+        older = Signal(
+            market_id=mid,
+            strategy_id=uuid.uuid4(),
+            direction=SignalDirection.LONG,
+            confidence=0.9,
+            generated_at=now - timedelta(hours=2),
+            expires_at=now + timedelta(hours=1),
+        )
+        newer = Signal(
+            market_id=mid,
+            strategy_id=uuid.uuid4(),
+            direction=SignalDirection.SHORT,
+            confidence=0.5,
+            generated_at=now,
+            expires_at=now + timedelta(hours=1),
+        )
+        result = svc.deduplicate([older, newer], "latest")
+        assert len(result) == 1
+        assert result[0].generated_at == newer.generated_at
+
+    def test_deduplicate_unknown_policy_keeps_all(self) -> None:
+        svc = SignalService(InMemorySignalRepository())
+        mid = uuid.uuid4()
+        now = datetime.now(UTC)
+        s1 = Signal(
+            market_id=mid,
+            strategy_id=uuid.uuid4(),
+            direction=SignalDirection.LONG,
+            confidence=0.5,
+            generated_at=now,
+            expires_at=now + timedelta(hours=1),
+        )
+        s2 = Signal(
+            market_id=mid,
+            strategy_id=uuid.uuid4(),
+            direction=SignalDirection.SHORT,
+            confidence=0.8,
+            generated_at=now,
+            expires_at=now + timedelta(hours=1),
+        )
+        result = svc.deduplicate([s1, s2], "bogus_policy")
+        assert len(result) == 2
+
     def test_get_active_signals_filters_expired(self) -> None:
         repo = InMemorySignalRepository()
         svc = SignalService(repo)

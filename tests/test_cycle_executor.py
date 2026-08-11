@@ -64,6 +64,39 @@ class _MockBroker(BrokerAdapter):
         return []
 
 
+class _UnfilledBroker(BrokerAdapter):
+    def place_market_order(self, market_id, side, quantity, close_price=None, client_order_id=None):
+        return FillResult(False, 0.0, 0.0, quantity, "rejected", "")
+
+    def place_limit_order(self, market_id, side, quantity, price, close_price=None):
+        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+
+    def cancel_order(self, order_id):
+        return FillResult(True, 0.0, 0.0, 0.0, "cancelled", order_id)
+
+    def place_stop_order(self, market_id, side, quantity, stop_price, market_price=None):
+        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+
+    def place_trailing_stop_order(
+        self, market_id, side, quantity, trail_percent, market_price=None
+    ):
+        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+
+    def modify_order(
+        self, order_id, qty=None, limit_price=None, stop_price=None, trail_percent=None
+    ):
+        return FillResult(True, 0.0, 0.0, 0.0, "modified", order_id)
+
+    def get_account_balance(self):
+        return 10000.0
+
+    def get_positions(self):
+        return []
+
+    def get_open_orders(self):
+        return []
+
+
 class _BadStrat(StrategyBase):
     name = "test_bad_strat"
 
@@ -96,6 +129,73 @@ def _register(name, cls):
 
 def _unregister(name):
     strategy_registry._strategies.pop(name, None)
+
+
+def _happy_services() -> dict:
+    """Mocks that let a signal run all the way to the broker submission path."""
+    from datetime import timedelta
+
+    from traderos.domain.entities.signal import Signal
+    from traderos.domain.entities.signal import SignalDirection
+    from traderos.domain.services.risk_service import RiskAssessment
+    from traderos.domain.services.risk_service import TradeVerdict
+    from traderos.domain.services.signal_service import SignalProvenance
+
+    now = datetime.now(UTC)
+    signal = Signal(
+        market_id=uuid.uuid4(),
+        strategy_id=uuid.uuid4(),
+        direction=SignalDirection.LONG,
+        confidence=0.8,
+        generated_at=now,
+        expires_at=now + timedelta(hours=1),
+    )
+    signal_service = Mock()
+    signal_service.process_evaluation.return_value = SignalProvenance(
+        signal=signal, strategy_name="x", indicators_used={}
+    )
+    risk_service = Mock()
+    risk_service.can_trade.return_value = TradeVerdict(True, "")
+    risk_service.kill_switch = Mock()
+    risk_service.assess_trade.return_value = RiskAssessment(
+        kelly_fraction=0.5,
+        suggested_stop_loss=99.0,
+        suggested_take_profit=102.0,
+        risk_per_unit=1.0,
+        max_risk_amount=200.0,
+    )
+    risk_service.authorize_order.return_value = TradeVerdict(True, "")
+    portfolio_service = Mock()
+    summary = Mock()
+    summary.open_positions = []
+    summary.total_equity = 10000.0
+    portfolio_service.get_summary.return_value = summary
+    portfolio_service.size_position.return_value = 1.0
+    return {
+        "signal_service": signal_service,
+        "risk_service": risk_service,
+        "portfolio_service": portfolio_service,
+    }
+
+
+def _executor(conn, **overrides) -> CycleExecutor:
+    base = {
+        "mode": TradingMode.PAPER,
+        "signal_service": Mock(),
+        "risk_service": Mock(),
+        "portfolio_service": Mock(),
+        "execution": Mock(),
+        "analysis": Mock(),
+        "broker": _MockBroker(),
+        "event_bus": InMemoryEventBus(),
+        "health": SQLiteHealthService(conn),
+        "audit": SQLiteAuditService(conn),
+        "metrics": SQLiteMetricsService(conn),
+        "notifications": Mock(),
+        "run_manifest": SQLiteManifestService(conn),
+    }
+    base.update(overrides)
+    return CycleExecutor(**base)
 
 
 class TestCycleExecutor:
@@ -472,4 +572,160 @@ class TestCycleExecutor:
         assert result.errors == []
         assert result.trades > 0
         assert portfolio_service.fill_trade.called
+        conn.close()
+
+    def test_live_data_gap_blocks_trading(self) -> None:
+        conn = _make_conn()
+        mid = uuid.uuid4()
+        data_ingestion = Mock()
+        data_ingestion.fetch_candles.return_value = []
+        notifications = Mock()
+        executor = _executor(
+            conn,
+            mode=TradingMode.LIVE,
+            data_ingestion=data_ingestion,
+            notifications=notifications,
+        )
+        result = executor.run(mid, 100.0)
+        assert result.errors == [f"{mid}: no market data — trading blocked"]
+        assert result.trades == 0
+        notifications.critical.assert_called_once()
+        conn.close()
+
+    def test_sma_50_computed_with_enough_candles(self) -> None:
+        from traderos.domain.services.analysis_service import AnalysisService
+
+        conn = _make_conn()
+        _register("test_sma50_strat", _GoodStrat)
+        try:
+            data_ingestion = Mock()
+            data_ingestion.fetch_candles.return_value = synthetic_candles(
+                count=60, market_id=uuid.uuid4()
+            )
+            executor = _executor(
+                conn,
+                data_ingestion=data_ingestion,
+                analysis=AnalysisService(),
+                **_happy_services(),
+            )
+            result = executor.run(uuid.uuid4(), 100.0)
+            assert result.errors == []
+            assert result.trades > 0
+        finally:
+            _unregister("test_sma50_strat")
+        conn.close()
+
+    def test_none_provenance_skips_signal(self) -> None:
+        conn = _make_conn()
+        _register("test_provenance_none", _GoodStrat)
+        try:
+            signal_service = Mock()
+            signal_service.process_evaluation.return_value = None
+            executor = _executor(conn, signal_service=signal_service)
+            result = executor.run(uuid.uuid4(), 100.0)
+            assert result.errors == []
+            assert result.signals == 0
+            assert result.trades == 0
+        finally:
+            _unregister("test_provenance_none")
+        conn.close()
+
+    def test_zero_kelly_skips_order(self) -> None:
+        from traderos.domain.services.risk_service import RiskAssessment
+
+        conn = _make_conn()
+        _register("test_kelly_zero", _GoodStrat)
+        try:
+            services = _happy_services()
+            services["risk_service"].assess_trade.return_value = RiskAssessment(
+                kelly_fraction=0.0,
+                suggested_stop_loss=99.0,
+                suggested_take_profit=102.0,
+                risk_per_unit=1.0,
+                max_risk_amount=200.0,
+            )
+            executor = _executor(conn, **services)
+            result = executor.run(uuid.uuid4(), 100.0)
+            assert result.errors == []
+            assert result.trades == 0
+            services["portfolio_service"].open_trade.assert_not_called()
+        finally:
+            _unregister("test_kelly_zero")
+        conn.close()
+
+    def test_zero_qty_skips_order(self) -> None:
+        conn = _make_conn()
+        _register("test_qty_zero", _GoodStrat)
+        try:
+            services = _happy_services()
+            services["portfolio_service"].size_position.return_value = 0.0
+            executor = _executor(conn, **services)
+            result = executor.run(uuid.uuid4(), 100.0)
+            assert result.errors == []
+            assert result.trades == 0
+            services["portfolio_service"].open_trade.assert_not_called()
+        finally:
+            _unregister("test_qty_zero")
+        conn.close()
+
+    def test_unfilled_fill_records_kill_switch_failure(self) -> None:
+        conn = _make_conn()
+        _register("test_unfilled", _GoodStrat)
+        try:
+            services = _happy_services()
+            executor = _executor(conn, broker=_UnfilledBroker(), **services)
+            result = executor.run(uuid.uuid4(), 100.0)
+            assert result.trades == 0
+            services["risk_service"].kill_switch.record_failure.assert_called_once()
+        finally:
+            _unregister("test_unfilled")
+        conn.close()
+
+    def test_retail_unfilled_order_records_failure_and_rejected(self) -> None:
+        conn = _make_conn()
+        services = _happy_services()
+        metrics = SQLiteMetricsService(conn)
+        executor = _executor(conn, broker=_UnfilledBroker(), metrics=metrics, **services)
+        result = executor.submit_retail_order(uuid.uuid4(), "buy", 2.0, 100.0, user_id="retail-1")
+        assert result.allowed is True
+        assert result.order_id is None
+        services["risk_service"].kill_switch.record_failure.assert_called_once()
+        assert metrics.get_counter("retail.orders.rejected") == 1
+        conn.close()
+
+    def test_backtest_uses_data_ingestion_candles(self) -> None:
+        conn = _make_conn()
+        _register("test_backtest_di", _GoodStrat)
+        try:
+            data_ingestion = Mock()
+            data_ingestion.fetch_candles.return_value = synthetic_candles(
+                count=60, market_id=uuid.uuid4()
+            )
+            executor = _executor(
+                conn,
+                mode=TradingMode.BACKTEST,
+                data_ingestion=data_ingestion,
+                backtest=BacktestingService(execution=ExecutionService()),
+            )
+            result = executor.run(uuid.uuid4(), 100.0)
+            data_ingestion.fetch_candles.assert_called_once()
+            assert result.signals > 0
+            assert result.trades > 0
+            assert result.errors == []
+        finally:
+            _unregister("test_backtest_di")
+        conn.close()
+
+    def test_backtest_skips_unknown_strategy_template(self) -> None:
+        conn = _make_conn()
+        executor = _executor(
+            conn,
+            mode=TradingMode.BACKTEST,
+            backtest=BacktestingService(execution=ExecutionService()),
+            enabled_strategies=lambda: [("ghost", "ghost_template", {})],
+        )
+        result = executor.run(uuid.uuid4(), 100.0)
+        assert result.errors == []
+        assert result.signals == 0
+        assert result.trades == 0
         conn.close()

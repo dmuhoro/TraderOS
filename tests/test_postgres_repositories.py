@@ -109,6 +109,21 @@ class TestBaseHelpers:
 
             Broken(pg_conn)
 
+    def test_abstract_surface_raises_not_implemented(self, pg_conn) -> None:
+        class Partial(PostgresRepository):
+            def _create_table(self) -> None:
+                pass
+
+        repo = Partial(pg_conn)
+        with pytest.raises(NotImplementedError):
+            _ = repo._table_name
+        with pytest.raises(NotImplementedError):
+            _ = repo._columns
+        with pytest.raises(NotImplementedError):
+            repo._to_row(object())
+        with pytest.raises(NotImplementedError):
+            repo._from_row(None)
+
 
 class TestPostgresSignalRepository:
     def _make_signal(self, direction: SignalDirection = SignalDirection.LONG, **kw) -> Signal:
@@ -508,6 +523,34 @@ class TestPostgresOperatorWorkflowRepository:
 
 
 class TestPostgresUserRepository:
+    def test_list_users_orders_by_created_at(self, pg_conn) -> None:
+        from traderos.domain.entities.user import User
+        from traderos.domain.entities.user import UserRole
+        from traderos.domain.entities.user import UserStatus
+        from traderos.infrastructure.repositories.postgres.users import PostgresUserRepository
+
+        repo = PostgresUserRepository(pg_conn)
+        assert repo.list_users() == []
+        earlier = User(
+            id=uuid.uuid4(),
+            username="u-list-a",
+            password_hash="h",
+            role=UserRole.OPERATOR,
+            status=UserStatus.ACTIVE,
+            created_at=datetime.now(UTC),
+        )
+        later = User(
+            id=uuid.uuid4(),
+            username="u-list-b",
+            password_hash="h",
+            role=UserRole.VIEWER,
+            status=UserStatus.ACTIVE,
+            created_at=datetime.now(UTC),
+        )
+        repo.create_user(earlier)
+        repo.create_user(later)
+        assert [u.username for u in repo.list_users()] == ["u-list-a", "u-list-b"]
+
     def test_user_crud_and_role_roundtrip(self, pg_conn) -> None:
         from traderos.domain.entities.user import User
         from traderos.domain.entities.user import UserRole

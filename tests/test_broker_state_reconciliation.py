@@ -52,6 +52,31 @@ class TestBrokerStateReconciliationService:
         assert not svc.startup_reconciled
         assert not svc.can_accept_orders
 
+    def test_reconciled_at_updated_on_success(self) -> None:
+        class _EmptyBroker:
+            def get_positions(self):
+                return []
+
+            def get_open_orders(self):
+                return []
+
+            def get_account_balance(self):
+                return 0.0
+
+            def place_market_order(self, *a, **kw):
+                return None
+
+            def place_limit_order(self, *a, **kw):
+                return None
+
+            def cancel_order(self, oid):
+                return None
+
+        svc = BrokerStateReconciliationService(broker=_EmptyBroker())
+        assert svc.reconciled_at is None
+        svc.reconcile(local_positions=[], local_orders=[])
+        assert svc.reconciled_at is not None
+
     def test_reconcile_success_sets_startup_flag(self) -> None:
         svc = BrokerStateReconciliationService(broker=_ReconcilableBroker())
         local_positions = [{"symbol": "BTC/USD", "qty": 1.0, "current_price": 50000.0}]
@@ -236,6 +261,39 @@ class TestBrokerStateReconciliationService:
         result = svc.reconcile(local_positions=[], local_orders=[])
         dupes = [
             m for m in result.mismatches if m.mismatch_type == MismatchType.DUPLICATE_BROKER_STATE
+        ]
+        assert len(dupes) >= 1
+
+    def test_duplicate_broker_order_id_detected(self) -> None:
+        class _DupOrdBroker:
+            def get_positions(self):
+                return []
+
+            def get_open_orders(self):
+                return [
+                    {"id": "ord-dup", "symbol": "BTC/USD"},
+                    {"id": "ord-dup", "symbol": "ETH/USD"},
+                ]
+
+            def get_account_balance(self):
+                return 0.0
+
+            def place_market_order(self, *a, **kw):
+                return None
+
+            def place_limit_order(self, *a, **kw):
+                return None
+
+            def cancel_order(self, oid):
+                return None
+
+        svc = BrokerStateReconciliationService(broker=_DupOrdBroker())
+        result = svc.reconcile(local_positions=[], local_orders=[])
+        dupes = [
+            m
+            for m in result.mismatches
+            if m.mismatch_type == MismatchType.DUPLICATE_BROKER_STATE
+            and "order id" in m.description
         ]
         assert len(dupes) >= 1
 

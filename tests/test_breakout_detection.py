@@ -28,6 +28,10 @@ def _c(close: float, idx: int = 0) -> Candle:
 
 
 class TestBreakoutDetection:
+    def test_std_with_fewer_than_two_values(self) -> None:
+        assert BreakoutDetectionService._std([]) == 0.0
+        assert BreakoutDetectionService._std([5.0]) == 0.0
+
     def test_empty_candles(self) -> None:
         assert BreakoutDetectionService.analyze([], 0.001, 2.0, 10, 20) == []
 

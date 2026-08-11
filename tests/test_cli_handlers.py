@@ -11,6 +11,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+import pytest
+
 from traderos.interfaces.cli import main as cli_main
 
 
@@ -719,3 +721,27 @@ class TestCliMainDispatchRemaining:
     def test_main_metrics_snapshot(self):
         output = _run_main(["metrics", "snapshot"])
         assert "Metrics snapshot" in output
+
+
+class TestCliMainGuard:
+    def test_main_guard_executes(self, monkeypatch) -> None:
+        import runpy
+        from pathlib import Path
+
+        module_path = Path(cli_main.__file__).resolve()
+        monkeypatch.setattr("sys.argv", ["traderos", "--help"])
+        with pytest.raises(SystemExit) as exc:
+            runpy.run_path(str(module_path), run_name="__main__")
+        assert exc.value.code == 0
+
+    def test_module_entrypoint_guard(self, monkeypatch) -> None:
+        import runpy
+        from pathlib import Path
+
+        from traderos import __main__
+
+        module_path = Path(__main__.__file__).resolve()
+        monkeypatch.setattr("sys.argv", ["traderos", "--help"])
+        with pytest.raises(SystemExit) as exc:
+            runpy.run_path(str(module_path), run_name="__main__")
+        assert exc.value.code == 0

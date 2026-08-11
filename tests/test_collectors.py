@@ -123,6 +123,9 @@ class TestYFinanceCollector:
         assert YFinanceCollector().validate_symbol("AAPL") is True
         assert YFinanceCollector().validate_symbol("") is False
 
+    def test_fetch_historical_returns_empty(self) -> None:
+        assert YFinanceCollector().fetch_historical("AAPL", "1d") == []
+
 
 class TestDataNormalizer:
     def test_to_candle(self) -> None:

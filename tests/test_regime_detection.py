@@ -81,5 +81,12 @@ class TestRegimeWithVolatility:
         regimes, _volatilities = zip(*results, strict=False)
         assert all(r.regime == Regime.TRENDING_BULLISH for r in regimes)
 
+    def test_with_volatility_atr_branch(self) -> None:
+        candles = [_c(v * 20, idx=i) for i, v in enumerate(range(1, 26))]
+        results = RegimeDetectionService.detect_with_volatility(candles, 3, 5, vol_window=5)
+        assert len(results) > 0
+        for _r, high_vol in results:
+            assert isinstance(high_vol, bool)
+
     def test_empty_with_volatility(self) -> None:
         assert RegimeDetectionService.detect_with_volatility([], 3, 5) == []

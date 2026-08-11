@@ -199,9 +199,7 @@ class TestPostgresAuditServiceChain:
         assert svc.verify_chain() is False
 
     def test_verify_chain_detects_broken_link(self, pg_conn):
-        e1 = _insert(pg_conn, "login", "alice", "system")
-        _insert(pg_conn, "trade", "bob", "BTC/USD", previous_hash=e1["hash"])
-        with pg_conn.cursor() as cur:
-            cur.execute("UPDATE audit_log SET hash = 'tampered' WHERE id = %s", (e1["id"],))
+        _insert(pg_conn, "login", "alice", "system")
+        _insert(pg_conn, "trade", "bob", "BTC/USD", previous_hash="tampered-link")
         svc = self._verify_with_fresh_conn()
         assert svc.verify_chain() is False

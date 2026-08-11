@@ -47,6 +47,9 @@ class TestSessionReportService:
         assert report.duration_seconds is not None
         assert report.to_dict()["generated_at"] == report.generated_at.isoformat()
         assert "Session Report" in report.to_markdown()
+        import json
+
+        assert json.loads(report.to_json())["session_id"] == "report-session"
 
     def test_report_includes_promoted_strategy(self, workflow: OperatorWorkflow) -> None:
         catalog = _make_catalog()

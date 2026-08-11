@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
+from datetime import date
+from datetime import datetime
+from datetime import timedelta
+from unittest.mock import Mock
 
 from traderos.domain.entities import Position
 from traderos.domain.services.risk_service import KillSwitch
@@ -164,3 +169,110 @@ class TestRiskService:
         )
         risk = svc.check_concentration([pos])
         assert not svc.enforce_limits(pos, risk)
+
+    def test_kill_switch_threshold_without_open_circuit_denies(self) -> None:
+        ks = KillSwitch(max_consecutive_failures=5)
+        ks.consecutive_failures = 5  # set directly: not circuit_open yet
+        assert not ks.circuit_open
+        verdict = ks.can_trade()
+        assert not verdict.allowed
+        assert "consecutive failures" in verdict.reason
+
+    def test_kill_switch_realized_pnl_rolls_over_day(self) -> None:
+        ks = KillSwitch()
+        ks._current_day = date(2000, 1, 1)
+        ks.daily_realized_pnl = -50.0
+        ks.record_realized_pnl(-10.0)
+        assert ks._current_day == date(2026, 8, 11) or ks._current_day != date(2000, 1, 1)
+        assert ks.daily_realized_pnl == -10.0
+
+    def test_authorize_order_non_positive_equity(self) -> None:
+        svc = RiskService()
+        verdict = svc.authorize_order(uuid.uuid4(), "buy", 1.0, 100.0, equity=0.0)
+        assert not verdict.allowed
+        assert "non-positive equity" in verdict.reason
+
+    def test_authorize_order_stale_market_data(self) -> None:
+        svc = RiskService(max_data_staleness_seconds=60.0)
+        now = datetime.now(UTC)
+        verdict = svc.authorize_order(
+            uuid.uuid4(),
+            "buy",
+            1.0,
+            100.0,
+            equity=10000.0,
+            last_candle_at=now - timedelta(seconds=120),
+            now=now,
+        )
+        assert not verdict.allowed
+        assert "stale" in verdict.reason
+
+    def test_authorize_order_existing_exposure_over_cap(self) -> None:
+        svc = RiskService(max_gross_exposure=0.5)
+        verdict = svc.authorize_order(
+            uuid.uuid4(), "buy", 1.0, 100.0, equity=10000.0, existing_gross_exposure=6000.0
+        )
+        assert not verdict.allowed
+        assert "already exceeds cap" in verdict.reason
+
+    def test_authorize_order_respects_kill_switch(self) -> None:
+        svc = RiskService(kill_switch=KillSwitch())
+        svc.kill_switch.engage()
+        verdict = svc.authorize_order(uuid.uuid4(), "buy", 1.0, 100.0, equity=10000.0)
+        assert not verdict.allowed
+        assert "Circuit breaker open" in verdict.reason
+
+    def test_kill_switch_disengage(self) -> None:
+        ks = KillSwitch()
+        ks.engage()
+        ks.record_failure()
+        ks.disengage()
+        assert not ks.circuit_open
+        assert ks.consecutive_failures == 0
+        assert ks.can_trade().allowed
+
+    def test_can_trade_kill_switch_denied_audits(self) -> None:
+        audit = Mock()
+        metrics = Mock()
+        svc = RiskService(kill_switch=KillSwitch(), audit=audit, metrics=metrics)
+        svc.kill_switch.engage()
+        verdict = svc.can_trade([])
+        assert not verdict.allowed
+        assert "Circuit breaker open" in verdict.reason
+        audit.record.assert_called_once()
+        metrics.counter.assert_called_once_with("circuit_breaker.tripped", 1.0)
+
+    def test_authorize_order_explicit_daily_loss_limit(self) -> None:
+        svc = RiskService(kill_switch=KillSwitch(daily_loss_limit=100.0))
+        svc.kill_switch.daily_realized_pnl = -150.0
+        verdict = svc.authorize_order(uuid.uuid4(), "buy", 1.0, 100.0, equity=10000.0)
+        assert not verdict.allowed
+        assert "Daily loss limit reached" in verdict.reason
+
+    def test_persistent_kill_switch_denies_and_audits(self) -> None:
+        persistent = Mock()
+        persistent.can_trade.return_value = False
+        audit = Mock()
+        metrics = Mock()
+        svc = RiskService(persistent_kill_switch=persistent, audit=audit, metrics=metrics)
+        verdict = svc.can_trade([], user_id=None)
+        assert not verdict.allowed
+        assert "Persistent kill switch" in verdict.reason
+        audit.record.assert_called_once()
+        metrics.counter.assert_called_once_with("circuit_breaker.tripped", 1.0)
+
+    def test_compute_var_zero_value_returns_zero(self) -> None:
+        svc = RiskService()
+        pos = Position(
+            market_id=uuid.uuid4(), quantity=0.0, entry_price=100.0, current_price=110.0, pnl=0.0
+        )
+        assert svc.compute_var([pos]) == 0.0
+
+    def test_compute_max_drawdown_empty(self) -> None:
+        assert RiskService().compute_max_drawdown([]) == 0.0
+
+    def test_check_concentration_empty(self) -> None:
+        risk = RiskService().check_concentration([])
+        assert risk.var_95 == 0.0
+        assert risk.num_over_limit == 0
+        assert risk.concentration_risk == []

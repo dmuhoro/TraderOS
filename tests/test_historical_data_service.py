@@ -148,6 +148,49 @@ def test_service_rejects_unknown_source():
         raise AssertionError("expected ValueError")
 
 
+def test_register_and_available_sources():
+    service = HistoricalDataService()
+    collector = FakeCollector(_rows(1))
+    service.register(collector)
+    assert service.available_sources() == ["mock"]
+    assert service.collectors["mock"] is collector
+
+
+def test_get_candles_cache_hit_serves_cached_rows_without_refetch():
+    conn = _make_conn()
+    repo = SQLiteHistoricalCandleRepository(conn)
+    now = datetime.now(tz=UTC)
+    rows = [
+        CollectorOHLCV(
+            open=Decimal(100 + i),
+            high=Decimal(102 + i),
+            low=Decimal(99 + i),
+            close=Decimal(100 + i),
+            volume=Decimal(1000),
+            timestamp=now - timedelta(hours=4 - i),
+            symbol="BTC/USD",
+        )
+        for i in range(5)
+    ]
+    calls = {"n": 0}
+
+    def counting_fetch(symbol, interval, start=None, end=None, limit=500):
+        calls["n"] += 1
+        return rows[:limit]
+
+    collector = FakeCollector([])
+    collector.fetch_historical = counting_fetch
+    service = HistoricalDataService(collectors={"mock": collector}, cache=repo)
+
+    first = service.get_candles("mock", "1h", "BTC/USD", limit=5)
+    second = service.get_candles("mock", "1h", "BTC/USD", limit=5)
+    assert calls["n"] == 1  # second read served from cache, no refetch
+    assert len(first) == 5
+    assert len(second) == 5
+    truncated = [int(c.timestamp.timestamp()) for c in first]
+    assert [int(c.timestamp.timestamp()) for c in second] == truncated
+
+
 def test_new_migration_v007_present_and_version_7():
     module = importlib.import_module(
         "traderos.infrastructure.database.migrations.v007_historical_candles"

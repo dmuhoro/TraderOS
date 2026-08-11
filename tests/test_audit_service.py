@@ -85,8 +85,11 @@ class TestAuditService:
         svc = AuditService()
         svc.record("start", "system", "app")
         svc.record("trade.open", "strategy", "BTC/USD")
-        entry = svc._entries[0]
-        svc._entries[0] = entry._replace(hash="tampered")
+        entry1 = svc._entries[1]
+        # Recompute entry1's hash with a tampered previous_hash so the row's
+        # own hash stays internally valid — only the link to entry0 is broken.
+        tampered = entry1._replace(previous_hash="tampered")
+        svc._entries[1] = tampered._replace(hash=_compute_hash(tampered))
         assert not svc.verify_chain()
 
     def test_compute_hash_is_deterministic(self) -> None:

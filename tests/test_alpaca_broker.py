@@ -131,6 +131,15 @@ class TestAlpacaBrokerAdapter:
         ):
             AlpacaBrokerAdapter(api_key="x", secret_key="y")
 
+    def test_get_open_orders_import_error_when_requests_missing(self, _patch_alpaca):
+        adapter = self._make(_patch_alpaca)
+        with (
+            patch("traderos.infrastructure.alpaca_broker._GetOrdersRequest", None),
+            patch("traderos.infrastructure.alpaca_broker._QueryOrderStatus", None),
+            pytest.raises(ImportError, match="alpaca-py is required"),
+        ):
+            adapter.get_open_orders()
+
     def test_place_market_order_filled(self, _patch_alpaca):
         adapter = self._make(_patch_alpaca)
         _patch_alpaca.submit_order.return_value = FakeOrder(

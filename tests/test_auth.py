@@ -82,6 +82,24 @@ class TestAPIKeyAuthenticator:
         auth = APIKeyAuthenticator.from_env()
         assert auth.enabled is False
 
+    def test_configured_roles_reflects_keys(self) -> None:
+        auth = APIKeyAuthenticator(
+            admin_keys=(ADMIN_KEY,), operator_keys=(OPERATOR_KEY,), viewer_keys=(VIEWER_KEY,)
+        )
+        roles = auth.configured_roles
+        assert roles["admin"] == [ADMIN_KEY]
+        assert roles["operator"] == [OPERATOR_KEY]
+        assert roles["viewer"] == [VIEWER_KEY]
+
+    def test_role_grants_hierarchy(self) -> None:
+        from traderos.infrastructure.auth import role_grants
+
+        assert role_grants(None, Permission.READ) is None
+        assert role_grants(Role.VIEWER, Permission.ADMIN) is None
+        assert role_grants(Role.VIEWER, Permission.READ) is Role.VIEWER
+        assert role_grants(Role.OPERATOR, Permission.OPERATE) is Role.OPERATOR
+        assert role_grants(Role.ADMIN, Permission.ADMIN) is Role.ADMIN
+
 
 class TestApiAuthOpenByDefault:
     def test_reads_open_when_no_keys(self, client: TestClient) -> None:

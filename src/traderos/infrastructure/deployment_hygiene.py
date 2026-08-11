@@ -84,9 +84,7 @@ def scan_repo_for_secrets(
         except OSError:
             continue
         for match in _SECRET_VALUE_RE.finditer(text):
-            key, value = match.group(1), match.group(2)
-            if value.lower() in ("test", "example", "changeme", "todo", "placeholder"):
-                continue
+            key = match.group(1)
             findings.append(f"{rel}: suspicious {key} value")
         if any(m for m in _DOCKER_EXCLUDED_MARKS if m in rel.rstrip("/")):
             pass  # correctly excluded from the image

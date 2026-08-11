@@ -77,3 +77,17 @@ class TestBacktestingService:
         metrics = svc.compute_metrics(curve)
         assert 0.0 < metrics.total_return < 0.1
         assert isinstance(metrics.sharpe_ratio, float)
+
+    def test_run_raises_timeout_when_duration_exceeded(self, monkeypatch) -> None:
+        ticks = iter([0.0, 301.0])
+        monkeypatch.setattr(
+            "traderos.domain.services.backtesting_service.time.monotonic", lambda: next(ticks)
+        )
+        svc = BacktestingService(execution=ExecutionService())
+        candles = self._candles(30)
+        try:
+            svc.run(AlwaysBuy(), candles, uuid.uuid4(), max_duration_seconds=300)
+        except TimeoutError as exc:
+            assert "exceeded" in str(exc)
+        else:
+            raise AssertionError("expected TimeoutError")

@@ -143,6 +143,59 @@ class TestLeaseSemantics:
         assert b_status["last_lease"]["action"] == "acquire"
 
 
+class TestLeaseEdgePaths:
+    def test_whitespace_only_lease_file_has_no_last_record(self, tmp_path) -> None:
+        path = tmp_path / "lease.jsonl"
+        path.write_text("\n\n")
+        store = LeaseStore(path)
+        assert store.last() is None
+
+    def test_owner_property(self, tmp_path) -> None:
+        clock = _FakeClock()
+        m = _manager(tmp_path / "lease.jsonl", clock, name="drill")
+        assert m.owner == "drill"
+
+    def test_acquire_while_already_leading_renews(self, tmp_path) -> None:
+        clock = _FakeClock()
+        m = _manager(tmp_path / "lease.jsonl", clock, "A")
+        assert m.try_acquire_leadership() is True
+        assert m.try_acquire_leadership() is True  # renew path, still leading
+        lines = LeaseStore(tmp_path / "lease.jsonl").path.read_text().splitlines()
+        assert len(lines) == 2  # acquire + renew
+        assert lines[-1].endswith('"renew"}')
+
+    def test_renew_without_leadership_is_noop(self, tmp_path) -> None:
+        clock = _FakeClock()
+        m = _manager(tmp_path / "lease.jsonl", clock, "A")
+        m.renew()
+        assert not m.leading
+        assert not (tmp_path / "lease.jsonl").exists()
+
+    def test_release_without_leadership_is_noop(self, tmp_path) -> None:
+        clock = _FakeClock()
+        m = _manager(tmp_path / "lease.jsonl", clock, "A")
+        m.release()
+        assert not m.leading
+        assert not (tmp_path / "lease.jsonl").exists()
+
+    def test_poll_takeover_when_leading_returns_true(self, tmp_path) -> None:
+        clock = _FakeClock()
+        a = _manager(tmp_path / "lease.jsonl", clock, "A")
+        a.try_acquire_leadership()
+        assert a.poll_takeover() is True
+
+    def test_poll_takeover_standby_waits_then_acquires(self, tmp_path) -> None:
+        clock = _FakeClock()
+        a = _manager(tmp_path / "lease.jsonl", clock, "A", stale=90.0)
+        b = _manager(tmp_path / "lease.jsonl", clock, "B", stale=90.0)
+        a.try_acquire_leadership()
+        assert b.poll_takeover() is False  # live lease held by A
+        b._notifications.send.assert_called()
+        clock.advance(120)  # A never renewed -> lease stale
+        assert b.poll_takeover() is True
+        assert b.leading
+
+
 class _CountBroker(BrokerAdapter):
     def __init__(self) -> None:
         self.buys = 0

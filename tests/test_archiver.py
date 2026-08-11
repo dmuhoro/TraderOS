@@ -62,6 +62,24 @@ class TestPurgeOldEntries:
         assert conn.execute("SELECT COUNT(*) AS n FROM audit_log").fetchone()["n"] == 2
         conn.close()
 
+    def test_rollback_failure_is_swallowed(self) -> None:
+        class _FailingCursor:
+            def __enter__(self):
+                raise RuntimeError("missing table")
+
+            def __exit__(self, *args):
+                return False
+
+        class _PgLikeConn:
+            def cursor(self):
+                return _FailingCursor()
+
+            def rollback(self):
+                raise RuntimeError("rollback failed too")
+
+        result = purge_old_entries(_PgLikeConn(), retention_days=90)
+        assert result == {}
+
 
 def _pg_reachable(timeout: int = 3) -> bool:
     try:

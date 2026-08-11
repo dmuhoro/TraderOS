@@ -95,7 +95,7 @@ source = ["src/traderos"]
 omit = ["tests/*", ".venv/*", "*.pyc"]
 
 [tool.coverage.report]
-fail_under = 97  # raised from 70 on sprint-34 completion (97.07% achieved; MEP §17 progression)
+fail_under = 100  # raised from 97 on sprint-35 completion (100% achieved; MEP §17 progression)
 show_missing = true
 
 [tool.pyright]

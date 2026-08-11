@@ -72,3 +72,15 @@ class TestLiquidityZoneService:
         assert len(zones) == 2
         assert zones[0].price_level == 100.0
         assert zones[1].price_level == 110.0
+
+    def test_duplicate_high_price_counts_once(self) -> None:
+        highs = [_ind(100, _ts(1)), _ind(100, _ts(2)), _ind(100.05, _ts(3))]
+        zones = LiquidityZoneService.map_zones_from_swings(highs, [], threshold=0.002)
+        assert len(zones) == 1
+        assert zones[0].strength == 3
+
+    def test_duplicate_low_price_counts_once(self) -> None:
+        lows = [_ind(90, _ts(1)), _ind(90, _ts(2)), _ind(90.05, _ts(3))]
+        zones = LiquidityZoneService.map_zones_from_swings([], lows, threshold=0.002)
+        assert len(zones) == 1
+        assert zones[0].strength == 3

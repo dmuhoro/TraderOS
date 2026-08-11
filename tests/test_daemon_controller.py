@@ -273,6 +273,53 @@ class TestDaemonControllerExt:
         supervision.mark_clean_shutdown.assert_called_once()
         failover.release.assert_called_once()
 
+    # ---- graceful drain / forced shutdown ----
+    def test_run_forever_stop_signal_drains_then_exits(self, monkeypatch) -> None:
+        from traderos.application import daemon_controller as dc_module
+
+        handlers: dict[int, object] = {}
+
+        def fake_signal(signum, handler):
+            handlers[signum] = handler
+
+        monkeypatch.setattr(dc_module.signal, "signal", fake_signal)
+        controller = self._controller()
+        thread = threading.Thread(target=lambda: controller.run_forever(interval_seconds=0.02))
+        thread.start()
+        while not handlers:
+            time.sleep(0.01)
+        handlers[signal.SIGTERM](signal.SIGTERM, None)
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        controller._notifications.warning.assert_called()
+        controller._notifications.critical.assert_not_called()
+
+    def test_run_forever_forces_shutdown_after_timeout(self, monkeypatch) -> None:
+        from traderos.application import daemon_controller as dc_module
+
+        clock = {"now": 100.0}
+        handlers: dict[int, object] = {}
+
+        def fake_signal(signum, handler):
+            handlers[signum] = handler
+
+        monkeypatch.setattr(dc_module.signal, "signal", fake_signal)
+        monkeypatch.setattr(dc_module.time, "monotonic", lambda: clock["now"])
+        controller = self._controller()
+        thread = threading.Thread(
+            target=lambda: controller.run_forever(interval_seconds=0.02, shutdown_timeout=30)
+        )
+        thread.start()
+        while not handlers:
+            time.sleep(0.01)
+        handlers[signal.SIGTERM](signal.SIGTERM, None)
+        clock["now"] = 10000.0
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        controller._notifications.critical.assert_called_once_with(
+            "Shutdown", "Forced shutdown after timeout"
+        )
+
     # ---- journal pending ----
     def test_journal_pending_none_without_broker(self) -> None:
         assert self._controller()._journal_pending() is None

@@ -73,3 +73,50 @@ def test_order_engine_is_idempotent_and_emits():
         engine.apply(
             trade, TradeStatus.PARTIALLY_FILLED, event_id="late", fill_quantity=1, fill_price=100
         )
+
+
+def test_order_engine_handles_cancel_reject_expire_and_sidecars():
+    from unittest.mock import MagicMock
+
+    def _trade():
+        t = Trade(uuid.uuid4(), uuid.uuid4(), TradeSide.BUY, 2, 100)
+        t.submit("broker-1")
+        return t
+
+    events = []
+    bus = InMemoryEventBus()
+    bus.subscribe("execution.order_status", events.append)
+    audit = MagicMock()
+    metrics = MagicMock()
+    portfolio_update = MagicMock()
+    engine = OrderEventEngine(bus, audit=audit, metrics=metrics, portfolio_update=portfolio_update)
+
+    cancelled = _trade()
+    assert engine.apply(cancelled, TradeStatus.CANCELLED, event_id="c-1")
+    assert cancelled.status == TradeStatus.CANCELLED
+
+    rejected = _trade()
+    assert engine.apply(rejected, TradeStatus.REJECTED, event_id="r-1")
+    assert rejected.status == TradeStatus.REJECTED
+
+    expired = _trade()
+    assert engine.apply(expired, TradeStatus.ACKNOWLEDGED, event_id="e-ack")
+    assert engine.apply(expired, TradeStatus.EXPIRED, event_id="e-1")
+    assert expired.status == TradeStatus.EXPIRED
+
+    assert len(events) == 4
+    assert portfolio_update.call_count == 4
+    assert audit.record.call_count == 4
+    assert metrics.counter.call_count == 4
+
+
+def test_order_engine_rejects_unsupported_lifecycle_status():
+    trade = Trade(uuid.uuid4(), uuid.uuid4(), TradeSide.BUY, 2, 100)
+    engine = OrderEventEngine(InMemoryEventBus())
+    with pytest.raises(ValueError, match="unsupported lifecycle transition"):
+        engine.apply(trade, TradeStatus.SUBMITTED, event_id="x-1")
+
+
+def test_order_engine_replay_without_journal_is_noop():
+    engine = OrderEventEngine(InMemoryEventBus())
+    assert engine.replay() == 0

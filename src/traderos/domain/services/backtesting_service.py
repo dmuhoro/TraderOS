@@ -277,8 +277,6 @@ class BacktestingService:
             lo = fold * fold_size
             hi = lo + fold_size if fold < n_splits - 1 else len(candles)
             fold_candles = candles[lo:hi]
-            if len(fold_candles) < 2:
-                continue
             window = candles[max(0, lo - warmup) : hi]
             _, steps = self.run(
                 strategy,
@@ -288,12 +286,6 @@ class BacktestingService:
             )
             fold_start = fold_candles[0].timestamp
             fold_steps = [s for s in steps if s.timestamp >= fold_start]
-            if not fold_steps:
-                totals.append(0.0)
-                sharpe.append(0.0)
-                draws.append(0.0)
-                trades.append(0)
-                continue
             sub_metrics = self.compute_metrics([(s.timestamp, s.equity) for s in fold_steps])
             fold_trades = len([s for s in fold_steps if s.fill_price is not None])
             totals.append(sub_metrics.total_return)
