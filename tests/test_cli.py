@@ -4,6 +4,7 @@ import argparse
 import json
 import uuid
 from io import StringIO
+from unittest.mock import MagicMock
 from unittest.mock import patch
 
 from traderos.interfaces.cli import main as cli_main
@@ -15,6 +16,18 @@ def _run(cmd_func, **kwargs) -> str:
     with patch("sys.stdout", out):
         cmd_func(ns)
     return out.getvalue()
+
+
+def _run_exit(cmd_func, **kwargs) -> tuple[str, int | None]:
+    ns = argparse.Namespace(**kwargs)
+    out = StringIO()
+    code = None
+    with patch("sys.stdout", out):
+        try:
+            cmd_func(ns)
+        except SystemExit as exc:
+            code = exc.code
+    return out.getvalue(), code
 
 
 def _run_main(args: list[str]) -> str:
@@ -251,7 +264,6 @@ class TestCliStatus:
 
 class TestCliRun:
     def test_run_starts_engine(self):
-        from unittest.mock import MagicMock
 
         orch = MagicMock()
         cfg = MagicMock()
@@ -396,7 +408,6 @@ class TestCliEdgeCases:
         assert "No audit entries" in output
 
     def test_signal_no_markets(self):
-        from unittest.mock import MagicMock
 
         orch = MagicMock()
         orch.market_ids = []

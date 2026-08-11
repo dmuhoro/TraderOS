@@ -101,6 +101,43 @@ def test_get_candles_builds_market_id_and_normalizes():
     assert isinstance(candles[0].timestamp, datetime)
 
 
+def test_repo_load_filters_start_end_and_limit():
+    conn = _make_conn()
+    repo = SQLiteHistoricalCandleRepository(conn)
+    ts0 = int(datetime(2026, 8, 1, tzinfo=UTC).timestamp())
+    rows = [
+        {"ts": ts0 + i * 3600, "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 10}
+        for i in range(5)
+    ]
+    repo.upsert("binance", "BTCUSDT", "1h", rows)
+    assert len(repo.load("binance", "BTCUSDT", "1h", start_ts=ts0 + 7200, end_ts=ts0 + 14400)) == 3
+    assert len(repo.load("binance", "BTCUSDT", "1h", start_ts=ts0 + 7200)) == 3
+    limited = repo.load("binance", "BTCUSDT", "1h", limit=2)
+    assert len(limited) == 2
+    assert limited[0]["ts"] == ts0
+
+
+def test_repo_count_filters_start_end():
+    conn = _make_conn()
+    repo = SQLiteHistoricalCandleRepository(conn)
+    ts0 = int(datetime(2026, 8, 1, tzinfo=UTC).timestamp())
+    rows = [
+        {"ts": ts0 + i * 3600, "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 10}
+        for i in range(5)
+    ]
+    repo.upsert("binance", "BTCUSDT", "1h", rows)
+    assert repo.count("binance", "BTCUSDT", "1h", start_ts=ts0 + 7200) == 3
+    assert repo.count("binance", "BTCUSDT", "1h", end_ts=ts0 + 7200) == 3
+    assert repo.count("binance", "BTCUSDT", "1h", start_ts=ts0, end_ts=ts0 + 14400) == 5
+
+
+def test_repo_row_accepts_dict_rows():
+    conn = _make_conn()
+    repo = SQLiteHistoricalCandleRepository(conn)
+    row = {"source": "binance", "symbol": "BTCUSDT", "timeframe": "1h", "ts": 1}
+    assert repo._row(row) is row
+
+
 def test_service_rejects_unknown_source():
     service = HistoricalDataService(collectors={})
     try:

@@ -3,9 +3,14 @@ from __future__ import annotations
 import uuid
 from datetime import UTC
 from datetime import datetime
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
+from traderos.domain.entities.position import Position
+from traderos.domain.entities.signal import Signal
+from traderos.domain.entities.signal import SignalDirection
 from traderos.domain.services.paper_trading_service import DeviationAnalysisService
 from traderos.domain.services.paper_trading_service import PaperBrokerAdapter
 from traderos.domain.services.paper_trading_service import PaperSession
@@ -291,3 +296,238 @@ class TestDeviationAnalysisService:
         svc = DeviationAnalysisService()
         result = svc.compare_metrics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         assert result["status"] == "aligned"
+
+    def test_compare_metrics_reports_max_dd_and_win_rate_warnings(self) -> None:
+        svc = DeviationAnalysisService()
+        result = svc.compare_metrics(0.5, 0.5, 0.1, 0.8, 0.6, 0.0)
+        assert result["status"] == "divergent"
+        assert "Max drawdown deviates by 0.70" in result["warnings"]
+        assert "Win rate deviates by -0.60" in result["warnings"]
+
+
+class TestPaperBrokerAdapterFills:
+    def test_add_to_long_updates_average_price(self) -> None:
+        broker = PaperBrokerAdapter(fill_probability=1.0, slippage_bps=0.0)
+        mid = uuid.uuid4()
+        broker.place_market_order(mid, "buy", 10.0, close_price=100.0)
+        broker.place_market_order(mid, "buy", 5.0, close_price=100.0)
+        position = broker.get_positions()[0]
+        assert position["qty"] == 15.0
+        assert position["entry_price"] == 100.0
+
+    def test_place_limit_order_fills_when_price_crossed(self) -> None:
+        broker = PaperBrokerAdapter(fill_probability=1.0, slippage_bps=0.0)
+        mid = uuid.uuid4()
+        result = broker.place_limit_order(mid, "buy", 10.0, 110.0, close_price=105.0)
+        assert result.filled
+        assert result.status == "filled"
+        assert broker.get_positions()[0]["qty"] == 10.0
+
+    def test_place_sell_limit_order_fills_when_price_crossed(self) -> None:
+        broker = PaperBrokerAdapter(fill_probability=1.0, slippage_bps=0.0)
+        mid = uuid.uuid4()
+        result = broker.place_limit_order(mid, "sell", 10.0, 90.0, close_price=95.0)
+        assert result.filled
+        assert result.status == "filled"
+
+    def test_trailing_stop_triggers_at_zero_trail(self) -> None:
+        broker = PaperBrokerAdapter(fill_probability=1.0, slippage_bps=0.0)
+        mid = uuid.uuid4()
+        result = broker.place_trailing_stop_order(mid, "buy", 10.0, 0.0, market_price=100.0)
+        assert result.filled
+        assert result.status == "filled"
+
+    def test_sell_into_long_reduces_position(self) -> None:
+        broker = PaperBrokerAdapter(fill_probability=1.0, slippage_bps=0.0)
+        mid = uuid.uuid4()
+        broker.place_market_order(mid, "buy", 10.0, close_price=100.0)
+        broker.place_market_order(mid, "sell", 5.0, close_price=100.0)
+        position = broker.get_positions()[0]
+        assert position["qty"] == 5.0
+
+
+class TestPaperSessionFlow:
+    def _svc(
+        self,
+        broker=None,
+        signal_service=None,
+        risk_service=None,
+        portfolio_service=None,
+        execution=None,
+    ):
+        return PaperTradingService(
+            broker=broker if broker is not None else PaperBrokerAdapter(),
+            signal_service=signal_service,  # type: ignore
+            risk_service=risk_service,  # type: ignore
+            portfolio_service=portfolio_service,  # type: ignore
+            execution=execution,  # type: ignore
+        )
+
+    def test_stop_session_realizes_position_pnl(self) -> None:
+        portfolio = MagicMock()
+        portfolio.compute_pnl.return_value = 100.0
+        svc = self._svc(portfolio_service=portfolio)
+        session = svc.create_session(uuid.uuid4(), [uuid.uuid4()])
+        svc.start_session(session.id)
+        pos = Position(
+            market_id=uuid.uuid4(),
+            quantity=10.0,
+            entry_price=100.0,
+            current_price=110.0,
+            pnl=100.0,
+        )
+        session.positions[pos.market_id] = pos
+        stopped = svc.stop_session(session.id)
+        assert stopped.status == PaperSessionStatus.STOPPED
+        assert stopped.current_capital == 10000.0 + 100.0
+        portfolio.compute_pnl.assert_called_once_with(pos, pos.current_price)
+
+    def test_unknown_session_raises(self) -> None:
+        svc = self._svc()
+        with pytest.raises(ValueError):
+            svc.start_session(uuid.uuid4())
+        with pytest.raises(ValueError):
+            svc.pause_session(uuid.uuid4())
+        with pytest.raises(ValueError):
+            svc.stop_session(uuid.uuid4())
+        with pytest.raises(ValueError):
+            svc.process_candle(uuid.uuid4(), uuid.uuid4(), 100.0, datetime.now(UTC))
+
+    def _signal(self, strategy_id, market_id):
+        return Signal(
+            market_id=market_id,
+            strategy_id=strategy_id,
+            direction=SignalDirection.LONG,
+            confidence=0.8,
+            generated_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC),
+            id=uuid.uuid4(),
+        )
+
+    def _running_session(self, svc, strategy_id, market_id):
+        session = svc.create_session(strategy_id, [market_id])
+        svc.start_session(session.id)
+        return session
+
+    def test_process_candle_executes_filled_signal(self) -> None:
+        strategy_id = uuid.uuid4()
+        mid = uuid.uuid4()
+        signal = self._signal(strategy_id, mid)
+        signal_service = MagicMock()
+        signal_service.get_active_signals.return_value = [signal]
+        risk = MagicMock()
+        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1)
+        portfolio = MagicMock()
+        portfolio.size_position.return_value = 50.0
+        portfolio.compute_pnl.return_value = 0.0
+        execution = MagicMock()
+        execution.create_market_order.return_value = SimpleNamespace(id="order-1")
+        broker = PaperBrokerAdapter(fill_probability=1.0, slippage_bps=0.0)
+        svc = self._svc(broker, signal_service, risk, portfolio, execution)
+        session = self._running_session(svc, strategy_id, mid)
+
+        result = svc.process_candle(session.id, mid, 100.0, datetime.now(UTC))
+
+        assert len(result.trades) == 1
+        assert len(result.positions) == 1
+        assert len(result.filled_orders) == 1
+        assert len(result.equity_curve) == 1
+        assert result.positions[mid].quantity == 50.0
+        assert broker.get_positions()[0]["qty"] == 50.0
+
+    def test_process_candle_partial_fill_tracks_open_order(self) -> None:
+        strategy_id = uuid.uuid4()
+        mid = uuid.uuid4()
+        signal = self._signal(strategy_id, mid)
+        signal_service = MagicMock()
+        signal_service.get_active_signals.return_value = [signal]
+        risk = MagicMock()
+        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1)
+        portfolio = MagicMock()
+        portfolio.size_position.return_value = 50.0
+        portfolio.compute_pnl.return_value = 0.0
+        execution = MagicMock()
+        execution.create_market_order.return_value = SimpleNamespace(id="order-1")
+        broker = PaperBrokerAdapter(fill_probability=1.0, partial_fill_probability=1.0)
+        svc = self._svc(broker, signal_service, risk, portfolio, execution)
+        session = self._running_session(svc, strategy_id, mid)
+
+        result = svc.process_candle(session.id, mid, 100.0, datetime.now(UTC))
+
+        assert len(result.open_orders) == 1
+        assert result.filled_orders == []
+
+    def test_process_candle_ignores_other_strategy(self) -> None:
+        strategy_id = uuid.uuid4()
+        mid = uuid.uuid4()
+        signal = self._signal(uuid.uuid4(), mid)
+        signal_service = MagicMock()
+        signal_service.get_active_signals.return_value = [signal]
+        svc = self._svc(
+            signal_service=signal_service,
+            risk_service=MagicMock(),
+            portfolio_service=MagicMock(),
+            execution=MagicMock(),
+        )
+        session = self._running_session(svc, strategy_id, mid)
+        result = svc.process_candle(session.id, mid, 100.0, datetime.now(UTC))
+        assert result.trades == []
+
+    def test_process_candle_skips_zero_kelly(self) -> None:
+        strategy_id = uuid.uuid4()
+        mid = uuid.uuid4()
+        signal = self._signal(strategy_id, mid)
+        signal_service = MagicMock()
+        signal_service.get_active_signals.return_value = [signal]
+        risk = MagicMock()
+        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.0)
+        svc = self._svc(
+            signal_service=signal_service,
+            risk_service=risk,
+            portfolio_service=MagicMock(),
+            execution=MagicMock(),
+        )
+        session = self._running_session(svc, strategy_id, mid)
+        result = svc.process_candle(session.id, mid, 100.0, datetime.now(UTC))
+        assert result.trades == []
+
+    def test_process_candle_skips_zero_size(self) -> None:
+        strategy_id = uuid.uuid4()
+        mid = uuid.uuid4()
+        signal = self._signal(strategy_id, mid)
+        signal_service = MagicMock()
+        signal_service.get_active_signals.return_value = [signal]
+        risk = MagicMock()
+        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1)
+        portfolio = MagicMock()
+        portfolio.size_position.return_value = 0.0
+        portfolio.compute_pnl.return_value = 0.0
+        svc = self._svc(
+            signal_service=signal_service,
+            risk_service=risk,
+            portfolio_service=portfolio,
+            execution=MagicMock(),
+        )
+        session = self._running_session(svc, strategy_id, mid)
+        result = svc.process_candle(session.id, mid, 100.0, datetime.now(UTC))
+        assert result.trades == []
+
+    def test_process_candle_skips_unfilled_order(self) -> None:
+        strategy_id = uuid.uuid4()
+        mid = uuid.uuid4()
+        signal = self._signal(strategy_id, mid)
+        signal_service = MagicMock()
+        signal_service.get_active_signals.return_value = [signal]
+        risk = MagicMock()
+        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1)
+        portfolio = MagicMock()
+        portfolio.size_position.return_value = 50.0
+        portfolio.compute_pnl.return_value = 0.0
+        execution = MagicMock()
+        execution.create_market_order.return_value = SimpleNamespace(id="order-1")
+        broker = PaperBrokerAdapter(fill_probability=0.0)
+        svc = self._svc(broker, signal_service, risk, portfolio, execution)
+        session = self._running_session(svc, strategy_id, mid)
+        result = svc.process_candle(session.id, mid, 100.0, datetime.now(UTC))
+        assert result.trades == []
+        assert len(result.equity_curve) == 1

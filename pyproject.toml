@@ -72,6 +72,7 @@ ignore = ["I001"]
 "src/traderos/interfaces/cli/main.py" = ["BLE001", "PLR1722"]
 "tests/test_sprint9_infrastructure.py" = ["E501", "E702", "FURB157"]
 "tests/performance/test_sprint9_benchmarks.py" = ["E501"]
+"tests/test_probe_scheduler.py" = ["N802"]  # BaseHTTPRequestHandler requires do_POST
 "scripts/evidence/run_oncall_drill.py" = ["N802"]
 "scripts/evidence/run_operational_health_drill.py" = ["N802"]
 "scripts/evidence/run_trigger_alerting_drill.py" = ["N802"]
@@ -87,14 +88,14 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --cov=."
+addopts = "-v --tb=short --cov=traderos"
 
 [tool.coverage.run]
 source = ["src/traderos"]
 omit = ["tests/*", ".venv/*", "*.pyc"]
 
 [tool.coverage.report]
-fail_under = 70  # MEP §17 interim gate; path to 90%
+fail_under = 97  # raised from 70 on sprint-34 completion (97.07% achieved; MEP §17 progression)
 show_missing = true
 
 [tool.pyright]

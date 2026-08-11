@@ -327,3 +327,68 @@ class TestInMemoryKnowledgeEdgeRepository(RepositoryContractTests[KnowledgeEdge]
 
     def make_entity(self):
         return _knowledge_edge()
+
+
+class TestInMemoryObservationFunctional:
+    def test_get_by_symbol(self) -> None:
+        repo = InMemoryObservationRepository()
+        a = _observation()
+        b = _observation()
+        repo.add(a)
+        repo.add(b)
+        assert [o.id for o in repo.get_by_symbol(a.symbol)] == [a.id, b.id]
+        assert repo.get_by_symbol("NOSUCH") == []
+
+
+class TestInMemoryHypothesisFunctional:
+    def test_get_by_observation(self) -> None:
+        repo = InMemoryHypothesisRepository()
+        a = _hypothesis()
+        b = _hypothesis()
+        repo.add(a)
+        repo.add(b)
+        assert [h.id for h in repo.get_by_observation(a.observation_id)] == [a.id]
+        assert repo.get_by_observation(uuid.uuid4()) == []
+
+
+class TestInMemoryExperimentFunctional:
+    def test_get_by_hypothesis(self) -> None:
+        repo = InMemoryExperimentRepository()
+        a = _experiment()
+        b = _experiment()
+        repo.add(a)
+        repo.add(b)
+        assert [e.id for e in repo.get_by_hypothesis(a.hypothesis_id)] == [a.id]
+        assert repo.get_by_hypothesis(uuid.uuid4()) == []
+
+
+class TestInMemoryExperimentResultFunctional:
+    def test_get_by_experiment(self) -> None:
+        repo = InMemoryExperimentResultRepository()
+        a = _experiment_result()
+        b = _experiment_result()
+        repo.add(a)
+        repo.add(b)
+        assert [r.id for r in repo.get_by_experiment(a.experiment_id)] == [a.id]
+        assert repo.get_by_experiment(uuid.uuid4()) == []
+
+
+class TestInMemoryLessonFunctional:
+    def test_get_by_result(self) -> None:
+        repo = InMemoryLessonRepository()
+        a = _lesson()
+        b = _lesson()
+        repo.add(a)
+        repo.add(b)
+        assert [lesson.id for lesson in repo.get_by_result(a.result_id)] == [a.id]
+        assert repo.get_by_result(uuid.uuid4()) == []
+
+    def test_get_by_tags(self) -> None:
+        repo = InMemoryLessonRepository()
+        a = Lesson(result_id=uuid.uuid4(), content="one", tags=["alpha", "beta"])
+        b = Lesson(result_id=uuid.uuid4(), content="two", tags=["gamma"])
+        repo.add(a)
+        repo.add(b)
+        assert [lesson.id for lesson in repo.get_by_tags(["alpha"])] == [a.id]
+        assert [lesson.id for lesson in repo.get_by_tags(["beta", "gamma"])] == [a.id, b.id]
+        assert repo.get_by_tags(["omega"]) == []
