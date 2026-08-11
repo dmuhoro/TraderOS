@@ -208,6 +208,15 @@ class TestStochastics:
         assert stoch.k[0].value == 50.0
         assert stoch.k[1].value == 50.0
 
+    def test_stoch_high_equals_low_uses_midpoint(self) -> None:
+        candles = [
+            _candle_ohlcv(50, 50, 50, 50, idx=0),
+            _candle_ohlcv(50, 50, 50, 50, idx=1),
+            _candle_ohlcv(50, 50, 50, 50, idx=2),
+        ]
+        stoch = AnalysisService.compute_stochastics(candles, 3, 2)
+        assert stoch.k[0].value == 50.0
+
 
 class TestIndicatorMetadata:
     def test_indicator_has_market_id_and_timestamp(self) -> None:

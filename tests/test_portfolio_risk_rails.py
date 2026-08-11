@@ -311,3 +311,74 @@ class TestPortfolioRiskRails:
         )
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "VERDICT: PASS" in proc.stdout
+
+
+class TestFlattenServiceEdgePaths:
+    def _svc(self, broker, positions, market_prices=None):
+        portfolio = Mock()
+        summary = Mock()
+        summary.open_positions = positions
+        portfolio.get_summary.return_value = summary
+        return FlattenService(
+            broker=broker,
+            portfolio_service=portfolio,
+            notifications=Mock(),
+            audit=Mock(),
+            metrics=Mock(),
+            market_prices=market_prices,
+        )
+
+    def _pos(self, quantity: float):
+        return Position(
+            market_id=uuid.uuid4(),
+            quantity=quantity,
+            entry_price=100.0,
+            current_price=100.0,
+            pnl=0.0,
+        )
+
+    def test_already_flattened_returns_cached_result(self) -> None:
+        broker = _SpyBroker()
+        svc = self._svc(broker, [self._pos(2.0)])
+        first = svc.flatten("reason-one")
+        second = svc.flatten("reason-two")
+        assert first is second
+        assert len(broker.place_market_order_calls) == 1
+        assert second.reason == "reason-one"
+
+    def test_skips_zero_quantity_and_uses_market_prices(self) -> None:
+        broker = _SpyBroker()
+        long_pos = self._pos(5.0)
+        short_pos = self._pos(-3.0)
+        svc = self._svc(
+            broker, [self._pos(0.0), long_pos, short_pos], market_prices=lambda mid: 123.45
+        )
+        result = svc.flatten()
+        assert result.close_orders == 2
+        assert len(broker.place_market_order_calls) == 2
+        sides = {market_id: side for market_id, side, _q, _p in broker.place_market_order_calls}
+        assert sides[long_pos.market_id] == "sell"
+        assert sides[short_pos.market_id] == "buy"
+        assert all(price == 123.45 for _m, _s, _q, price in broker.place_market_order_calls)
+
+    def test_broker_exception_records_failure_and_continues(self) -> None:
+        broker = Mock()
+        broker.place_market_order.side_effect = [
+            RuntimeError("exchange down"),
+            FillResult(True, 2.0, 100.0, 0.0, "filled", "o1"),
+        ]
+        svc = self._svc(broker, [self._pos(2.0), self._pos(2.0)])
+        result = svc.flatten()
+        assert result.failed_orders == 1
+        assert result.close_orders == 1
+        assert "exchange down" in result.errors[0]
+        assert len(result.errors) == 1
+
+    def test_unfilled_close_records_failure(self) -> None:
+        broker = Mock()
+        broker.place_market_order.return_value = FillResult(False, 0.0, 0.0, 2.0, "rejected", "")
+        svc = self._svc(broker, [self._pos(2.0)])
+        result = svc.flatten()
+        assert result.close_orders == 0
+        assert result.failed_orders == 1
+        assert "not filled" in result.errors[0]

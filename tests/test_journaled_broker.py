@@ -123,3 +123,19 @@ def test_readonly_and_cancel_pass_through():
     res = jb.cancel_order("o1")
     assert res.status == "cancelled"
     conn.close()
+
+
+def test_pending_empty_without_journal():
+    _, broker, _ = _make()
+    jb = JournaledBroker(broker, None)
+    assert jb.pending() == []
+
+
+def test_limit_stop_trailing_and_modify_submit_through_journal():
+    conn, broker, jb = _make()
+    mid = uuid4()
+    assert jb.place_limit_order(mid, "buy", 2.0, 99.0).order_id == "ext-1"
+    assert jb.place_stop_order(mid, "buy", 2.0, 95.0).order_id == "ext-1"
+    assert jb.place_trailing_stop_order(mid, "buy", 2.0, 0.01).order_id == "ext-1"
+    assert jb.modify_order("ord-1", qty=3.0).order_id == "ext-1"
+    conn.close()

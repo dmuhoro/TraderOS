@@ -1,5 +1,48 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 35 (Test coverage 97.07% → 100%, gate raised to 100%)
+
+### Layer 4 bucket 3 — server / cli / config / logging / SSE to 100% (2026-08-11)
+- `interfaces/api/sse_tokens.py` (76), `infrastructure/config/config_loader.py`
+  (108), `infrastructure/logging/__init__.py` (59) closed with functional edge
+  tests in `tests/test_sse_token.py`, `tests/test_coverage_gaps.py`,
+  `tests/test_infrastructure.py`.
+- `interfaces/api/server.py` (280) — new `tests/test_server_edges.py`:
+  single-mode reset, CORS wildcard, rate-limit 429, metrics/login 501, paper
+  session edge branches, health 503 timeout (100% needs the broad API set).
+- `interfaces/cli/main.py` (538) — removed 3 unreachable `return`s after
+  `sys.exit`; module `__main__` guard covered via `runpy.run_path`.
+
+### Domain / infrastructure offenders to 100%
+- `application/order_event_engine.py` (93) + `domain/entities/trade.py` (79):
+  CANCELLED/REJECTED/EXPIRED lifecycle + sidecars, invalid-transition
+  ValueError, no-journal replay no-op.
+- `application/account_service.py` (113): foreign scheme denied, empty creds,
+  DISABLED user fails closed, empty/expired session + API-key branches.
+- `domain/services/research_engine.py` (52) — new
+  `tests/test_research_engine_edges.py`; `domain/services/risk_config.py`
+  (116): non-numeric/non-integer/non-list rails rejected.
+- Remaining defensive branches: `__main__`, `archiver` rollback swallow,
+  `events` handler-exception, `liquidity_zone` duplicates, `auth`
+  `role_grants`/`configured_roles`, `observability` broken-link + timing,
+  `observability_postgres` broken-link/timing-stop, plus 11 single-line
+  stragglers (analysis/breakout/correlation/market_hours/portfolio/replay/
+  session_report/alpaca/audit/yfinance/attribution).
+
+### Defect fix — daemon forced shutdown was dead code
+- `application/daemon_controller.py` `handle_stop` set `_running=False` before
+  the deadline could fire, so the "Forced shutdown after timeout" branch was
+  unreachable. Rewritten as a real graceful drain: signal stops scheduling new
+  cycles, in-flight iteration finishes, deadline force-breaks. Two tests.
+
+### Coverage gate
+- `pyproject.toml`: `fail_under = 100` (was 97). Full suite **2139 passed /
+  7 skipped, 100.00% (0 missing of 12,139 statements)**, Postgres-backed and
+  broker modules included.
+- Account qualification (Layer 6): Alpaca paper + Binance testnet keys
+  provisioned in-process only (never committed); MT5 deferred. **NO-GO for real
+  capital stands.**
+
 ## [Unreleased] - Sprint 34 (Test coverage 95.16% → 97.07%, gate raised to 97%)
 
 ### Batch A — flagged infrastructure + domain offenders to 100% (2026-08-11)

@@ -68,6 +68,17 @@ class TestEventTokenObject:
         assert sse_tokens.peek("bogus") is False
         assert sse_tokens.peek(token, now=expires_at + 1) is False
 
+    def test_peek_rejects_wrong_parts_and_scope(self) -> None:
+        assert sse_tokens.peek("events:n:exp") is False  # 3 parts
+        assert sse_tokens.peek("bogus:n:999:deadbeef") is False  # wrong scope
+        assert sse_tokens.peek("events::999:deadbeef") is False  # empty nonce
+
+    def test_peek_rejects_non_integer_expiry(self) -> None:
+        assert sse_tokens.peek("events:n:abc:deadbeef") is False
+
+    def test_validate_rejects_non_integer_expiry(self) -> None:
+        assert sse_tokens.validate("events:n:abc:deadbeef") is False
+
 
 class TestEventTokenEndpoint:
     def test_mint_requires_api_key(self, auth_client: TestClient) -> None:

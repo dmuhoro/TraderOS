@@ -61,6 +61,60 @@ class TestResearchService:
         with pytest.raises(ValueError, match="TESTING"):
             svc.start_experiment(hyp.id, {})
 
+    def test_start_experiment_unknown_hypothesis_raises(self) -> None:
+        svc = _make_service()
+        import pytest
+
+        with pytest.raises(ValueError, match="not found"):
+            svc.start_experiment(uuid.uuid4(), {})
+
+    def test_conclude_unknown_hypothesis_raises(self) -> None:
+        svc = _make_service()
+        import pytest
+
+        with pytest.raises(ValueError, match="not found"):
+            svc.conclude_hypothesis(uuid.uuid4(), HypothesisStatus.CONFIRMED)
+
+    def test_get_by_symbol(self) -> None:
+        svc = _make_service()
+        obs = svc.create_observation("BTC/USDT", "Pattern", ["daily"])
+        fetched = svc.get_observations_by_symbol("BTC/USDT")
+        assert [o.id for o in fetched] == [obs.id]
+
+    def test_get_hypotheses_for_observation(self) -> None:
+        svc = _make_service()
+        obs = svc.create_observation("BTC/USDT", "Pattern")
+        hyp = svc.create_hypothesis(obs.id, "Hyp")
+        fetched = svc.get_hypotheses_for_observation(obs.id)
+        assert [h.id for h in fetched] == [hyp.id]
+
+    def test_get_experiments_for_hypothesis(self) -> None:
+        svc = _make_service()
+        obs = svc.create_observation("BTC/USDT", "Pattern")
+        hyp = svc.create_hypothesis(obs.id, "Hyp")
+        exp = svc.start_experiment(hyp.id, {"window": 14})
+        fetched = svc.get_experiments_for_hypothesis(hyp.id)
+        assert [e.id for e in fetched] == [exp.id]
+
+    def test_get_results_for_experiment(self) -> None:
+        svc = _make_service()
+        obs = svc.create_observation("BTC/USDT", "Pattern")
+        hyp = svc.create_hypothesis(obs.id, "Hyp")
+        exp = svc.start_experiment(hyp.id, {})
+        res = svc.record_result(exp.id, {"sharpe": 1.5})
+        fetched = svc.get_results_for_experiment(exp.id)
+        assert [r.id for r in fetched] == [res.id]
+
+    def test_get_lessons_for_result(self) -> None:
+        svc = _make_service()
+        obs = svc.create_observation("BTC/USDT", "Pattern")
+        hyp = svc.create_hypothesis(obs.id, "Hyp")
+        exp = svc.start_experiment(hyp.id, {})
+        res = svc.record_result(exp.id, {"sharpe": 1.5})
+        lesson = svc.extract_lesson(res.id, "Works", ["confirmed"])
+        fetched = svc.get_lessons_for_result(res.id)
+        assert [lesson.id for lesson in fetched] == [lesson.id]
+
     def test_conclude_hypothesis(self) -> None:
         svc = _make_service()
         obs = svc.create_observation("BTC/USDT", "Pattern")

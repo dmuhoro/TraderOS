@@ -4,11 +4,13 @@ import sqlite3
 
 import pytest
 
+from traderos.infrastructure.audit import compute_audit_hash
 from traderos.infrastructure.observability import SQLiteAuditService
 from traderos.infrastructure.observability import SQLiteHealthService
 from traderos.infrastructure.observability import SQLiteManifestService
 from traderos.infrastructure.observability import SQLiteMetricsService
 from traderos.infrastructure.observability import TimingContext
+from traderos.infrastructure.observability_postgres import TimingContext as PostgresTimingContext
 
 
 @pytest.fixture
@@ -144,6 +146,27 @@ class TestSQLiteAuditService:
         conn.commit()
         assert svc.verify_chain() is False
 
+    def test_verify_chain_detects_broken_link_with_valid_hash(self, conn) -> None:
+        svc = SQLiteAuditService(conn)
+        svc.record("a1", "tester", "r")
+        svc.record("a2", "tester", "r")
+        row = conn.execute("SELECT * FROM audit_log WHERE rowid = 2").fetchone()
+        rehashed = compute_audit_hash(
+            entry_id=row["id"],
+            action=row["action"],
+            actor=row["actor"],
+            resource=row["resource"],
+            detail=row["detail"],
+            timestamp_iso=row["timestamp"],
+            previous_hash="tampered",
+        )
+        conn.execute(
+            "UPDATE audit_log SET previous_hash = 'tampered', hash = ? WHERE rowid = 2",
+            (rehashed,),
+        )
+        conn.commit()
+        assert svc.verify_chain() is False
+
 
 class TestSQLiteMetricsService:
     def test_counter_increments(self, conn) -> None:
@@ -172,6 +195,12 @@ class TestSQLiteMetricsService:
         svc = SQLiteMetricsService(conn)
         assert svc.get_gauge("nonexistent") is None
 
+    def test_timing_returns_context(self, conn) -> None:
+        svc = SQLiteMetricsService(conn)
+        with svc.timing("api.latency") as tc:
+            assert tc.name == "api.latency"
+        assert svc.get_gauge("api.latency") is not None
+
     def test_query_returns_samples(self, conn) -> None:
         svc = SQLiteMetricsService(conn)
         svc.counter("test_metric", 10)
@@ -195,6 +224,12 @@ class TestTimingContext:
         with TimingContext(metrics, "api.latency") as tc:
             assert tc.start is not None
         assert metrics.get_gauge("api.latency") is not None
+
+    def test_postgres_timing_stop_without_start_returns_zero(self) -> None:
+        from unittest.mock import MagicMock
+
+        tc = PostgresTimingContext(MagicMock(), "api.latency")
+        assert tc.stop() == 0.0
 
     def test_timing_stop_returns_elapsed(self, conn) -> None:
         metrics = SQLiteMetricsService(conn)

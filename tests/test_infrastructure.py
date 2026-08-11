@@ -1,4 +1,7 @@
 import json
+import logging
+import sys
+from logging.handlers import RotatingFileHandler
 
 import pytest
 
@@ -17,7 +20,9 @@ from traderos.domain.exceptions import ValidationError
 from traderos.infrastructure.config.config_loader import Config
 from traderos.infrastructure.events import Event
 from traderos.infrastructure.events import InMemoryEventBus
+from traderos.infrastructure.logging import JsonFormatter
 from traderos.infrastructure.logging import StructuredLogger
+from traderos.infrastructure.logging import setup_json_logging
 
 
 class TestConfigV2:
@@ -116,6 +121,58 @@ class TestStructuredLogger:
         assert captured.out == ""
 
 
+class TestLoggingInfrastructure:
+    def test_setup_json_logging_with_file(self, tmp_path, monkeypatch) -> None:
+        log_file = tmp_path / "app.json.log"
+        monkeypatch.setenv("LOG_FILE", str(log_file))
+        original = logging.getLogger().handlers[:]
+        try:
+            setup_json_logging()
+            root = logging.getLogger()
+            assert any(isinstance(h, RotatingFileHandler) for h in root.handlers)
+            logging.getLogger().info("hello")
+            assert log_file.exists()
+        finally:
+            logging.getLogger().handlers[:] = original
+
+    def test_setup_json_logging_without_file(self, monkeypatch, capsys) -> None:
+        monkeypatch.delenv("LOG_FILE", raising=False)
+        original = logging.getLogger().handlers[:]
+        try:
+            setup_json_logging()
+            logging.getLogger().info("hello")
+            record = json.loads(capsys.readouterr().out)
+            assert record["message"] == "hello"
+        finally:
+            logging.getLogger().handlers[:] = original
+
+    def test_json_formatter_exception_and_extra(self, capsys) -> None:
+        logger = logging.getLogger("json_test")
+        logger.setLevel(logging.DEBUG)
+        logger.handlers.clear()
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(JsonFormatter())
+        logger.addHandler(handler)
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            logger.exception("failed", extra={"extra": {"user_id": 42}})
+        record = json.loads(capsys.readouterr().out)
+        assert record["message"] == "failed"
+        assert "ValueError" in record["exception"]
+        assert record["data"]["user_id"] == "42"
+
+    def test_structured_logger_file_handler_warning_critical(self, tmp_path) -> None:
+        log_file = tmp_path / "structured.log"
+        logger = StructuredLogger("file_test", log_file=str(log_file))
+        logger.warning("warn_event", key="value")
+        logger.critical("crit_event")
+        content = log_file.read_text()
+        assert '"warn_event"' in content
+        assert '"data": {"key": "value"}' in content
+        assert '"crit_event"' in content
+
+
 class TestEventBus:
     def test_publish_and_subscribe(self) -> None:
         bus = InMemoryEventBus()
@@ -156,6 +213,23 @@ class TestEventBus:
         bus.subscribe("test.event", handler2)
         bus.publish(Event(event_type="test.event", payload={}))
         assert len(results) == 2
+
+    def test_handler_exception_logged_and_bus_continues(self, caplog) -> None:
+        bus = InMemoryEventBus()
+        received: list[Event] = []
+
+        def bad_handler(event: Event) -> None:
+            raise RuntimeError("boom")
+
+        def good_handler(event: Event) -> None:
+            received.append(event)
+
+        bus.subscribe("test.event", bad_handler)
+        bus.subscribe("test.event", good_handler)
+        with caplog.at_level(logging.ERROR):
+            bus.publish(Event(event_type="test.event", payload={}))
+        assert len(received) == 1
+        assert any("Event handler failed" in r.message for r in caplog.records)
 
     def test_event_frozen(self) -> None:
         event = Event(event_type="test", payload={})

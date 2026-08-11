@@ -94,3 +94,24 @@ class TestKnowledgeGraphService:
         insights = svc.find_insights(min_connections=3)
         assert len(insights) == 1
         assert insights[0][0].id == a.id
+
+    def test_bfs_respects_max_depth(self) -> None:
+        svc = _make_svc()
+        nodes = []
+        for i in range(5):
+            n = svc.add_node(f"N{i}", "t", f"n{i}")
+            if nodes:
+                svc.add_edge(nodes[-1].id, n.id, "to")
+            nodes.append(n)
+        levels = svc.traverse_bfs(nodes[0].id, 3)
+        seen = {node.id for level in levels for node in level}
+        assert nodes[0].id not in seen  # start node not re-visited
+        assert nodes[4].id not in seen  # depth 4 pruned by break
+        assert nodes[3].id in seen  # depth 3 kept
+
+    def test_find_path_same_node(self) -> None:
+        svc = _make_svc()
+        a = svc.add_node("A", "t", "A")
+        path = svc.find_path(a.id, a.id)
+        assert len(path) == 1
+        assert path[0].id == a.id

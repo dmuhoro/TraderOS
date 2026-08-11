@@ -10,6 +10,7 @@ quality of this seam is proven separately by the live drill
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -20,6 +21,7 @@ import pytest
 
 from traderos.domain.collectors.base import CollectorOHLCV
 from traderos.domain.collectors.base import CollectorType
+from traderos.infrastructure.collectors.streaming_collector import StreamingFeedRunner
 from traderos.infrastructure.collectors.streaming_collector import StreamingMarketDataCollector
 from traderos.infrastructure.market_stream import StreamingMarketDataService
 from traderos.infrastructure.market_stream import Tick
@@ -167,6 +169,66 @@ class TestStreamingCollectorAggregation:
         collector.subscribe(["BTCUSDT"])
         _feed(collector._stream, [_tick_at("BTCUSDT", 1), _tick_at("BTCUSDT", 7)])
         assert collector.fetch_historical("ETHUSDT", "1m", limit=10) == []
+
+    def test_ticks_seen_counts_drained_ticks(self) -> None:
+        collector = self._make()
+        collector.subscribe(["BTCUSDT"])
+        _feed(collector._stream, [_tick_at("BTCUSDT", 1), _tick_at("BTCUSDT", 2)])
+        assert collector.ticks_seen == 2
+
+    def test_validate_symbol(self) -> None:
+        collector = self._make()
+        assert collector.validate_symbol("BTCUSDT")
+        assert not collector.validate_symbol("XY")
+
+    def test_live_window_bounded_at_512(self) -> None:
+        collector = self._make(interval_seconds=5)
+        collector.subscribe(["BTCUSDT"])
+        now = datetime.now(tz=UTC)
+        collector._snapshot["BTCUSDT"] = [
+            CollectorOHLCV(
+                open=Decimal(1),
+                high=Decimal(1),
+                low=Decimal(1),
+                close=Decimal(1),
+                volume=Decimal(0),
+                timestamp=now - timedelta(seconds=1000 - i),
+                symbol="BTCUSDT",
+            )
+            for i in range(520)
+        ]
+        _feed(collector._stream, [_tick_at("BTCUSDT", 1), _tick_at("BTCUSDT", 7)])
+        rows = collector.fetch_historical("BTCUSDT", "1m", limit=1000)
+        assert len(rows) == 512
+        assert rows[-1].timestamp == collector._snapshot["BTCUSDT"][-1].timestamp
+
+
+class _LoopStream:
+    def __init__(self) -> None:
+        self.stopped = False
+
+    def run(self, max_messages=None) -> None:
+        while not self.stopped:
+            threading.Event().wait(0.001)
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+class TestStreamingFeedRunner:
+    def test_start_join_stop_lifecycle(self) -> None:
+        stream = _LoopStream()
+        runner = StreamingFeedRunner(stream, ["BTCUSDT"])
+        assert runner._thread is None
+        runner.start()
+        assert runner._thread is not None
+        assert runner._thread.is_alive()
+        original = runner._thread
+        runner.start()  # idempotent while alive
+        assert runner._thread is original
+        runner.stop()
+        runner.join()
+        assert not runner._thread.is_alive()
 
 
 @pytest.mark.skipif(

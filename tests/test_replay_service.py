@@ -22,6 +22,7 @@ from traderos.domain.entities.signal import SignalDirection
 from traderos.domain.entities.trade import Trade
 from traderos.domain.entities.trade import TradeSide
 from traderos.domain.entities.trade import TradeStatus
+from traderos.domain.ports import AuditEntry
 from traderos.domain.services.analysis_service import AnalysisService
 from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.replay_service import ReplayService
@@ -323,6 +324,32 @@ class TestReplayService:
         realized = ReplayService._fifo_realized_pnl([entry, exit1, exit2])
         assert realized[str(exit1.id)] == pytest.approx(4.0 * (60.0 - 50.0))
         assert realized[str(exit2.id)] == pytest.approx(6.0 * (70.0 - 50.0))
+
+    def test_parse_detail_empty_detail_returns_empty(self) -> None:
+        entry = AuditEntry(
+            id=uuid.uuid4(),
+            action="trade.fill",
+            actor="broker",
+            resource="BTC/USD",
+            detail="",
+            timestamp=datetime.now(UTC),
+            previous_hash="0" * 64,
+            hash="a" * 64,
+        )
+        assert ReplayService._parse_detail(entry) == {}
+
+    def test_parse_detail_non_json_returns_empty(self) -> None:
+        entry = AuditEntry(
+            id=uuid.uuid4(),
+            action="trade.fill",
+            actor="broker",
+            resource="BTC/USD",
+            detail="{not-json",
+            timestamp=datetime.now(UTC),
+            previous_hash="0" * 64,
+            hash="a" * 64,
+        )
+        assert ReplayService._parse_detail(entry) == {}
 
     def test_multirestart_replay_drill_passes(self) -> None:
         """The committed G-05 drill must stay green — causal replay across

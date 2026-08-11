@@ -58,6 +58,45 @@ class TestMigrationsOnBoot:
         monkeypatch.delenv("RUN_MIGRATIONS_ON_BOOT", raising=False)
         assert run_migrations_on_boot() is None
 
+    def test_require_backend_resolves_sqlite(self, monkeypatch, tmp_path) -> None:
+        from traderos.infrastructure.boot import require_backend
+
+        monkeypatch.setenv("DATABASE_URL", f"sqlite://{tmp_path / 'boot.db'}")
+        monkeypatch.setenv("DB_PATH", str(tmp_path / "boot.db"))
+        assert require_backend() == "sqlite"
+
+    def test_require_backend_refuses_sqlite_when_forbidden(self, monkeypatch, tmp_path) -> None:
+        from traderos.infrastructure.boot import MigrationsOnBootError
+        from traderos.infrastructure.boot import require_backend
+
+        monkeypatch.setenv("DATABASE_URL", f"sqlite://{tmp_path / 'boot.db'}")
+        monkeypatch.setenv("DB_PATH", str(tmp_path / "boot.db"))
+        with pytest.raises(MigrationsOnBootError, match="SQLite backend is not allowed"):
+            require_backend(sqlite_ok=False)
+
+    def test_require_backend_resolves_postgres(self, monkeypatch) -> None:
+        from traderos.infrastructure.boot import require_backend
+
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/traderos")
+        assert require_backend() == "postgres"
+
+    def test_migration_failure_fails_closed(self, monkeypatch, tmp_path) -> None:
+        """A failing on-boot migration must refuse to serve — never run on a
+        possibly-stale schema (A4 fail-closed)."""
+        from traderos.infrastructure.boot import MigrationsOnBootError
+        from traderos.infrastructure.boot import run_migrations_on_boot
+
+        monkeypatch.setenv("DATABASE_URL", f"sqlite://{tmp_path / 'boot.db'}")
+        monkeypatch.setenv("DB_PATH", str(tmp_path / "boot.db"))
+        monkeypatch.delenv("RUN_MIGRATIONS_ON_BOOT", raising=False)
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("db is corrupt")
+
+        monkeypatch.setattr("traderos.infrastructure.boot.get_connection", _boom)
+        with pytest.raises(MigrationsOnBootError, match="migrations-on-boot FAILED"):
+            run_migrations_on_boot()
+
 
 class TestApiEntryPoint:
     def test_main_invokes_migrations_on_boot(self, monkeypatch) -> None:
@@ -127,6 +166,54 @@ class TestNoSecretsGate:
         subprocess.run(["git", "-C", str(tmp_path), "add", "cfg.py"], check=False)
         result = scan_repo_for_secrets(root=tmp_path)
         assert result.clean, result.findings
+
+    def test_scanner_tolerates_git_failure(self, monkeypatch, tmp_path) -> None:
+        """If git is unusable the scan must not crash — it fails open to an
+        empty tracked-file set (nothing to scan) instead of blocking deploy."""
+
+        from traderos.infrastructure.deployment_hygiene import scan_repo_for_secrets
+
+        def _boom(*_args, **_kwargs):
+            raise OSError("git not installed")
+
+        monkeypatch.setattr("traderos.infrastructure.deployment_hygiene.subprocess.run", _boom)
+        result = scan_repo_for_secrets(root=tmp_path)
+        assert result.clean
+        assert result.findings == []
+
+    def test_scanner_tolerates_unreadable_tracked_file(self, monkeypatch, tmp_path) -> None:
+        """A tracked file that cannot be read (permissions, deleted) must be
+        skipped, not crash the whole gate."""
+        import subprocess
+
+        from traderos.infrastructure.deployment_hygiene import scan_repo_for_secrets
+
+        target = tmp_path / "deploy_cfg.py"
+        target.write_text('API_KEY = "AAAAAAAAAAAAAAAAAAAA"\n')
+        subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=False)
+        subprocess.run(["git", "-C", str(tmp_path), "add", "deploy_cfg.py"], check=False)
+
+        real_read_text = Path.read_text
+
+        def _unreadable(self, *args, **kwargs):
+            if str(self).endswith("deploy_cfg.py"):
+                raise OSError("permission denied")
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", _unreadable)
+        result = scan_repo_for_secrets(root=tmp_path)
+        assert result.clean
+        assert result.findings == []
+
+    def test_image_excludes_secrets(self, tmp_path) -> None:
+        import subprocess
+
+        from traderos.infrastructure.deployment_hygiene import image_excludes_secrets
+
+        (tmp_path / "app.py").write_text('api_key = os.getenv("SOME_API_KEY")\n')
+        subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=False)
+        subprocess.run(["git", "-C", str(tmp_path), "add", "app.py"], check=False)
+        assert image_excludes_secrets(root=tmp_path) is True
 
 
 @pytest.mark.skipif(

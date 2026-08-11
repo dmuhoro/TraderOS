@@ -460,7 +460,6 @@ def cmd_risk(args: argparse.Namespace) -> None:
         detail = verdict.reason or "no blocking conditions"
         print(f"Risk check: {'PASS' if verdict.allowed else 'FAIL'} ({detail})")
         sys.exit(0 if verdict.allowed else 1)
-        return
     if args.risk_cmd == "reset":
         kill.reset()
         print("Kill switch reset (ADR-007 manual-reset semantics)")
@@ -477,14 +476,12 @@ def cmd_risk(args: argparse.Namespace) -> None:
             accepted = orch.broker_reconciliation.can_accept_orders
             print("Reconciliation gate:", "allowed" if accepted else "blocked")
             sys.exit(0 if accepted else 1)
-            return
         pending = _pending_from_broker(orch)
         res = orch.broker_reconciliation.reconcile(journal_pending=pending)
         accepted = orch.broker_reconciliation.can_accept_orders
         print(f"Reconciliation mismatches: {len(res.mismatches)}")
         print(f"Order acceptance: {'allowed' if accepted else 'blocked'}")
         sys.exit(0 if accepted else 1)
-        return
     parser = build_parser()
     parser.parse_args([args.command, "--help"])
 

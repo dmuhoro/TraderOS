@@ -267,6 +267,9 @@ class DaemonController:
             self._notifications.warning(
                 "Shutdown", "Received stop signal, shutting down gracefully"
             )
+            # Stop scheduling new cycles immediately. The loop below keeps
+            # draining the in-flight iteration until shutdown_at, so a cycle
+            # that started before the signal is allowed to finish.
             self.stop()
             shutdown_at = time.monotonic() + shutdown_timeout
             shutdown_graceful_done = True
@@ -274,9 +277,13 @@ class DaemonController:
         signal.signal(signal.SIGINT, handle_stop)
         signal.signal(signal.SIGTERM, handle_stop)
 
-        while self._running:
+        while self._running or shutdown_graceful_done:
             if shutdown_at is not None and time.monotonic() > shutdown_at:
                 self._notifications.critical("Shutdown", "Forced shutdown after timeout")
+                break
+            if not self._running:
+                # Graceful drain finished: the in-flight iteration has run to
+                # completion, so there is no more work to let finish.
                 break
             if self._supervision is not None:
                 self._supervision.heartbeat()

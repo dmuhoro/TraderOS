@@ -121,3 +121,18 @@ class TestGuardrailedBroker:
         result = broker.place_market_order(uuid.uuid4(), "buy", 2.0, close_price=100.0)
         assert result.status == "rejected"
         assert inner.place_calls == 0
+
+    def test_env_bool_accepts_explicit_values(self, monkeypatch) -> None:
+        monkeypatch.setenv("TRADEROS_ORDER_GUARDRAIL_ENABLED", "true")
+        inner = _MockInner()
+        broker = GuardrailedBroker(inner, min_order_qty=1.0)
+        result = broker.place_market_order(uuid.uuid4(), "buy", 0.5, close_price=100.0)
+        assert result.status == "rejected"  # still guarded when env explicitly "true"
+
+    def test_stop_and_trailing_pass_through_when_in_bounds(self) -> None:
+        inner = _MockInner()
+        broker = GuardrailedBroker(inner, min_order_qty=1.0, max_order_notional=500.0)
+        mid = uuid.uuid4()
+        assert broker.place_stop_order(mid, "buy", 2.0, 90.0).status == "pending"
+        assert broker.place_trailing_stop_order(mid, "buy", 2.0, 0.01, 100.0).status == "pending"
+        assert inner.place_calls == 2

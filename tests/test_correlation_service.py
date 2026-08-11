@@ -46,6 +46,11 @@ class TestCorrelationService:
         b = [_c(30, _ts(3)), _c(40, _ts(4))]
         assert CorrelationService.compute_correlation(a, b) is None
 
+    def test_two_overlapping_timestamps_insufficient_returns(self) -> None:
+        a = [_c(10, _ts(1)), _c(20, _ts(2))]
+        b = [_c(30, _ts(1)), _c(40, _ts(2))]
+        assert CorrelationService.compute_correlation(a, b) is None
+
     def test_perfect_positive(self) -> None:
         a = [_c(10, _ts(1)), _c(11, _ts(2)), _c(12, _ts(3))]
         b = [_c(100, _ts(1)), _c(110, _ts(2)), _c(120, _ts(3))]

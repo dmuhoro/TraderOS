@@ -21,6 +21,22 @@ class _MockInner:
         self.call_count += 1
         return FillResult(False, 0.0, 0.0, quantity, "pending", "")
 
+    def place_stop_order(self, market_id, side, quantity, stop_price, market_price=None):
+        self.call_count += 1
+        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+
+    def place_trailing_stop_order(
+        self, market_id, side, quantity, trail_percent, market_price=None
+    ):
+        self.call_count += 1
+        return FillResult(False, 0.0, 0.0, quantity, "pending", "")
+
+    def modify_order(
+        self, order_id, qty=None, limit_price=None, stop_price=None, trail_percent=None
+    ):
+        self.call_count += 1
+        return FillResult(True, 0.0, 0.0, 0.0, "modified", order_id)
+
     def cancel_order(self, order_id):
         self.call_count += 1
         return FillResult(True, 0.0, 0.0, 0.0, "cancelled", order_id)
@@ -99,6 +115,12 @@ class TestRateLimitedBroker:
         with pytest.raises(RateLimitExceededError):
             broker.place_limit_order(mid, "buy", 1.0, 100.0)
         with pytest.raises(RateLimitExceededError):
+            broker.place_stop_order(mid, "buy", 1.0, 90.0)
+        with pytest.raises(RateLimitExceededError):
+            broker.place_trailing_stop_order(mid, "buy", 1.0, 0.01, 100.0)
+        with pytest.raises(RateLimitExceededError):
+            broker.modify_order("ord1", qty=1.0)
+        with pytest.raises(RateLimitExceededError):
             broker.cancel_order("ord1")
         with pytest.raises(RateLimitExceededError):
             broker.get_account_balance()
@@ -107,6 +129,17 @@ class TestRateLimitedBroker:
         with pytest.raises(RateLimitExceededError):
             broker.get_open_orders()
         assert inner.call_count == 0
+
+    def test_stop_trailing_modify_pass_through_when_within_limit(self, monkeypatch) -> None:
+        monkeypatch.setenv("BROKER_RATE_LIMIT_ENABLED", "true")
+        inner = _MockInner()
+        broker = RateLimitedBroker(inner, max_requests=10, window_seconds=60.0)
+
+        mid = uuid.uuid4()
+        assert broker.place_stop_order(mid, "buy", 1.0, 90.0).filled is False
+        assert broker.place_trailing_stop_order(mid, "buy", 1.0, 0.01, 100.0).filled is False
+        assert broker.modify_order("ord1", limit_price=101.0).status == "modified"
+        assert inner.call_count == 3
 
     def test_disabled_even_with_env_set_to_false(self, monkeypatch) -> None:
         monkeypatch.setenv("BROKER_RATE_LIMIT_ENABLED", "false")

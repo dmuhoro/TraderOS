@@ -88,3 +88,24 @@ class TestExecutionService:
         order = svc.create_market_order(uuid.uuid4(), "buy", 10.0)
         cancelled = svc.cancel_order(order)
         assert cancelled.status == OrderStatus.CANCELLED
+
+    def test_process_market_order_rejects_wrong_type(self) -> None:
+        svc = ExecutionService()
+        order = svc.create_limit_order(uuid.uuid4(), "buy", 10.0, 100.0)
+        result = svc.process_market_order(order, 100.0)
+        assert not result.filled
+        assert result.status == OrderStatus.REJECTED
+
+    def test_process_limit_order_rejects_wrong_type_or_missing_price(self) -> None:
+        svc = ExecutionService()
+        wrong_type = svc.create_market_order(uuid.uuid4(), "buy", 10.0)
+        assert svc.process_limit_order(wrong_type, 100.0).status == OrderStatus.REJECTED
+        stop = svc.create_stop_order(uuid.uuid4(), "buy", 10.0, 105.0)
+        assert svc.process_limit_order(stop, 100.0).status == OrderStatus.REJECTED
+
+    def test_process_stop_order_rejects_wrong_type_or_missing_stop(self) -> None:
+        svc = ExecutionService()
+        wrong_type = svc.create_market_order(uuid.uuid4(), "buy", 10.0)
+        assert svc.process_stop_order(wrong_type, 100.0).status == OrderStatus.REJECTED
+        limit = svc.create_limit_order(uuid.uuid4(), "buy", 10.0, 100.0)
+        assert svc.process_stop_order(limit, 100.0).status == OrderStatus.REJECTED

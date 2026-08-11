@@ -164,3 +164,73 @@ class TestPortfolioService:
             market_prices=prices,
         )
         assert len(trades) > 0
+
+    def test_close_position_records_audit(self) -> None:
+        from unittest.mock import Mock
+
+        pos_repo = InMemoryPositionRepository()
+        audit = Mock()
+        svc = PortfolioService(InMemoryTradeRepository(), pos_repo, audit=audit)
+        pos = Position(
+            market_id=uuid.uuid4(),
+            quantity=10.0,
+            entry_price=100.0,
+            current_price=100.0,
+            pnl=0.0,
+        )
+        pos_repo.add(pos)
+        realized = svc.close_position(pos, 110.0)
+        assert realized == 100.0
+        audit.record.assert_called_once()
+        assert audit.record.call_args[0][0] == "position.close"
+
+    def test_close_position_without_audit(self) -> None:
+        pos_repo = InMemoryPositionRepository()
+        svc = PortfolioService(InMemoryTradeRepository(), pos_repo)
+        pos = Position(
+            market_id=uuid.uuid4(),
+            quantity=10.0,
+            entry_price=100.0,
+            current_price=100.0,
+            pnl=0.0,
+        )
+        pos_repo.add(pos)
+        assert svc.close_position(pos, 90.0) == -100.0
+
+    def test_close_position_records_realized_pnl(self) -> None:
+        from unittest.mock import Mock
+
+        pos_repo = InMemoryPositionRepository()
+        risk_service = Mock()
+        svc = PortfolioService(InMemoryTradeRepository(), pos_repo, risk_service=risk_service)
+        pos = Position(
+            market_id=uuid.uuid4(),
+            quantity=10.0,
+            entry_price=100.0,
+            current_price=100.0,
+            pnl=0.0,
+        )
+        pos_repo.add(pos)
+        svc.close_position(pos, 110.0)
+        risk_service.record_realized_pnl.assert_called_once_with(100.0)
+
+    def test_rebalance_skips_negligible_diff(self) -> None:
+        trade_repo = InMemoryTradeRepository()
+        pos_repo = InMemoryPositionRepository()
+        svc = PortfolioService(trade_repo, pos_repo)
+        mid = uuid.uuid4()
+        pos_repo.add(
+            Position(
+                market_id=mid,
+                quantity=10.0,
+                entry_price=100.0,
+                current_price=100.0,
+                pnl=0.0,
+            )
+        )
+        trades = svc.rebalance(
+            target_allocations={mid: 1.0},
+            cash=0.0,
+            market_prices={mid: 100.0},
+        )
+        assert trades == []

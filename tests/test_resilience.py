@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import TYPE_CHECKING
 
 import pytest
 import requests
@@ -20,6 +21,7 @@ from traderos.infrastructure.resilience import PG_CB
 from traderos.infrastructure.resilience import VAULT_CB
 from traderos.infrastructure.resilience import CircuitBreaker
 from traderos.infrastructure.resilience import CircuitBreakerConfig
+from traderos.infrastructure.resilience import CircuitHalfOpenError
 from traderos.infrastructure.resilience import CircuitOpenError
 from traderos.infrastructure.resilience import get_breaker_status
 from traderos.infrastructure.resilience import reset_all_breakers
@@ -28,6 +30,9 @@ from traderos.infrastructure.secrets import VaultFetchError
 from traderos.infrastructure.secrets import VaultSecretProvider
 from traderos.interfaces.api import server
 
+if TYPE_CHECKING:
+    from traderos.infrastructure.broker_circuit_breaker import CircuitBreakeredBroker
+
 
 class TestCircuitBreaker:
     def test_closed_succeeds_and_resets_failures(self) -> None:
@@ -35,6 +40,11 @@ class TestCircuitBreaker:
         assert breaker.state == "closed"
         assert breaker.call(lambda: 42) == 42
         assert breaker.failure_count == 0
+
+    def test_half_open_error_carries_breaker_name(self) -> None:
+        err = CircuitHalfOpenError("broker")
+        assert err.name == "broker"
+        assert "HALF-OPEN" in str(err)
 
     def test_opens_after_threshold(self) -> None:
         breaker = CircuitBreaker(CircuitBreakerConfig(name="t", failure_threshold=3))
@@ -263,6 +273,73 @@ class TestBrokerProbe:
 
         with pytest.raises(CircuitOpenError):
             broker.place_limit_order(orch.market_ids[0], "buy", 1.0, 0.01, close_price=None)
+        assert broker.get_open_orders() == []
+
+
+class TestCircuitBreakeredBroker:
+    """Every order-modifying method of the boundary wrapper delegates to the
+    inner broker through the shared BROKER_CB surface."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_breaker(self) -> None:
+        reset_all_breakers()
+        yield
+        reset_all_breakers()
+
+    @pytest.fixture()
+    def broker(self) -> CircuitBreakeredBroker:
+        from traderos.domain.adapters.broker_adapter import FillResult
+        from traderos.infrastructure.broker_circuit_breaker import CircuitBreakeredBroker
+
+        class _Inner:
+            def place_market_order(self, *a, **k):
+                return FillResult(True, 1.0, 100.0, 0.0, "filled", "m1")
+
+            def place_limit_order(self, *a, **k):
+                return FillResult(False, 0.0, 0.0, 1.0, "pending", "")
+
+            def cancel_order(self, order_id):
+                return FillResult(True, 0.0, 0.0, 0.0, "cancelled", order_id)
+
+            def place_stop_order(self, *a, **k):
+                return FillResult(False, 0.0, 0.0, 1.0, "pending", "")
+
+            def place_trailing_stop_order(self, *a, **k):
+                return FillResult(False, 0.0, 0.0, 1.0, "pending", "")
+
+            def modify_order(self, order_id, **k):
+                return FillResult(True, 0.0, 0.0, 0.0, "modified", order_id)
+
+            def get_account_balance(self):
+                return 10000.0
+
+            def get_positions(self):
+                return []
+
+            def get_open_orders(self):
+                return []
+
+        return CircuitBreakeredBroker(_Inner())
+
+    def test_stop_order_delegates(self, broker) -> None:
+        import uuid
+
+        res = broker.place_stop_order(uuid.uuid4(), "buy", 1.0, 90.0, market_price=100.0)
+        assert res.status == "pending"
+
+    def test_trailing_stop_order_delegates(self, broker) -> None:
+        import uuid
+
+        res = broker.place_trailing_stop_order(uuid.uuid4(), "buy", 1.0, 0.01, market_price=100.0)
+        assert res.status == "pending"
+
+    def test_modify_order_delegates(self, broker) -> None:
+        res = broker.modify_order("ord1", qty=2.0, limit_price=101.0)
+        assert res.status == "modified"
+
+    def test_reads_pass_through_unwrapped(self, broker) -> None:
+        assert broker.get_account_balance() == 10000.0
+        assert broker.get_positions() == []
         assert broker.get_open_orders() == []
 
 

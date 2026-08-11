@@ -107,3 +107,35 @@ class TestLiveReadiness:
         assert isinstance(data["checks"], dict)
         assert isinstance(data["reasons"], list)
         assert "timestamp" in data
+
+    def test_broker_not_configured_fails_closed(self) -> None:
+        verdict = _service(broker=None).check()
+        assert not verdict.ready
+        assert verdict.checks["broker_connected"] is False
+        assert any("broker not configured" in r for r in verdict.reasons)
+
+    def test_broker_non_positive_balance_fails(self) -> None:
+        broker = _BrokerStub()
+        broker.balance = 0.0
+        verdict = _service(broker=broker).check()
+        assert not verdict.ready
+        assert verdict.checks["broker_connected"] is False
+        assert any("balance unavailable or non-positive" in r for r in verdict.reasons)
+
+    def test_data_ingestion_not_configured_fails(self) -> None:
+        verdict = _service(data_ingestion=None).check()
+        assert not verdict.ready
+        assert verdict.checks["data_feeds"] is False
+        assert any("market data not configured" in r for r in verdict.reasons)
+
+    def test_kill_switch_not_configured_defaults_closed(self) -> None:
+        verdict = _service(kill_switch=None).check()
+        assert verdict.checks["kill_switch_closed"] is True
+
+    def test_preflight_not_configured_defaults_ok(self) -> None:
+        verdict = _service(preflight=None).check()
+        assert verdict.checks["live_preflight"] is True
+
+    def test_operator_session_not_configured_defaults_ok(self) -> None:
+        verdict = _service(operator_session=None).check()
+        assert verdict.checks["operator_session"] is True

@@ -69,6 +69,26 @@ class TestPaperResolution:
         with pytest.raises(ConfigError, match=needle):
             resolve_risk_rails(section, live=False)
 
+    def test_non_numeric_types_rejected(self) -> None:
+        with pytest.raises(ConfigError, match="daily_loss_pct"):
+            resolve_risk_rails({"daily_loss_pct": True}, live=False)
+        with pytest.raises(ConfigError, match="daily_loss_pct"):
+            resolve_risk_rails({"daily_loss_pct": {}}, live=False)
+
+    def test_non_integer_types_rejected(self) -> None:
+        with pytest.raises(ConfigError, match="max_positions_total"):
+            resolve_risk_rails({"max_positions_total": 3.5}, live=False)
+        with pytest.raises(ConfigError, match="max_positions_total"):
+            resolve_risk_rails({"max_positions_total": "abc"}, live=False)
+
+    def test_non_list_allowlist_rejected(self) -> None:
+        with pytest.raises(ConfigError, match="allowed_markets"):
+            resolve_risk_rails({"allowed_markets": {"AAPL": 1}}, live=False)
+
+    def test_false_allowlist_string(self) -> None:
+        rails = resolve_risk_rails({"require_allowlist": "false"}, live=False)
+        assert rails.require_allowlist is False
+
 
 class TestEnvOverrides:
     def test_env_wins_over_yaml(self, monkeypatch: pytest.MonkeyPatch) -> None:

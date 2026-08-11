@@ -337,3 +337,121 @@ class TestOperatorSessionService:
         outcome = service.perform(OperatorStep.START, session_id="sess-1")
         assert outcome.ok
         assert service.session_id == "sess-1"
+
+    def test_next_step_follows_current_step(self) -> None:
+        service, _ = _service()
+        service.perform(OperatorStep.START)
+        assert service.next_step == OperatorStep.PREFLIGHT
+
+    def test_preflight_not_configured_skipped(self) -> None:
+        service, _ = _service(preflight=None)
+        service.perform(OperatorStep.START)
+        outcome = service.perform(OperatorStep.PREFLIGHT)
+        assert outcome.ok
+        assert "not configured — skipped" in outcome.result
+
+    def test_broker_check_not_configured_skipped(self) -> None:
+        service, _ = _service(broker=None)
+        service.perform(OperatorStep.START)
+        service.perform(OperatorStep.PREFLIGHT)
+        outcome = service.perform(OperatorStep.BROKER_CHECK)
+        assert outcome.ok
+        assert "not configured — skipped" in outcome.result
+
+    def test_market_data_check_not_configured_skipped(self) -> None:
+        service, _ = _service(data_ingestion=None)
+        service.perform(OperatorStep.START)
+        service.perform(OperatorStep.PREFLIGHT)
+        service.perform(OperatorStep.BROKER_CHECK)
+        outcome = service.perform(OperatorStep.MARKET_DATA_CHECK)
+        assert outcome.ok
+        assert "not configured — skipped" in outcome.result
+
+    def test_paper_trading_unavailable_fails(self) -> None:
+        service, _ = _service(paper=None)
+        service.perform(OperatorStep.START)
+        service.perform(OperatorStep.PREFLIGHT)
+        service.perform(OperatorStep.BROKER_CHECK)
+        service.perform(OperatorStep.MARKET_DATA_CHECK)
+        outcome = service.perform(OperatorStep.PAPER_TRADING)
+        assert not outcome.ok
+        assert "unavailable" in outcome.result
+
+    def test_performance_review_catalog_not_configured_skipped(self) -> None:
+        service, _ = _service()
+        service.strategy_catalog = None
+        for step in (
+            OperatorStep.START,
+            OperatorStep.PREFLIGHT,
+            OperatorStep.BROKER_CHECK,
+            OperatorStep.MARKET_DATA_CHECK,
+            OperatorStep.PAPER_TRADING,
+        ):
+            assert service.perform(step).ok
+        outcome = service.perform(OperatorStep.PERFORMANCE_REVIEW)
+        assert outcome.ok
+        assert "catalog not configured — skipped" in outcome.result
+
+    def test_performance_review_no_enabled_strategies_fails(self) -> None:
+        catalog = StrategyCatalogService(
+            repo=InMemoryStrategyRepository(),
+            backtest=BacktestingService(execution=ExecutionService()),
+            backtest_results=InMemoryBacktestResultRepository(),
+        )
+        repo = InMemoryOperatorWorkflowRepository()
+        service = OperatorSessionService(
+            workflow=OperatorWorkflow(),
+            repository=repo,
+            preflight=_preflight(ok=True),
+            broker=_BrokerStub(),
+            broker_reconciliation=Mock(can_accept_orders=True),
+            data_ingestion=_data_ingestion(),
+            paper=_paper(),
+            strategy_catalog=catalog,
+        )
+        for step in (
+            OperatorStep.START,
+            OperatorStep.PREFLIGHT,
+            OperatorStep.BROKER_CHECK,
+            OperatorStep.MARKET_DATA_CHECK,
+            OperatorStep.PAPER_TRADING,
+        ):
+            assert service.perform(step).ok
+        outcome = service.perform(OperatorStep.PERFORMANCE_REVIEW)
+        assert not outcome.ok
+        assert "no enabled strategies" in outcome.result
+
+    def test_strategy_promotion_catalog_unavailable_fails(self) -> None:
+        service, _ = _service()
+        service.strategy_catalog = None
+        for step in (
+            OperatorStep.START,
+            OperatorStep.PREFLIGHT,
+            OperatorStep.BROKER_CHECK,
+            OperatorStep.MARKET_DATA_CHECK,
+            OperatorStep.PAPER_TRADING,
+            OperatorStep.PERFORMANCE_REVIEW,
+        ):
+            assert service.perform(step).ok
+        outcome = service.perform(OperatorStep.STRATEGY_PROMOTION, strategy="mean_reversion")
+        assert not outcome.ok
+        assert "catalog unavailable" in outcome.result
+
+    def test_controlled_live_preflight_not_configured_skipped(self) -> None:
+        service, _ = _service(preflight=None)
+        for step in (
+            OperatorStep.START,
+            OperatorStep.PREFLIGHT,
+            OperatorStep.BROKER_CHECK,
+            OperatorStep.MARKET_DATA_CHECK,
+            OperatorStep.PAPER_TRADING,
+            OperatorStep.PERFORMANCE_REVIEW,
+            OperatorStep.STRATEGY_PROMOTION,
+        ):
+            context = (
+                {"strategy": "mean_reversion"} if step == OperatorStep.STRATEGY_PROMOTION else {}
+            )
+            assert service.perform(step, **context).ok
+        outcome = service.perform(OperatorStep.CONTROLLED_LIVE)
+        assert outcome.ok
+        assert "preflight not configured — skipped" in outcome.result

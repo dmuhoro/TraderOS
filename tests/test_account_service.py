@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
+from datetime import timedelta
 
 import pytest
 
+from traderos.domain.entities.user import User
 from traderos.domain.entities.user import UserRole
 from traderos.domain.entities.user import UserStatus
+from traderos.domain.entities.user import utcnow
 from traderos.domain.services.account_service import ADMIN_PASSWORD_ENV
 from traderos.domain.services.account_service import ADMIN_USERNAME_ENV
 from traderos.domain.services.account_service import AccountService
@@ -70,6 +74,9 @@ class TestHashVerify:
     def test_verify_rejects_malformed(self, svc: AccountService) -> None:
         assert svc.verify_password("x", "not-a-real-hash") is False
 
+    def test_verify_rejects_foreign_scheme(self, svc: AccountService) -> None:
+        assert svc.verify_password("x", "md5$1000$AAAA$BBBB") is False
+
 
 class TestCreateUser:
     def test_create_and_authenticate(self, svc: AccountService) -> None:
@@ -79,6 +86,24 @@ class TestCreateUser:
         assert user.status == UserStatus.ACTIVE
         result = svc.authenticate("alice", "pw-alice")
         assert result.authenticated is True
+        assert result.user is not None
+
+    def test_create_rejects_empty_username_or_password(self, svc: AccountService) -> None:
+        assert svc.create_user("", "pw") is None
+        assert svc.create_user("nobody", "") is None
+
+    def test_inactive_user_fails_closed(self, svc: AccountService) -> None:
+        disabled = User(
+            id=uuid.uuid4(),
+            username="inactive",
+            password_hash=svc.hash_password("pw"),
+            role=UserRole.OPERATOR,
+            status=UserStatus.DISABLED,
+            created_at=utcnow(),
+        )
+        svc._repo.create_user(disabled)
+        result = svc.authenticate("inactive", "pw")
+        assert result.authenticated is False
         assert result.user is not None
 
     def test_wrong_password_fails_closed(self, svc: AccountService) -> None:
@@ -118,6 +143,31 @@ class TestSessions:
     def test_invalid_session_denied(self, svc: AccountService) -> None:
         assert svc.validate_session("forged-token") is None
 
+    def test_empty_session_token_denied(self, svc: AccountService) -> None:
+        assert svc.validate_session("") is None
+
+    def test_expired_session_denied_and_deleted(
+        self, conn: sqlite3.Connection, svc: AccountService
+    ) -> None:
+        user = svc.create_user("expired", "pw")
+        assert user is not None
+        raw_token, session = svc.create_session(user)
+        conn.execute(
+            "UPDATE user_sessions SET expires_at = ? WHERE token_hash = ?",
+            ((utcnow() - timedelta(seconds=1)).isoformat(), session.token_hash),
+        )
+        conn.commit()
+        assert svc.validate_session(raw_token) is None
+        assert (
+            conn.execute(
+                "SELECT 1 FROM user_sessions WHERE token_hash = ?", (session.token_hash,)
+            ).fetchone()
+            is None
+        )
+
+    def test_revoke_session_empty_is_noop(self, svc: AccountService) -> None:
+        svc.revoke_session("")  # must not raise
+
 
 class TestApiKeys:
     def test_issue_and_validate(self, svc: AccountService) -> None:
@@ -141,6 +191,33 @@ class TestApiKeys:
 
     def test_unknown_key_denied(self, svc: AccountService) -> None:
         assert svc.validate_api_key("trd_not-a-real-key") is None
+
+    def test_empty_key_denied(self, svc: AccountService) -> None:
+        assert svc.validate_api_key("") is None
+
+    def test_issue_key_for_inactive_user_denied(self, svc: AccountService) -> None:
+        disabled = User(
+            id=uuid.uuid4(),
+            username="no-key",
+            password_hash="unused",
+            role=UserRole.OPERATOR,
+            status=UserStatus.DISABLED,
+            created_at=utcnow(),
+        )
+        assert svc.issue_api_key(disabled, "bot") is None
+
+    def test_revoke_marks_key_revoked(self, conn: sqlite3.Connection, svc: AccountService) -> None:
+        user = svc.create_user("heidi", "pw-heidi")
+        assert user is not None
+        issued = svc.issue_api_key(user, "bot")
+        assert issued is not None
+        _, key = issued
+        repo = SQLiteUserRepository(conn)
+        repo.revoke_api_key(key.id)
+        stored = repo.get_api_key(key.key_hash)
+        assert stored is not None
+        assert stored.revoked_at is not None
+        assert svc.validate_api_key("trd_anything") is None
 
 
 class TestAdminBootstrap:

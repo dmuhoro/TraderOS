@@ -98,6 +98,55 @@ class TestConfigEdgeCases:
             with pytest.raises(ConfigError, match="MAX_DRAWDOWN"):
                 cfg.validate()
 
+    def test_config_secret_in_yaml_ignored(self, tmp_path, monkeypatch):
+        yaml_file = tmp_path / "settings.yaml"
+        yaml_file.write_text("alpaca_api_key: fake_key\n")
+        for var in ("ALPACA_API_KEY", "ALPACA_SECRET_KEY", "DB_PATH", "DEFAULT_CASH"):
+            monkeypatch.delenv(var, raising=False)
+        cfg = Config.load(str(yaml_file))
+        assert cfg.alpaca_api_key == ""
+
+    def test_config_string_bools_from_yaml(self, tmp_path):
+        yaml_file = tmp_path / "settings.yaml"
+        yaml_file.write_text("paper_trading: 'true'\nalpaca_paper: '1'\n")
+        cfg = Config.load(str(yaml_file))
+        assert cfg.paper_trading is True
+        assert cfg.alpaca_paper is True
+
+    def test_config_default_cash_cast_from_yaml(self, tmp_path):
+        yaml_file = tmp_path / "settings.yaml"
+        yaml_file.write_text("default_cash: 5000\n")
+        cfg = Config.load(str(yaml_file))
+        assert cfg.default_cash == 5000.0
+
+    def test_config_validate_skips_when_database_url_set(self):
+        cfg = Config(database_url="postgresql://host/db")
+        cfg.validate()  # must not raise despite empty db_path
+        assert cfg.db_path == "data/trader.db"
+
+    def test_config_validate_db_dir_missing(self, tmp_path):
+        cfg = Config(db_path=str(tmp_path / "missing_dir" / "trader.db"))
+        with pytest.raises(ConfigError, match="db_path directory does not exist"):
+            cfg.validate()
+
+    def test_config_validate_forex_symbols_not_list(self):
+        cfg = Config(
+            db_path=":memory:",
+            _raw_settings={"data_collection": {"forex_symbols": "EURUSD"}},
+        )
+        with pytest.raises(ConfigError, match="forex_symbols must be a list"):
+            cfg.validate()
+
+    def test_config_validate_empty_db_path(self):
+        cfg = Config(db_path="")
+        with pytest.raises(ConfigError, match="db_path must not be empty"):
+            cfg.validate()
+
+    def test_config_validate_invalid_log_level(self):
+        cfg = Config(db_path=":memory:", log_level="VERBOSE")
+        with pytest.raises(ConfigError, match="Invalid log_level"):
+            cfg.validate()
+
 
 class TestDataIngestionServiceEdgeCases:
     def test_fetch_no_collector(self):
@@ -118,6 +167,35 @@ class TestDataIngestionServiceEdgeCases:
         registry = MagicMock()
         svc = DataIngestionService(registry=registry)
         assert svc.get_latest_close(uuid.uuid4()) is None
+
+    def test_get_latest_close_with_data(self):
+        registry = MagicMock()
+        mock_collector = MagicMock()
+        from datetime import datetime
+
+        mock_candle = MagicMock()
+        mock_candle.timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_candle.open = 100.0
+        mock_candle.high = 101.0
+        mock_candle.low = 99.0
+        mock_candle.close = 100.5
+        mock_candle.volume = 1000.0
+        mock_collector.fetch_historical.return_value = [mock_candle]
+        registry.get.return_value = mock_collector
+        svc = DataIngestionService(registry=registry)
+        mid = uuid.uuid4()
+        svc.add_source(mid, "BTCUSD", "mock")
+        assert svc.get_latest_close(mid) == 100.5
+
+    def test_get_latest_close_empty_feed(self):
+        registry = MagicMock()
+        mock_collector = MagicMock()
+        mock_collector.fetch_historical.return_value = []
+        registry.get.return_value = mock_collector
+        svc = DataIngestionService(registry=registry)
+        mid = uuid.uuid4()
+        svc.add_source(mid, "BTCUSD", "mock")
+        assert svc.get_latest_close(mid) is None
 
     def test_get_latest_close_no_data(self):
         registry = MagicMock()

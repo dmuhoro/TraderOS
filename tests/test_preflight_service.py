@@ -99,6 +99,21 @@ class TestPreflightService:
         verdict = svc.check(live_mode=True)
         assert not verdict.passed
 
+    def test_live_mode_requires_allowlist_when_configured(self, monkeypatch) -> None:
+        monkeypatch.setenv("LIVE_TRADING_CONFIRMED", "true")
+        svc = PreflightService(require_allowlist=True)
+        verdict = svc.check(live_mode=True)
+        assert not verdict.passed
+        assert verdict.checks["market_allowlist"] is False
+        assert any("allowlist" in f for f in verdict.failures)
+
+    def test_live_mode_allowlist_provided_passes(self, monkeypatch) -> None:
+        monkeypatch.setenv("LIVE_TRADING_CONFIRMED", "true")
+        svc = PreflightService(require_allowlist=True, allowed_markets=frozenset({"X"}))
+        verdict = svc.check(live_mode=True)
+        assert verdict.passed
+        assert verdict.checks["market_allowlist"] is True
+
     def test_multiple_failures_all_reported(self) -> None:
         ks = KillSwitch(max_consecutive_failures=3)
         for _ in range(3):

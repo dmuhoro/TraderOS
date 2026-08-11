@@ -5,6 +5,8 @@ from datetime import UTC
 from datetime import datetime
 from unittest.mock import Mock
 
+import pytest
+
 from traderos.application.orchestrator import CycleResult
 from traderos.application.orchestrator import TradingMode
 from traderos.application.orchestrator import TradingOrchestrator
@@ -162,3 +164,56 @@ class TestTradingOrchestrator:
         r2 = orch.run_cycle(mid, 101.0)
         assert r1.timestamp <= r2.timestamp
         orch.stop()
+
+    def test_preflight_failure_fans_out_warning(self) -> None:
+        from types import SimpleNamespace
+
+        orch = self._make()
+        preflight = Mock()
+        preflight.check.return_value = SimpleNamespace(passed=False, failures=["db down"])
+        orch.preflight_service = preflight
+        orch._pre_cycle_check()
+        preflight.check.assert_called_once_with(live_mode=False)
+        orch.notifications.warning.assert_called_once_with("Preflight", "db down")
+
+    def test_streaming_feed_start_and_stop(self) -> None:
+        orch = self._make()
+        feed = Mock()
+        orch.streaming_feed = feed
+        orch.start()
+        feed.start.assert_called_once()
+        orch.stop()
+        feed.stop.assert_called_once()
+
+    def test_run_forever_with_probe_scheduler(self) -> None:
+        orch = self._make()
+        probes = Mock()
+        orch.probe_scheduler = probes
+        orch._daemon_controller.run_forever = Mock()
+        orch.run_forever(interval_seconds=1, shutdown_timeout=1)
+        probes.start.assert_called_once()
+        probes.stop.assert_called_once()
+        orch._daemon_controller.run_forever.assert_called_once_with(1, 1)
+
+    def test_run_forever_stops_probes_on_daemon_exit(self) -> None:
+        orch = self._make()
+        probes = Mock()
+        orch.probe_scheduler = probes
+
+        def _die(*_args, **_kwargs):
+            raise RuntimeError("daemon crashed")
+
+        orch._daemon_controller.run_forever = _die
+        with pytest.raises(RuntimeError):
+            orch.run_forever(interval_seconds=1, shutdown_timeout=1)
+        probes.start.assert_called_once()
+        probes.stop.assert_called_once()  # finally always releases the probes
+
+    def test_operational_status_reports_configured_failover(self) -> None:
+        orch = self._make()
+        failover = Mock()
+        failover.status.return_value = {"leading": False, "owner": "primary"}
+        orch.failover = failover
+        ops = orch.get_status()["operational"]
+        assert ops["ha"]["configured"] is True
+        assert ops["ha"]["owner"] == "primary"

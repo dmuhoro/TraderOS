@@ -276,9 +276,6 @@ class BrokerStateReconciliationService:
         elif mismatches:
             self._consecutive_failures += 1
 
-        if errors:
-            self._consecutive_failures += len(errors)
-
         result = BrokerReconciliationResult(
             matched_positions=matched_positions,
             reconciled_positions=reconciled_positions,

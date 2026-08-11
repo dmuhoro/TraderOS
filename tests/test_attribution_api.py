@@ -78,3 +78,9 @@ def test_replay_endpoint_rejects_inverted_window() -> None:
         assert resp.status_code == 422
     finally:
         server._orch_cache.clear()
+
+
+def test_fill_dict_none_returns_none() -> None:
+    from traderos.interfaces.api.attribution import _fill_dict
+
+    assert _fill_dict(None) is None

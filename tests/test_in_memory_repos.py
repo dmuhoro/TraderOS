@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -19,12 +20,14 @@ from traderos.domain.entities import KnowledgeNode
 from traderos.domain.entities import Lesson
 from traderos.domain.entities import LiquidityZone
 from traderos.domain.entities import Market
+from traderos.domain.entities import MarketStatus
 from traderos.domain.entities import Metrics
 from traderos.domain.entities import Observation
 from traderos.domain.entities import Position
 from traderos.domain.entities import Signal
 from traderos.domain.entities import SignalDirection
 from traderos.domain.entities import Strategy
+from traderos.domain.entities import StrategyStatus
 from traderos.domain.entities import Timeframe
 from traderos.domain.entities import Trade
 from traderos.domain.entities import TradeSide
@@ -45,6 +48,7 @@ from traderos.infrastructure.repositories.in_memory import InMemoryPositionRepos
 from traderos.infrastructure.repositories.in_memory import InMemorySignalRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryStrategyRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryTradeRepository
+from traderos.infrastructure.repositories.in_memory.market_data import InMemoryMarketDataRepository
 
 
 def _market() -> Market:
@@ -392,3 +396,167 @@ class TestInMemoryLessonFunctional:
         assert [lesson.id for lesson in repo.get_by_tags(["alpha"])] == [a.id]
         assert [lesson.id for lesson in repo.get_by_tags(["beta", "gamma"])] == [a.id, b.id]
         assert repo.get_by_tags(["omega"]) == []
+
+
+class TestInMemoryMarketFunctional:
+    def test_list_active_filters_status(self) -> None:
+        repo = InMemoryMarketRepository()
+        active = _market()
+        inactive = Market(
+            symbol="BTCUSDT",
+            asset_class=AssetClass.CRYPTO,
+            exchange="BINANCE",
+            status=MarketStatus.INACTIVE,
+        )
+        repo.add(active)
+        repo.add(inactive)
+        assert [m.id for m in repo.list_active()] == [active.id]
+
+
+class TestInMemoryCandleFunctional:
+    def test_get_range_filters_by_window(self) -> None:
+        repo = InMemoryCandleRepository()
+        market = uuid.uuid4()
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        end = datetime(2026, 1, 2, tzinfo=UTC)
+        inside = Candle(
+            market_id=market,
+            timestamp=datetime(2026, 1, 1, 12, tzinfo=UTC),
+            ohlcv=_candle().ohlcv,
+            timeframe=Timeframe.HOUR_1,
+        )
+        outside = Candle(
+            market_id=market,
+            timestamp=datetime(2026, 1, 3, tzinfo=UTC),
+            ohlcv=_candle().ohlcv,
+            timeframe=Timeframe.HOUR_1,
+        )
+        repo.add(inside)
+        repo.add(outside)
+        assert [c.id for c in repo.get_range(market, start, end)] == [inside.id]
+
+    def test_delete_by_market_removes_only_that_market(self) -> None:
+        repo = InMemoryCandleRepository()
+        market = uuid.uuid4()
+        other = uuid.uuid4()
+        repo.add(replace(_candle(), market_id=market))
+        repo.add(replace(_candle(), market_id=market))
+        keeper = replace(_candle(), market_id=other)
+        repo.add(keeper)
+        repo.delete_by_market(market)
+        assert [c.id for c in repo.list()] == [keeper.id]
+
+
+class TestInMemoryMarketDataFunctional:
+    def test_get_candles_with_window_uses_range(self) -> None:
+        mkt = _market()
+        market_repo = InMemoryMarketRepository()
+        market_repo.add(mkt)
+        repo = InMemoryMarketDataRepository(market_repo=market_repo)
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        end = datetime(2026, 1, 2, tzinfo=UTC)
+        repo.save_candle(
+            Candle(
+                market_id=mkt.id,
+                timestamp=datetime(2026, 1, 1, 12, tzinfo=UTC),
+                ohlcv=_candle().ohlcv,
+                timeframe=Timeframe.HOUR_1,
+            )
+        )
+        repo.save_candle(
+            Candle(
+                market_id=mkt.id,
+                timestamp=datetime(2026, 1, 3, tzinfo=UTC),
+                ohlcv=_candle().ohlcv,
+                timeframe=Timeframe.HOUR_1,
+            )
+        )
+        result = repo.get_candles(mkt.symbol, start, end)
+        assert len(result) == 1
+        assert result[0].timestamp == datetime(2026, 1, 1, 12, tzinfo=UTC)
+
+
+class TestInMemoryStrategyFunctional:
+    def test_list_active_filters_status(self) -> None:
+        repo = InMemoryStrategyRepository()
+        draft = _strategy()
+        active = replace(_strategy(), status=StrategyStatus.ACTIVE)
+        repo.add(draft)
+        repo.add(active)
+        assert [s.id for s in repo.list_active()] == [active.id]
+
+
+class TestInMemoryBacktestResultFunctional:
+    def test_get_by_market(self) -> None:
+        repo = InMemoryBacktestResultRepository()
+        a = _backtest_result()
+        b = _backtest_result()
+        repo.add(a)
+        repo.add(b)
+        assert [r.id for r in repo.get_by_market(a.market_id)] == [a.id]
+        assert repo.get_by_market(uuid.uuid4()) == []
+
+
+class TestInMemoryTradeFunctional:
+    def test_get_by_signal(self) -> None:
+        repo = InMemoryTradeRepository()
+        a = _trade()
+        b = _trade()
+        repo.add(a)
+        repo.add(b)
+        assert [t.id for t in repo.get_by_signal(a.signal_id)] == [a.id]
+        assert repo.get_by_signal(uuid.uuid4()) == []
+
+    def test_get_by_market(self) -> None:
+        repo = InMemoryTradeRepository()
+        a = _trade()
+        b = _trade()
+        repo.add(a)
+        repo.add(b)
+        assert [t.id for t in repo.get_by_market(a.market_id)] == [a.id]
+        assert repo.get_by_market(uuid.uuid4()) == []
+
+
+class TestInMemorySignalFunctional:
+    def test_get_by_strategy(self) -> None:
+        repo = InMemorySignalRepository()
+        a = _signal()
+        b = replace(_signal(), strategy_id=a.strategy_id)
+        repo.add(a)
+        repo.add(b)
+        assert {s.id for s in repo.get_by_strategy(a.strategy_id)} == {a.id, b.id}
+
+    def test_get_range_filters_by_generated_at(self) -> None:
+        repo = InMemorySignalRepository()
+        a = _signal()
+        repo.add(a)
+        start = a.generated_at - timedelta(minutes=1)
+        end = a.generated_at + timedelta(minutes=1)
+        assert [s.id for s in repo.get_range(a.market_id, start, end)] == [a.id]
+        later = end + timedelta(minutes=1)
+        assert repo.get_range(a.market_id, later, later + timedelta(minutes=1)) == []
+
+
+class TestInMemoryKnowledgeNodeFunctional:
+    def test_get_by_label(self) -> None:
+        repo = InMemoryKnowledgeNodeRepository()
+        a = _knowledge_node()
+        b = _knowledge_node()
+        repo.add(a)
+        repo.add(b)
+        assert [n.id for n in repo.get_by_label(a.label)] == [a.id, b.id]
+
+    def test_get_by_type(self) -> None:
+        repo = InMemoryKnowledgeNodeRepository()
+        a = _knowledge_node()
+        b = _knowledge_node()
+        repo.add(a)
+        repo.add(b)
+        assert [n.id for n in repo.get_by_type(a.node_type)] == [a.id, b.id]
+        assert repo.get_by_type("nosuch") == []
+
+
+class TestInMemoryKnowledgeEdgeFunctional:
+    def test_get_neighbors_returns_empty(self) -> None:
+        repo = InMemoryKnowledgeEdgeRepository()
+        assert repo.get_neighbors(uuid.uuid4()) == []
