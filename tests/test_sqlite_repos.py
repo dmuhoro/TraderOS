@@ -1,5 +1,6 @@
 import sqlite3
 import uuid
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -435,3 +436,73 @@ class TestSQLiteKnowledgeEdgeFunctional:
         db = _db()
         edges = SQLiteKnowledgeEdgeRepository(db)
         assert edges.get_neighbors(uuid.uuid4()) == []
+
+
+class TestSQLiteSignalFunctional:
+    def test_get_active_excludes_expired(self) -> None:
+        repo = SQLiteSignalRepository(_db())
+        fresh = _signal()
+        expired = replace(
+            _signal(),
+            market_id=fresh.market_id,
+            generated_at=datetime.now(tz=UTC) - timedelta(hours=2),
+            expires_at=datetime.now(tz=UTC) - timedelta(minutes=5),
+        )
+        repo.add(fresh)
+        repo.add(expired)
+        active = repo.get_active(fresh.market_id)
+        assert [s.id for s in active] == [fresh.id]
+
+    def test_get_by_strategy(self) -> None:
+        repo = SQLiteSignalRepository(_db())
+        first = _signal()
+        second = replace(_signal(), strategy_id=first.strategy_id)
+        repo.add(first)
+        repo.add(second)
+        by_strategy = repo.get_by_strategy(first.strategy_id)
+        assert {s.id for s in by_strategy} == {first.id, second.id}
+
+    def test_get_range(self) -> None:
+        repo = SQLiteSignalRepository(_db())
+        now = datetime.now(tz=UTC)
+        older = replace(
+            _signal(),
+            generated_at=now - timedelta(hours=3),
+            expires_at=now + timedelta(hours=1),
+        )
+        newer = replace(
+            _signal(),
+            market_id=older.market_id,
+            generated_at=now + timedelta(hours=1),
+            expires_at=now + timedelta(hours=3),
+        )
+        repo.add(older)
+        repo.add(newer)
+        in_range = repo.get_range(older.market_id, now - timedelta(hours=4), now)
+        assert [s.id for s in in_range] == [older.id]
+
+
+class TestSQLiteIndicatorFunctional:
+    def test_get_by_name(self) -> None:
+        repo = SQLiteIndicatorRepository(_db())
+        a = _indicator()
+        b = replace(_indicator(), market_id=a.market_id, name="RSI")
+        repo.add(a)
+        repo.add(b)
+        result = repo.get_by_name(a.market_id, "RSI")
+        assert [i.id for i in result] == [a.id, b.id]
+
+    def test_get_latest_returns_row(self) -> None:
+        repo = SQLiteIndicatorRepository(_db())
+        a = _indicator()
+        b = replace(_indicator(), market_id=a.market_id, name="RSI")
+        repo.add(a)
+        repo.add(b)
+        latest = repo.get_latest(a.market_id, "RSI")
+        assert latest is not None
+        assert latest.id == b.id
+
+    def test_get_latest_none_for_missing_name(self) -> None:
+        repo = SQLiteIndicatorRepository(_db())
+        repo.add(_indicator())
+        assert repo.get_latest(uuid.uuid4(), "RSI") is None

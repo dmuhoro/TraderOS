@@ -70,3 +70,44 @@ class TestWebhookNotifier:
         ):
             _send()
         sleep.assert_not_called()
+
+    def test_missing_urlopen_raises_runtime_error(self) -> None:
+        import pytest
+
+        def fake_retry(fn, max_retries=2):
+            webhook_notifier.urlopen = None
+            return fn()
+
+        with (
+            patch.object(webhook_notifier, "retry_with_backoff", fake_retry),
+            patch.object(webhook_notifier, "urlopen", "non-empty"),
+        ):
+            with pytest.raises(RuntimeError):
+                _send()
+
+    def test_urllib_import_failure_sets_fallback_flags(self) -> None:
+        import builtins
+        import importlib
+        import sys
+
+        name = "traderos.infrastructure.notifiers.webhook_notifier"
+        real_import = builtins.__import__
+
+        def fake_import(name_, globals_=None, locals_=None, fromlist=(), level=0):
+            if name_ == "urllib.request":
+                raise ImportError("blocked")
+            return real_import(name_, globals_, locals_, fromlist, level)
+
+        saved = sys.modules.pop(name, None)
+        try:
+            builtins.__import__ = fake_import
+            module = importlib.import_module(name)
+            assert module._has_urlopen is False
+            assert module._URLError is OSError
+            assert module.Request is None
+            assert module.urlopen is None
+        finally:
+            builtins.__import__ = real_import
+            sys.modules.pop(name, None)
+            if saved is not None:
+                sys.modules[name] = saved

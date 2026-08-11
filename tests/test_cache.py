@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import sys
 import time
+from types import ModuleType
+
+import pytest
 
 from traderos.infrastructure.cache import InMemoryCache
+from traderos.infrastructure.cache import RedisCache
 from traderos.infrastructure.cache import create_cache
 
 
@@ -84,3 +89,89 @@ class TestInMemoryCache:
         cache.set("stale", "val")
         time.sleep(0.01)
         assert cache.get("expired") is None
+
+    def test_has_returns_false_and_cleans_expired(self):
+        cache: InMemoryCache[str] = InMemoryCache(default_ttl=0)
+        cache.set("stale", "val")
+        time.sleep(0.01)
+        assert cache.has("stale") is False
+        assert cache.get("stale") is None
+
+
+class _FakeRedisClient:
+    def __init__(self) -> None:
+        self.data: dict[str, str] = {}
+
+    def get(self, key: str) -> str | None:
+        return self.data.get(key)
+
+    def setex(self, key: str, ttl: int, payload: str) -> bool:
+        self.data[key] = payload
+        return True
+
+    def delete(self, key: str) -> int:
+        return 1 if self.data.pop(key, None) is not None else 0
+
+    def flushdb(self) -> bool:
+        self.data.clear()
+        return True
+
+    def exists(self, key: str) -> int:
+        return 1 if key in self.data else 0
+
+
+@pytest.fixture
+def _fake_redis(monkeypatch: pytest.MonkeyPatch):
+    clients: list[_FakeRedisClient] = []
+
+    def _from_url(url: str) -> _FakeRedisClient:
+        client = _FakeRedisClient()
+        clients.append(client)
+        return client
+
+    mod = ModuleType("redis")
+    mod.from_url = _from_url
+    monkeypatch.setitem(sys.modules, "redis", mod)
+    return clients
+
+
+class TestRedisCache:
+    def test_get_missing(self, _fake_redis):
+        cache: RedisCache[str] = RedisCache("redis://localhost:6379/0")
+        assert cache.get("nope") is None
+
+    def test_set_get_roundtrip(self, _fake_redis):
+        cache: RedisCache[dict] = RedisCache("redis://localhost:6379/0")
+        cache.set("k", {"a": 1})
+        assert cache.get("k") == {"a": 1}
+
+    def test_set_with_custom_ttl(self, _fake_redis):
+        cache: RedisCache[str] = RedisCache("redis://localhost:6379/0")
+        cache.set("k", "v", ttl=60)
+        assert _fake_redis[0].data["k"] == '"v"'
+
+    def test_delete(self, _fake_redis):
+        cache: RedisCache[str] = RedisCache("redis://localhost:6379/0")
+        cache.set("k", "v")
+        cache.delete("k")
+        assert cache.get("k") is None
+
+    def test_clear(self, _fake_redis):
+        cache: RedisCache[str] = RedisCache("redis://localhost:6379/0")
+        cache.set("a", "1")
+        cache.set("b", "2")
+        cache.clear()
+        assert cache.has("a") is False
+        assert cache.has("b") is False
+
+    def test_has(self, _fake_redis):
+        cache: RedisCache[str] = RedisCache("redis://localhost:6379/0")
+        assert cache.has("k") is False
+        cache.set("k", "v")
+        assert cache.has("k") is True
+
+    def test_import_error_raises_helpful_message(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setitem(sys.modules, "redis", None)
+        cache: RedisCache[str] = RedisCache("redis://localhost:6379/0")
+        with pytest.raises(ImportError, match="redis-py required"):
+            cache.get("k")

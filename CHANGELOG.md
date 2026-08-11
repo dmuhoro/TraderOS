@@ -1,5 +1,54 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 34 (Test coverage 95.16% → 97.07%, gate raised to 97%)
+
+### Batch A — flagged infrastructure + domain offenders to 100% (2026-08-11)
+- `application/factory.py` (28 missing), `infrastructure/cache.py` (22),
+  `repositories/sqlite/markets.py` (21), `domain/services/strategy_framework.py`
+  (19), `domain/services/reconciliation_service.py` (18),
+  `infrastructure/monitoring.py` (17) closed with functional edge tests
+  (`tests/test_factory_coverage.py`, `tests/test_sqlite_markets_repo.py`,
+  `tests/test_reconciliation_service_coverage.py`, extended
+  `test_cache.py`/`test_strategy_framework.py`/`test_monitoring.py`).
+
+### Batch B — API layer operator/security/market all 100% (2026-08-11)
+- `tests/test_market_api.py` (16): market overview/candles/symbols/indicators,
+  backtest success+failure, observations, ingest/research 503s, no-source 404.
+  Fixed two standalone apps that silently 404'd because they never called
+  `app.include_router(router)` (Starlette 1.3.1 lazy `_IncludedRouter`).
+- `tests/test_api_security_edges.py` (20): session-token seam (valid/invalid/
+  no-key-when-enabled → 401), `require_operate` 403s, `require_sse`
+  open/accept/forbid, `auth_info`, auth boundary with `TRADING_MODE=live`.
+- `tests/test_operator_api_edges.py`: LIVE cash branches, equity-curve loop,
+  readiness broker-failure, workflow idle/advance, strategy lifecycle errors
+  (compare/review/enable/disable/promote/archive/clone), probes, order
+  normalization, session report json+markdown, SSE keepalive `continue` path
+  (a 3rd frame pull is required before the generator closes at the yield).
+
+### Batch C — remaining offenders to 100% (2026-08-11)
+- `infrastructure/collectors/alpaca_collector.py` (24) — new
+  `tests/test_alpaca_collector.py`: `_frame_interval` mappings, env-key
+  fallback, df-None, MultiIndex vs plain-index parsing, string-timestamp branch.
+- `repositories/sqlite/signals.py`/`indicators.py`/`historical_candles.py`
+  (get_active/get_by_strategy/get_range, get_by_name/get_latest, load/count
+  start/end/limit + dict-row branch).
+- `repositories/in_memory/research.py` (get_by_symbol/get_by_observation/
+  get_by_hypothesis/get_by_experiment/get_by_result/get_by_tags).
+- `notifiers/webhook_notifier.py` — urllib ImportError fallback flags
+  (re-import with `__import__` blocked) and the `urlopen is None` RuntimeError
+  inside the retry closure.
+
+### Verification
+- Full suite green on the final state: **1907 passed / 7 skipped**, coverage
+  **97.07%** (356 missing of 12152). **Gate raised to `fail_under = 97`** in
+  `pyproject.toml` (was 70) and `addopts` narrowed to `--cov=traderos` so the
+  gate measures the package only; `--cov-fail-under=97` passes.
+- 110 of 121 files report 100% coverage; residuals are defensive `except`/
+  guard branches, Postgres-backed repos, and live-broker/network failure paths.
+- Evidence drills re-ran today: frozen CSV re-fetched (newest ~1y window);
+  oracle conformance lock unaffected (2/2 PASS); real-market walk-forward still
+  shows no positive expectancy after full costs on OOS data.
+
 ## [Unreleased] - Sprint 33 (Disaster-recovery runbook commands run via `python -m traderos`)
 
 ### WP1 — module entrypoint + parser/handler wiring (2026-08-10)
