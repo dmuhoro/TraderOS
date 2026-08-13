@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import os
 import signal
+import sys
 import threading
 import time
 import uuid
 from datetime import UTC
 from datetime import datetime
+from typing import Any
 from unittest.mock import Mock
 
 from traderos.application.cycle_executor import CycleExecutor
@@ -97,6 +99,49 @@ class TestDaemonController:
         assert "health" in status
         assert "metrics" in status
         controller.stop()
+
+    def test_run_forever_installs_and_uninstalls_fatal_handler(self) -> None:
+        class _FakeHandler:
+            def __init__(self) -> None:
+                self.installed = 0
+                self.uninstalled = 0
+
+            def install(self) -> None:
+                self.installed += 1
+
+            def uninstall(self) -> None:
+                self.uninstalled += 1
+
+        fake_handler: Any = _FakeHandler()
+        data_ingestion = Mock()
+        data_ingestion.get_latest_close.return_value = 100.0
+        executor = _make_executor()
+        controller = DaemonController(
+            mode=TradingMode.PAPER,
+            cycle_executor=executor,
+            event_bus=InMemoryEventBus(),
+            health=HealthService(),
+            audit=AuditService(),
+            metrics=MetricsService(),
+            notifications=Mock(),
+            run_manifest=RunManifestService(),
+            data_ingestion=data_ingestion,
+            market_ids=[uuid.uuid4()],
+            fatal_handler=fake_handler,
+        )
+
+        def _stop_after_delay():
+            time.sleep(0.15)
+            controller._running = False
+
+        t = threading.Thread(target=_stop_after_delay, daemon=True)
+        t.start()
+        previous_hook = sys.excepthook
+        controller.run_forever(interval_seconds=0.05, shutdown_timeout=10)
+        t.join(timeout=2)
+        assert fake_handler.installed == 1
+        assert fake_handler.uninstalled == 1
+        assert sys.excepthook is previous_hook
 
     def test_run_forever_executes_cycles_then_stops(self) -> None:
         data_ingestion = Mock()
@@ -227,16 +272,16 @@ class TestDaemonController:
 
 class TestDaemonControllerExt:
     def _controller(self, **kw) -> DaemonController:
-        defaults = dict(
-            mode=TradingMode.PAPER,
-            cycle_executor=_make_executor(),
-            event_bus=InMemoryEventBus(),
-            health=HealthService(),
-            audit=AuditService(),
-            metrics=MetricsService(),
-            notifications=Mock(),
-            run_manifest=RunManifestService(),
-        )
+        defaults = {
+            "mode": TradingMode.PAPER,
+            "cycle_executor": _make_executor(),
+            "event_bus": InMemoryEventBus(),
+            "health": HealthService(),
+            "audit": AuditService(),
+            "metrics": MetricsService(),
+            "notifications": Mock(),
+            "run_manifest": RunManifestService(),
+        }
         defaults.update(kw)
         return DaemonController(**defaults)
 
@@ -371,6 +416,72 @@ class TestDaemonControllerExt:
         controller = self._controller(broker_reconciliation=rec)
         controller._run_periodic_reconciliation()
         rec.reconcile.assert_called_once()
+
+    # ---- local-state provider (Gap 1: real local truth into reconciliation) ----
+    def test_fetch_local_state_none_without_provider(self) -> None:
+        assert self._controller()._fetch_local_state() == (None, None)
+
+    def test_fetch_local_state_returns_provider_output(self) -> None:
+        positions = [{"symbol": "BTC", "qty": 1.0}]
+        orders = [{"id": "o1", "symbol": "BTC", "qty": 1.0, "side": "buy"}]
+        provider = Mock(return_value=(positions, orders))
+        controller = self._controller(local_state_provider=provider)
+        assert controller._fetch_local_state() == (positions, orders)
+        provider.assert_called_once()
+
+    def test_fetch_local_state_swallows_provider_errors(self) -> None:
+        notifications = Mock()
+        provider = Mock(side_effect=RuntimeError("repo down"))
+        controller = self._controller(local_state_provider=provider, notifications=notifications)
+        assert controller._fetch_local_state() == (None, None)
+        notifications.warning.assert_called()
+
+    def test_run_forever_passes_local_state_to_reconciliation(self) -> None:
+        data_ingestion = Mock()
+        data_ingestion.get_latest_close.return_value = 100.0
+        rec = Mock()
+        rec.reconcile.return_value = BrokerReconciliationResult(
+            matched_positions=1, reconciled_positions=1
+        )
+        rec.can_accept_orders = True
+        positions = [{"symbol": "BTC", "qty": 1.0, "entry_price": 100.0, "current_price": 100.0}]
+        orders = [{"id": "o1", "symbol": "BTC", "qty": 1.0, "side": "buy"}]
+        provider = Mock(return_value=(positions, orders))
+        controller = self._controller(
+            data_ingestion=data_ingestion,
+            market_ids=[uuid.uuid4()],
+            broker_reconciliation=rec,
+            local_state_provider=provider,
+        )
+        t = self._stopper(controller)
+        controller.run_forever(interval_seconds=0.05, shutdown_timeout=10)
+        t.join(timeout=2)
+        # Startup AND every periodic reconciliation must carry the provider's state.
+        assert rec.reconcile.called
+        for call in rec.reconcile.call_args_list:
+            assert call.kwargs["local_positions"] == positions
+            assert call.kwargs["local_orders"] == orders
+        assert provider.called
+
+    def test_run_forever_no_provider_reconciles_broker_vs_empty(self) -> None:
+        # Without a local provider the daemon must still reconcile (fail closed):
+        # any broker-held position is flagged because local is treated as empty.
+        data_ingestion = Mock()
+        data_ingestion.get_latest_close.return_value = 100.0
+        rec = Mock()
+        rec.reconcile.return_value = BrokerReconciliationResult()
+        rec.can_accept_orders = True
+        controller = self._controller(
+            data_ingestion=data_ingestion,
+            market_ids=[uuid.uuid4()],
+            broker_reconciliation=rec,
+        )
+        t = self._stopper(controller)
+        controller.run_forever(interval_seconds=0.05, shutdown_timeout=10)
+        t.join(timeout=2)
+        first = rec.reconcile.call_args_list[0]
+        assert first.kwargs["local_positions"] is None
+        assert first.kwargs["local_orders"] is None
 
     # ---- reconciliation result handling branches ----
     def test_handle_reconciliation_errors_trips_kill_switch(self) -> None:

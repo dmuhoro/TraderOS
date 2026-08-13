@@ -149,6 +149,21 @@ class JournaledBroker(BrokerAdapter):
             client_order_id=client_order_id,
         )
 
+    def place_flatten_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        close_price: float | None = None,
+    ) -> FillResult:
+        return self._submit(
+            "place_flatten_order",
+            market_id,
+            side,
+            quantity,
+            close_price=close_price,
+        )
+
     def place_limit_order(
         self,
         market_id: uuid.UUID,

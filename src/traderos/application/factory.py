@@ -224,7 +224,11 @@ def build_orchestrator(
         )
     else:
         oncall = None
-    notifications = NotificationService(notifier=webhook_notifier, oncall=oncall)
+    notifications = NotificationService(
+        notifier=webhook_notifier,
+        oncall=oncall,
+        webhook_on_critical=bool(os.getenv("WEBHOOK_URL")),
+    )
 
     _sync_strategy_registry(db, backend)
 

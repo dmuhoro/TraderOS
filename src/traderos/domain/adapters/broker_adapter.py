@@ -26,6 +26,24 @@ class BrokerAdapter(ABC):
         client_order_id: str | None = None,
     ) -> FillResult: ...
 
+    def place_flatten_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        close_price: float | None = None,
+    ) -> FillResult:
+        """Emergency-close seam used by the kill switch / fatal freeze.
+
+        Defaults to the ordinary market-order path so every real adapter keeps
+        the full journal/circuit-breaker stack. Wrappers whose policy must
+        NEVER throttle or refuse the kill switch (the broker rate limiter and
+        the order-size guardrails) override this to bypass only their own
+        policy while still delegating to the inner adapter's real submission
+        path.
+        """
+        return self.place_market_order(market_id, side, quantity, close_price)
+
     @abstractmethod
     def place_limit_order(
         self,

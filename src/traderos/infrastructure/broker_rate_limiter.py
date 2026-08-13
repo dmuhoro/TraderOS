@@ -13,7 +13,7 @@ _WINDOW_VAR = "BROKER_RATE_LIMIT_WINDOW"
 
 
 def _is_enabled() -> bool:
-    return os.getenv(_ENABLED_VAR, "").lower() in ("true", "1", "yes")
+    return os.getenv(_ENABLED_VAR, "true").lower() not in ("false", "0", "no")
 
 
 class RateLimitExceededError(Exception):
@@ -23,7 +23,9 @@ class RateLimitExceededError(Exception):
 class RateLimitedBroker(BrokerAdapter):
     """Proxy around a BrokerAdapter that applies per-method rate limits.
 
-    Flagged off by default. Enable via BROKER_RATE_LIMIT_ENABLED=true.
+    On by default (fail closed) so a runaway strategy loop cannot hammer the
+    broker; opt out with BROKER_RATE_LIMIT_ENABLED=false. Emergency flatten
+    closes go through ``place_flatten_order`` and are never throttled.
     """
 
     def __init__(
@@ -61,6 +63,17 @@ class RateLimitedBroker(BrokerAdapter):
         return self._inner.place_market_order(
             market_id, side, quantity, close_price, client_order_id
         )
+
+    def place_flatten_order(
+        self,
+        market_id: uuid.UUID,
+        side: str,
+        quantity: float,
+        close_price: float | None = None,
+    ) -> FillResult:
+        # Kill-switch / fatal-freeze closes must never be throttled: a delayed
+        # flatten is a live risk position, not a queueing problem.
+        return self._inner.place_market_order(market_id, side, quantity, close_price)
 
     def place_limit_order(
         self,
