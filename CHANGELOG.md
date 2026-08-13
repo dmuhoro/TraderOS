@@ -1,5 +1,42 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 38 (Market Brain: tick-fed chart watcher wired into the async execution path)
+
+### Market Brain — Slice A: domain chart watcher + real-path gate (2026-08-13)
+- `domain/services/market_brain_service.py` — `MarketBrainService`, the
+  per-market "chart watcher" for the Custom Expert Advisor:
+  - `seed_candles` — idempotent history ingestion deduped by bar identity
+    (timestamp + full OHLCV + timeframe), so a same-timestamp replay/candle tape
+    is read whole rather than collapsed; reads are strict index-based.
+  - `update_tick` — live-tick ring buffer (liquidity) plus interval candle
+    aggregation folded into the read series.
+  - `snapshot` — `StateSnapshot` (regime, trend stage, ATR volatility
+    percentile, momentum, RSI, Bollinger band envelope, liquidity) from the
+    domain `AnalysisService` indicators; trend stage from EMA20/50 alignment;
+    regime derived from stage (volatility names the regime only when stage is
+    unreadable — a flat tape is never "high volatility").
+  - `advise` — ranked `Advice`, **fail closed**: insufficient data
+    ("warming up"), range-bound/unknown stage ("no directional edge"), and
+    sub-threshold confidence are all explicit refusals with reasons; an allowed
+    move's `risk_fraction` is clamped to `max_risk_fraction` and volatility only
+    ever reduces it, never raises it.
+  - Domain purity enforced: the service consumes a `_PriceTick` structural
+    `Protocol` (price/quantity/exchange_timestamp) — it does **not** import
+    infrastructure, keeping the dependency-direction architecture gate green.
+- `application/async_daemon.py` — `AsyncDaemonController(brain=...)`: every fresh
+  tick is read by the Brain *before* the real cycle; a blocked read audits
+  `async.brain.blocked`, emits the `brain.advice` event (allowed=False +
+  reason), and returns — the real `CycleExecutor.run` is never invoked. An
+  allowed read audits `async.brain.advice` with direction/confidence/risk,
+  meters `async_daemon.brain_advised`, publishes the event with the move, then
+  runs the real series. Brain state surfaced in `get_status()`.
+- Evidence: `tests/test_market_brain_service.py` — seam proofs (unknown brain
+  never reaches the cycle/broker seam; allowed brain drives the real cycle
+  exactly once with event + status), real-signal reads across
+  bull/bear/accumulation/distribution/oscillating/flat/high-vol series, the hard
+  risk cap under extremes, sub-threshold and range-bound refusals, and the Event
+  flow carrying direction/confidence/risk for the EA.
+
 ## [Unreleased] - Sprint 37 (tick-fed async execution loop: Pareto ingestor wired into the real submission path)
 
 ### Async daemon — tick-driven event loop over the real submission path (2026-08-13)

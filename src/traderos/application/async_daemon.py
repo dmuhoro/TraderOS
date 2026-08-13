@@ -10,6 +10,9 @@ Safety properties (Constitution / execution guardrails):
 - Fresh-tick-only: a stale or duplicate tick never re-triggers a cycle.
 - Fail closed: a tick for an unwired symbol is never silently traded — it is
   audited, counted, and notified (no silent drops).
+- Market brain gate: when a ``MarketBrainService`` is wired, every fresh tick
+  is first read by the brain; an UNKNOWN or below-threshold read BLOCKS the
+  cycle with an explicit, audited reason (no silent drops, no fabricated edge).
 - No feed, no loop: ``run_forever`` refuses to idle a tick-driven loop without
   a ``ParetoWebSocketIngestor`` rather than silently doing nothing.
 - Contained cycles: a failing cycle degrades health and notifies without
@@ -21,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Mapping
+from datetime import UTC
 from datetime import datetime
 from typing import Any
 
@@ -29,10 +33,12 @@ from traderos.application.models import TradingMode
 from traderos.domain.exceptions import InfrastructureError
 from traderos.domain.exceptions import ServiceError
 from traderos.domain.ports import AuditPort
+from traderos.domain.ports import Event
 from traderos.domain.ports import EventBusPort
 from traderos.domain.ports import HealthPort
 from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricsPort
+from traderos.domain.services.market_brain_service import MarketBrainService
 from traderos.domain.services.notification_service import NotificationService
 from traderos.infrastructure.async_streaming import ParetoWebSocketIngestor
 from traderos.infrastructure.market_stream import Tick
@@ -63,6 +69,7 @@ class AsyncDaemonController:
         notifications: NotificationService,
         run_manifest: ManifestPort,
         ingestor: ParetoWebSocketIngestor | None = None,
+        brain: MarketBrainService | None = None,
     ) -> None:
         self._mode = mode
         self._cycle_executor = cycle_executor
@@ -83,6 +90,9 @@ class AsyncDaemonController:
         self._notifications = notifications
         self._run_manifest = run_manifest
         self._ingestor = ingestor
+        self._brain = brain
+        self._brain_since = datetime.now(tz=UTC)
+        self._brain_advised = 0
         self._running = False
         self._last_seen: dict[uuid.UUID, datetime] = {}
         self._cycles_run = 0
@@ -156,6 +166,56 @@ class AsyncDaemonController:
             "async_daemon",
             f"market={market_id} symbol={tick.symbol} price={tick.price}",
         )
+        if self._brain is not None:
+            self._brain.update_tick(market_id, tick)
+            advice = self._brain.advise(market_id)
+            self._metrics.counter("async_daemon.brain_cycles")
+            if not advice.allowed:
+                self._metrics.counter("async_daemon.brain_blocks")
+                self._audit.record(
+                    "async.brain.blocked",
+                    "system",
+                    "async_daemon",
+                    f"market={market_id} reason={advice.reason}",
+                )
+                self._event_bus.publish(
+                    Event(
+                        event_type="brain.advice",
+                        payload={
+                            "market_id": str(market_id),
+                            "allowed": False,
+                            "reason": advice.reason,
+                        },
+                        market=str(market_id),
+                    )
+                )
+                return
+            self._brain_advised += 1
+            self._metrics.counter("async_daemon.brain_advised")
+            top = advice.moves[0]
+            self._audit.record(
+                "async.brain.advice",
+                "system",
+                "async_daemon",
+                (
+                    f"market={market_id} direction={top.direction} "
+                    f"confidence={top.confidence} risk={top.risk_fraction} {top.rationale}"
+                ),
+            )
+            self._event_bus.publish(
+                Event(
+                    event_type="brain.advice",
+                    payload={
+                        "market_id": str(market_id),
+                        "allowed": True,
+                        "direction": top.direction,
+                        "confidence": top.confidence,
+                        "risk_fraction": top.risk_fraction,
+                        "reason": advice.reason,
+                    },
+                    market=str(market_id),
+                )
+            )
         try:
             await asyncio.to_thread(self._cycle_executor.run, market_id, float(tick.price))
         except _CYCLE_EXCEPTIONS as exc:
@@ -207,7 +267,7 @@ class AsyncDaemonController:
                 await asyncio.gather(*inflight, return_exceptions=True)
 
     def get_status(self) -> dict[str, Any]:
-        return {
+        status: dict[str, Any] = {
             "mode": self._mode.value,
             "running": self._running,
             "markets": len(self._market_symbols),
@@ -215,3 +275,10 @@ class AsyncDaemonController:
             "health": self._health.summary(),
             "metrics": self._metrics.snapshot(),
         }
+        if self._brain is not None:
+            status["brain"] = {
+                "markets": len(self._market_symbols),
+                "since": self._brain_since.isoformat(),
+                "advised": self._brain_advised,
+            }
+        return status
