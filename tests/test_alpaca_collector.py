@@ -13,8 +13,8 @@ from traderos.infrastructure.collectors.alpaca_collector import _frame_interval
 
 pytest.importorskip("alpaca")
 
-from alpaca.data.timeframe import TimeFrame  # noqa: E402
-from alpaca.data.timeframe import TimeFrameUnit  # noqa: E402
+from alpaca.data.timeframe import TimeFrame
+from alpaca.data.timeframe import TimeFrameUnit
 
 
 def _fake_client() -> MagicMock:
@@ -110,10 +110,10 @@ class TestAlpacaCollector:
         item = result[0]
         assert item.symbol == "BTC/USD"
         assert item.timestamp == ts.to_pydatetime()
-        assert item.open == Decimal("44000")
-        assert item.high == Decimal("44500")
-        assert item.low == Decimal("43900")
-        assert item.close == Decimal("44200")
+        assert item.open == Decimal(44000)
+        assert item.high == Decimal(44500)
+        assert item.low == Decimal(43900)
+        assert item.close == Decimal(44200)
         assert item.volume == Decimal("1234.5")
 
     @patch("alpaca.data.historical.crypto.CryptoHistoricalDataClient")

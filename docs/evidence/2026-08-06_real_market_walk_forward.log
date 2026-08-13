@@ -1,5 +1,5 @@
 REAL-MARKET WALK-FORWARD — G-01 cost-adjusted, out-of-sample (A3)
-started 2026-08-13T16:11:28.793677+00:00
+started 2026-08-13T16:27:41.216373+00:00
 engine: next-bar fills, side-aware slippage 5bps, fee 10bps, latency 10bps
 dataset: real public Binance BTCUSDT 1h klines via REST (paginated)
   full series: 8880 candles (8880 hours, 370 days)
@@ -10,10 +10,10 @@ dataset: real public Binance BTCUSDT 1h klines via REST (paginated)
   walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=7.2933 positive_folds=2/5 mean_sharpe=-0.1562 mean_max_dd=0.5342
 
 === strategy: volatility_breakout ===
-  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=-3.5268 positive_folds=3/5 mean_sharpe=0.6539 mean_max_dd=30.2113
+  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=-3.5261 positive_folds=3/5 mean_sharpe=0.6539 mean_max_dd=30.2113
 
 === strategy: mean_reversion ===
-  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=-0.2257 positive_folds=3/5 mean_sharpe=0.1572 mean_max_dd=1.8658
+  walk-forward on real OOS (5 folds, full costs incl. latency): mean_fold_return=-0.2258 positive_folds=3/5 mean_sharpe=0.1571 mean_max_dd=1.8658
 
 G-01 EXIT TEST (positive expectancy after full costs on real OOS data):
   (corrected label; exit criterion unchanged: all folds positive after costs)

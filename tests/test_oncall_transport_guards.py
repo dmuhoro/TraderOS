@@ -63,7 +63,7 @@ def _patch_retry_to_null_urlopen(monkeypatch: pytest.MonkeyPatch) -> None:
         ocr.urlopen = None
         try:
             return fn()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise ServiceError("Operation failed") from exc
         finally:
             ocr.urlopen = original

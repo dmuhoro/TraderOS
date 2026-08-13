@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-import traderos.application.factory as factory
+from traderos.application import factory
 from traderos.application.factory import _stream_interval_seconds
 from traderos.application.factory import _sync_strategy_registry
 from traderos.application.factory import build_orchestrator
@@ -44,7 +44,7 @@ class _Rails:
     max_positions_total = 10
     max_gross_exposure = 1.0
     max_data_staleness_seconds = 300.0
-    allowed_markets = ["BTCUSDT"]
+    allowed_markets: tuple[str, ...] = ("BTCUSDT",)
     require_allowlist = False
     explicit_fields = frozenset()
 
@@ -202,7 +202,7 @@ def test_sync_strategy_registry_postgres_inserts_missing() -> None:
         def __enter__(self):
             return self
 
-        def __exit__(self, *exc: Any) -> bool:
+        def __exit__(self, *exc: object) -> bool:
             return False
 
         def execute(self, sql: str, params: tuple | None = None) -> None:

@@ -81,9 +81,9 @@ class TestWebhookNotifier:
         with (
             patch.object(webhook_notifier, "retry_with_backoff", fake_retry),
             patch.object(webhook_notifier, "urlopen", "non-empty"),
+            pytest.raises(RuntimeError),
         ):
-            with pytest.raises(RuntimeError):
-                _send()
+            _send()
 
     def test_urllib_import_failure_sets_fallback_flags(self) -> None:
         import builtins
