@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from traderos.application.async_daemon import AsyncDaemonController
 from traderos.application.orchestrator import TradingMode
 from traderos.application.orchestrator import TradingOrchestrator
 from traderos.application.risk_config import resolve_risk_rails
@@ -546,6 +547,67 @@ def build_orchestrator(
         interval_seconds=int(os.getenv("PROBE_SCHEDULER_INTERVAL", "30")),
     )
     return orch
+
+
+def build_async_daemon(
+    mode: str = "paper",
+    market_ids: list[uuid.UUID] | None = None,
+    config: Config | None = None,
+) -> AsyncDaemonController:
+    """Compose the tick-fed async trading loop over the SAME real cycle path.
+
+    Builds a full ``TradingOrchestrator`` (shared services, the real broker
+    chain and risk gate, the OT-011 thread-safe connection layer) and returns
+    an ``AsyncDaemonController`` wired to its ``CycleExecutor`` plus a real
+    ``ParetoWebSocketIngestor`` when the Binance streaming feed is enabled.
+    The symbol -> market routing table uses the same deterministic
+    ``uuid5("traderos/{symbol}")`` scheme as the sync wiring, so a validated
+    tick routes to the market the loop trades.
+
+    Fail closed: without a streaming feed the returned controller refuses to
+    ``run_forever`` (no feed, no loop) rather than silently idling.
+    """
+    from traderos.infrastructure.async_streaming import AsyncBinanceStreamTransport
+    from traderos.infrastructure.async_streaming import ParetoWebSocketIngestor
+
+    orch = build_orchestrator(mode=mode, market_ids=market_ids, config=config)
+    cfg = config or Config.load()
+
+    symbols: list[str] = []
+    forex = cfg.get("data_collection.forex_symbols", [])
+    crypto = cfg.get("data_collection.crypto_symbols", [])
+    if isinstance(forex, list):
+        symbols.extend(forex)
+    if isinstance(crypto, list):
+        symbols.extend(crypto)
+
+    market_symbols: dict[uuid.UUID, str] = {}
+    for symbol in symbols:
+        market_symbols[uuid.uuid5(uuid.NAMESPACE_DNS, f"traderos/{symbol}")] = symbol
+
+    ingestor: ParetoWebSocketIngestor | None = None
+    streaming_enabled = bool(cfg.get("data_collection.binance.streaming", False))
+    if streaming_enabled and isinstance(crypto, list) and crypto:
+        try:
+            ingestor = ParetoWebSocketIngestor(
+                AsyncBinanceStreamTransport(),
+                symbols=list(crypto),
+            )
+        except Exception:  # noqa: BLE001 — streaming is best-effort, never fatal
+            ingestor = None
+
+    return AsyncDaemonController(
+        mode=orch.mode,
+        cycle_executor=orch.cycle_executor,
+        market_symbols=market_symbols,
+        event_bus=orch.event_bus,
+        health=orch.health,
+        audit=orch.audit,
+        metrics=orch.metrics,
+        notifications=orch.notifications,
+        run_manifest=orch.run_manifest,
+        ingestor=ingestor,
+    )
 
 
 def _stream_interval_seconds(cfg: Config) -> int:

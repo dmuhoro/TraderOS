@@ -196,6 +196,10 @@ class TradingOrchestrator:
     def running(self) -> bool:
         return self._daemon_controller.running
 
+    @property
+    def cycle_executor(self) -> CycleExecutor:
+        return self._cycle_executor
+
     def start(self) -> None:
         self._daemon_controller.start()
         if self.secret_rotator is not None:

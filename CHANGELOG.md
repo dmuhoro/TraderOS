@@ -1,5 +1,36 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 37 (tick-fed async execution loop: Pareto ingestor wired into the real submission path)
+
+### Async daemon — tick-driven event loop over the real submission path (2026-08-13)
+- `application/async_daemon.py` — `AsyncDaemonController`: `handle_tick` maps
+  `Tick.symbol` -> market through the production symbol map, gates on freshness
+  (stale/duplicate ticks never re-trigger), and runs the real
+  `CycleExecutor.run` in a worker thread (`asyncio.to_thread`) so a slow broker
+  call never blocks the loop. Fail closed: an unwired symbol is audited, counted
+  and notified (never silently traded); a duplicate symbol mapping across
+  markets is a boot-time `ValueError`; a failing cycle is contained
+  (`async_daemon.cycle_panics`, market health degraded) and never escapes the
+  loop. `run_forever` owns a real `ParetoWebSocketIngestor` pipeline and refuses
+  to run without a feed; on stop it drains in-flight cycles then cancels.
+- `application/factory.py` — `build_async_daemon(...)`: composes the async
+  daemon over the same `TradingOrchestrator` services, the same deterministic
+  `uuid5("traderos/{symbol}")` market map, and the same wrapped broker chain as
+  the sync loop; wires a `ParetoWebSocketIngestor` when
+  `data_collection.binance.streaming` is enabled (constructor failure degrades
+  to "no feed", and the daemon then fails closed).
+- `application/orchestrator.py` — public read-only `cycle_executor` property so
+  the async daemon provably drives the orchestrator's own real executor.
+- The worker-thread cycle is correct **only** because the DB layer is the
+  production OT-011 thread-safe connection wrapper (`ThreadSafeSQLiteConnection`,
+  `infrastructure/database/connection.py`) or PostgreSQL — a raw thread-bound
+  `sqlite3.Connection` fails across threads (proven by the red->green
+  iteration). The proof uses the wrapper, not a mock.
+- Evidence: `tests/test_async_daemon_controller.py` (real broker seam reached
+  exactly once per fresh tick; refused/unwired/duplicate never reach it; ingestor
+  pipeline + `run_forever` end-to-end; forced-shutdown drain), factory wiring
+  proofs in `tests/test_factory_ingestion.py`.
+
 ## [Unreleased] - Sprint 36 (Pareto execution-safety hardening: freeze rail, fail-closed throttle, true local↔broker reconcile)
 
 ### Gap 3 — fatal-exception freeze rail (2026-08-13)
