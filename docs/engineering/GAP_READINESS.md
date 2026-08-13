@@ -1,6 +1,6 @@
 # TraderOS — Gap-Readiness Checklist & Build Order
 
-**Generated:** 2026-08-12 · **Branch:** `main` · **HEAD:** `880cb41` (Sprint 35)
+**Generated:** 2026-08-13 · **Branch:** `main` · **HEAD:** `48f28b0` (Sprint 36)
 **Method:** every item below is scored from *measured evidence in this repo*
 (test suite, drills in `docs/evidence/`, committed architecture) plus the
 verified live submission path. A score is not a promise — the "Exit test" is
@@ -147,6 +147,27 @@ real capital** an auditable decision rather than a vibe.
 - These scores supersede the older 96%/PRI-74 dashboards where they conflict:
   PRI-style indices measure architecture+process completion; this register
   measures *what must be true before real capital moves*.
+- **Sprint 36 — execution-safety hardening (fail closed on the real path).**
+  Three Pareto order-path gaps closed, each proven through the *real*
+  submission/reconciliation path, not a shared helper: (Gap 3) a
+  `FatalExceptionHandler` freeze rail installed by `DaemonController` that
+  broadcasts diagnostics, flattens via the true broker path, and **always**
+  `sys.exit(1)` even if alerting or flattening failed; (Gap 2) the broker rate
+  limiter is now **on by default** (fail closed — opt out only with explicit
+  `BROKER_RATE_LIMIT_ENABLED=false`), while the emergency flatten
+  `place_flatten_order` bypasses throttle + size guardrail but **stays** under
+  the circuit breaker and remains journaled; (Gap 1) startup **and every
+  periodic** broker-state reconciliation now run against **real local
+  positions/orders** via an optional `local_state_provider` (orch →
+  `position_repo.list_open()` + `trade_repo.get_open()` filtered to real broker
+  `external_order_id`s, so pending synthetic ids never false-block), and a
+  provider failure or unverifiable local view fails closed. Full suite **2193
+  passed / 7 skipped, 100.00% (0 missing of 12,453 statements)**, `pyright`
+  0 errors in `src/traderos/`. These close concrete rails; they do **not**
+  close G-02's full-window paper soak or G-01's real-edge proof — reconcile
+  accuracy is bounded by local-journal and broker-snapshot truth, and the
+  flatten bypass is *by design* throttled-free, so any future chain layer must
+  decide explicitly whether the flatten bypasses it.
 - **Sprint 35 — 100% coverage is suite-measured, and account qualification is
   NO-GO.** The full suite runs **2139 tests / 7 skipped** at **100% line
   coverage** (0 missing of 12,139 statements) with `fail_under = 100`; the
