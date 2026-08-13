@@ -43,6 +43,7 @@ from traderos.domain.services.research_service import ResearchService
 from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_management import StrategyCatalogService
+from traderos.infrastructure.fatal_handler import FatalExceptionHandler
 from traderos.infrastructure.ha_failover import FailoverManager
 from traderos.infrastructure.probe_scheduler import ProbeScheduler
 from traderos.infrastructure.secrets import SecretRotator
@@ -102,6 +103,34 @@ class TradingOrchestrator:
                 for f in verdict.failures:
                     self.notifications.warning("Preflight", f)
 
+    def _local_reconciliation_state(self) -> tuple[list[dict], list[dict]]:
+        """Local truth (positions + working orders) for broker reconciliation.
+
+        Keys mirror the broker adapter formats so the reconciliation service can
+        match them: positions keyed by ``symbol`` (= ``str(market_id)``), orders
+        keyed by the broker ``id`` recorded on the trade when it was submitted.
+        """
+        positions = [
+            {
+                "symbol": str(p.market_id),
+                "qty": p.quantity,
+                "entry_price": p.entry_price,
+                "current_price": p.current_price,
+            }
+            for p in self.portfolio_service.position_repo.list_open()
+        ]
+        orders = [
+            {
+                "id": t.external_order_id,
+                "symbol": str(t.market_id),
+                "qty": t.quantity,
+                "side": t.side.value,
+            }
+            for t in self.portfolio_service.trade_repo.get_open()
+            if t.external_order_id
+        ]
+        return positions, orders
+
     def __post_init__(self) -> None:
         catalog = self.strategy_catalog
         enabled_strategies = (
@@ -153,6 +182,14 @@ class TradingOrchestrator:
             supervision=self.supervision,
             failover=self.failover,
             standby_poll_seconds=self.standby_poll_seconds,
+            local_state_provider=self._local_reconciliation_state,
+            fatal_handler=FatalExceptionHandler(
+                notifications=self.notifications,
+                flatten_service=self.flatten_service,
+                audit=self.audit,
+                metrics=self.metrics,
+                mode=self.mode.value,
+            ),
         )
 
     @property

@@ -1,5 +1,53 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 36 (Pareto execution-safety hardening: freeze rail, fail-closed throttle, true local↔broker reconcile)
+
+### Gap 3 — fatal-exception freeze rail (2026-08-13)
+- `infrastructure/fatal_handler.py` — `FatalExceptionHandler`, an installable
+  `sys.excepthook` installed/uninstalled by `DaemonController.run_forever`. On a
+  critical unexpected exception escaping the loop it broadcasts diagnostics
+  (console + webhook + on-call as configured), records `fatal.exception` audit +
+  metrics, attempts an exactly-once flatten through the true broker path, and
+  always terminates via `sys.exit(1)` — even if alerting/flattening failed
+  (fail closed, never leave a half-alive trading process). Each rail is guarded
+  independently so one broken step never skips a later one.
+- `domain/services/notification_service.py` — `info/warning/error/critical`
+  accept `metadata`; `webhook_on_critical` fan-out with no double-send on a
+  WEBHOOK primary; `oncall.route` receives metadata.
+
+### Gap 2 — fail-closed broker throttle + emergency flatten bypass
+- `infrastructure/broker_rate_limiter.py` — now **on by default** (fail
+  closed); opt out only with `BROKER_RATE_LIMIT_ENABLED=false`/`0`/`no`;
+  `place_flatten_order` bypasses the throttle (`_check`).
+- `place_flatten_order` propagated through the whole broker chain
+  (`domain/adapters/broker_adapter.py`, `infrastructure/order_guardrail.py`,
+  `broker_circuit_breaker.py`, `journaled_broker.py`): flattens bypass the size
+  guardrail and rate limiter but **remain** under the circuit breaker and are
+  **still journaled** (`place_flatten_order` causal entry).
+- `domain/services/flatten_service.py` — `flatten` calls `place_flatten_order`.
+
+### Gap 1 — true local↔broker state reconciliation
+- `application/daemon_controller.py` — optional `local_state_provider`; startup
+  and **every periodic** reconciliation now receive real local positions/orders.
+  No provider → reconcile broker-vs-empty (fail closed); provider failure →
+  warning, treated as local unknown, trading blocked via the mismatch path.
+- `application/orchestrator.py` — `_local_reconciliation_state()` builds local
+  truth from `position_repo.list_open()` + `trade_repo.get_open()` (only trades
+  with a real broker `external_order_id`, so pending/synthetic ids never cause a
+  false `LOCAL_ONLY_ORDER`), wired as the daemon's provider.
+- Order-id matching is real: `CycleExecutor` records the broker's `fill.order_id`
+  into `trade.external_order_id`.
+
+### Quality gates
+- Full suite **2193 passed / 7 skipped**, **100.00% coverage (0 missing of
+  12,453 statements)**, `fail_under = 100`.
+- `pyright src/traderos/`: 0 errors / 0 warnings.
+- `ruff check src/traderos/`: clean. (Pre-existing lint debt in a few untouched
+  `tests/` files remains; CI lints `src/traderos/` only.)
+- Evidence drills re-run today (timestamps refreshed), oracle conformance
+  unchanged (reference PnL still locked: trades=55/-0.094886, withheld
+  18/-0.028102).
+
 ## [Unreleased] - Sprint 35 (Test coverage 97.07% → 100%, gate raised to 100%)
 
 ### Layer 4 bucket 3 — server / cli / config / logging / SSE to 100% (2026-08-11)

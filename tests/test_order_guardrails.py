@@ -14,6 +14,10 @@ class _MockInner:
         self.place_calls += 1
         return FillResult(True, quantity, 100.0, 0.0, "filled", "ord1")
 
+    def place_flatten_order(self, market_id, side, quantity, close_price=None):
+        self.place_calls += 1
+        return FillResult(True, quantity, close_price or 100.0, 0.0, "filled", "ord1")
+
     def place_limit_order(self, market_id, side, quantity, price, close_price=None):
         self.place_calls += 1
         return FillResult(False, 0.0, 0.0, quantity, "pending", "")
@@ -64,6 +68,22 @@ class TestGuardrailedBroker:
         assert result.status == "rejected"
         assert "exceeds maximum" in result.order_id
         assert inner.place_calls == 0
+
+    def test_flatten_bypasses_guardrail_even_when_oversized(self) -> None:
+        inner = _MockInner()
+        broker = GuardrailedBroker(inner, min_order_qty=1.0, max_order_notional=500.0)
+        # Same shape that place_market_order rejects above must NOT block the
+        # emergency close: the kill switch is never refused by size policy.
+        result = broker.place_flatten_order(uuid.uuid4(), "sell", 10.0, close_price=100.0)
+        assert result.filled is True
+        assert inner.place_calls == 1
+
+    def test_flatten_bypasses_min_qty_guard(self) -> None:
+        inner = _MockInner()
+        broker = GuardrailedBroker(inner, min_order_qty=1.0, max_order_notional=500.0)
+        result = broker.place_flatten_order(uuid.uuid4(), "sell", 0.1, close_price=100.0)
+        assert result.filled is True
+        assert inner.place_calls == 1
 
     def test_valid_order_passes_through(self) -> None:
         inner = _MockInner()

@@ -18,6 +18,10 @@ class FakeBroker:
         self.calls += 1
         return self.last_result
 
+    def place_flatten_order(self, market_id, side, quantity, close_price=None):
+        self.calls += 1
+        return self.last_result
+
     def get_account_balance(self):
         return 100.0
 
@@ -132,10 +136,26 @@ def test_pending_empty_without_journal():
 
 
 def test_limit_stop_trailing_and_modify_submit_through_journal():
-    conn, broker, jb = _make()
+    conn, _broker, jb = _make()
     mid = uuid4()
     assert jb.place_limit_order(mid, "buy", 2.0, 99.0).order_id == "ext-1"
     assert jb.place_stop_order(mid, "buy", 2.0, 95.0).order_id == "ext-1"
     assert jb.place_trailing_stop_order(mid, "buy", 2.0, 0.01).order_id == "ext-1"
     assert jb.modify_order("ord-1", qty=3.0).order_id == "ext-1"
+    conn.close()
+
+
+def test_flatten_order_journaled_and_idempotent():
+    conn, broker, jb = _make()
+    mid = uuid4()
+    res = jb.place_flatten_order(mid, "sell", 2.0, close_price=100.0)
+    assert res == broker.last_result
+    assert broker.calls == 1
+    assert jb.pending() == []  # intent confirmed, no drift
+
+    # A repeated flatten of the same position replays the stored outcome and
+    # never re-submits to the broker (exactly-once even across the seam).
+    res2 = jb.place_flatten_order(mid, "sell", 2.0, close_price=100.0)
+    assert broker.calls == 1
+    assert res2.order_id == "ext-1"
     conn.close()

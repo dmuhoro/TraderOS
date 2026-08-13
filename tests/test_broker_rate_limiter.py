@@ -5,8 +5,11 @@ import uuid
 import pytest
 
 from traderos.domain.adapters.broker_adapter import FillResult
+from traderos.infrastructure.broker_circuit_breaker import CircuitBreakeredBroker
 from traderos.infrastructure.broker_rate_limiter import RateLimitedBroker
 from traderos.infrastructure.broker_rate_limiter import RateLimitExceededError
+from traderos.infrastructure.order_guardrail import GuardrailedBroker
+from traderos.infrastructure.resilience import reset_all_breakers
 
 
 class _MockInner:
@@ -55,12 +58,15 @@ class _MockInner:
 
 
 class TestRateLimitedBroker:
-    def test_disabled_by_default_passes_all(self) -> None:
+    def test_enabled_by_default_blocks_when_over_limit(self) -> None:
         inner = _MockInner()
         broker = RateLimitedBroker(inner, max_requests=1, window_seconds=60.0)
-        for _ in range(10):
-            broker.place_market_order(uuid.uuid4(), "buy", 1.0)
-        assert inner.call_count == 10
+
+        mid = uuid.uuid4()
+        broker.place_market_order(mid, "buy", 1.0)
+        with pytest.raises(RateLimitExceededError):
+            broker.place_market_order(mid, "buy", 1.0)
+        assert inner.call_count == 1
 
     def test_enabled_blocks_when_over_limit(self, monkeypatch) -> None:
         monkeypatch.setenv("BROKER_RATE_LIMIT_ENABLED", "true")
@@ -149,3 +155,39 @@ class TestRateLimitedBroker:
         for _ in range(5):
             broker.place_market_order(uuid.uuid4(), "buy", 1.0)
         assert inner.call_count == 5
+
+    def test_flatten_bypasses_rate_limiter_even_when_exhausted(self, monkeypatch) -> None:
+        inner = _MockInner()
+        broker = RateLimitedBroker(inner, max_requests=0, window_seconds=60.0)
+
+        mid = uuid.uuid4()
+        with pytest.raises(RateLimitExceededError):
+            broker.place_market_order(mid, "buy", 1.0)
+        fill = broker.place_flatten_order(mid, "sell", 1.0, close_price=100.0)
+        assert fill.filled is True
+        assert inner.call_count == 1
+
+    def test_flatten_still_reaches_inner_through_full_chain(self) -> None:
+        inner = _MockInner()
+        broker = RateLimitedBroker(inner, max_requests=1, window_seconds=60.0)
+        mid = uuid.uuid4()
+        broker.place_market_order(mid, "buy", 1.0)
+        broker.place_flatten_order(mid, "sell", 1.0, close_price=99.0)
+        assert inner.call_count == 2
+
+    def test_flatten_bypasses_rate_limiter_through_real_composed_stack(self, monkeypatch) -> None:
+        reset_all_breakers()
+        inner = _MockInner()
+        composed = CircuitBreakeredBroker(
+            GuardrailedBroker(RateLimitedBroker(inner, max_requests=0, window_seconds=60.0))
+        )
+
+        mid = uuid.uuid4()
+        with pytest.raises(RateLimitExceededError):
+            composed.place_market_order(mid, "buy", 1.0, close_price=100.0)
+        assert inner.call_count == 0
+
+        fill = composed.place_flatten_order(mid, "sell", 1.0, close_price=100.0)
+        assert fill.filled is True
+        assert inner.call_count == 1
+        reset_all_breakers()

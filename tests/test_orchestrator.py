@@ -12,7 +12,13 @@ from traderos.application.orchestrator import TradingMode
 from traderos.application.orchestrator import TradingOrchestrator
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
 from traderos.domain.adapters.broker_adapter import FillResult
+from traderos.domain.entities.position import Position
+from traderos.domain.entities.trade import Trade
+from traderos.domain.entities.trade import TradeSide
 from traderos.domain.services.backtesting_service import BacktestingService
+from traderos.domain.services.broker_state_reconciliation_service import (
+    BrokerStateReconciliationService,
+)
 from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.portfolio_service import PortfolioService
 from traderos.domain.services.risk_service import RiskService
@@ -217,3 +223,95 @@ class TestTradingOrchestrator:
         ops = orch.get_status()["operational"]
         assert ops["ha"]["configured"] is True
         assert ops["ha"]["owner"] == "primary"
+
+    # ---- Gap 1: local reconciliation state ----
+    def test_local_reconciliation_state_format(self) -> None:
+        orch = self._make()
+        market_id = uuid.uuid4()
+        position = Position(
+            market_id=market_id, quantity=2.0, entry_price=100.0, current_price=105.0, pnl=10.0
+        )
+        submitted = Trade(
+            signal_id=uuid.uuid4(),
+            market_id=market_id,
+            side=TradeSide.BUY,
+            quantity=2.0,
+            price=100.0,
+        )
+        submitted.submit("broker-order-1")
+        pending = Trade(
+            signal_id=uuid.uuid4(),
+            market_id=market_id,
+            side=TradeSide.SELL,
+            quantity=1.0,
+            price=100.0,
+        )  # no external_order_id -> must be excluded
+        portfolio = Mock()
+        portfolio.position_repo.list_open.return_value = [position]
+        portfolio.trade_repo.get_open.return_value = [submitted, pending]
+        orch.portfolio_service = portfolio
+
+        positions, orders = orch._local_reconciliation_state()
+        assert positions == [
+            {
+                "symbol": str(market_id),
+                "qty": 2.0,
+                "entry_price": 100.0,
+                "current_price": 105.0,
+            }
+        ]
+        assert orders == [
+            {"id": "broker-order-1", "symbol": str(market_id), "qty": 2.0, "side": "buy"}
+        ]
+
+    def test_local_reconciliation_state_matches_broker_no_false_block(self) -> None:
+        # The orchestrator's local state must reconcile cleanly against an
+        # identical broker snapshot through the REAL reconciliation service —
+        # proving the format matches and a healthy state is not falsely blocked.
+        orch = self._make()
+        market_id = uuid.uuid4()
+        position = Position(
+            market_id=market_id, quantity=1.5, entry_price=200.0, current_price=200.0, pnl=0.0
+        )
+        trade = Trade(
+            signal_id=uuid.uuid4(),
+            market_id=market_id,
+            side=TradeSide.BUY,
+            quantity=1.5,
+            price=200.0,
+        )
+        trade.submit("ord-abc")
+        portfolio = Mock()
+        portfolio.position_repo.list_open.return_value = [position]
+        portfolio.trade_repo.get_open.return_value = [trade]
+        orch.portfolio_service = portfolio
+        local_positions, local_orders = orch._local_reconciliation_state()
+
+        broker = Mock()
+        broker.get_positions.return_value = [
+            {"symbol": str(market_id), "qty": 1.5, "entry_price": 200.0}
+        ]
+        broker.get_open_orders.return_value = [{"id": "ord-abc", "symbol": str(market_id)}]
+        service = BrokerStateReconciliationService(broker)
+        result = service.reconcile(local_positions=local_positions, local_orders=local_orders)
+        assert not result.failed
+        assert not result.has_mismatches
+        assert service.can_accept_orders is True
+
+    def test_local_reconciliation_state_detects_real_mismatch(self) -> None:
+        # A broker-held position the local journal does not know about must be
+        # flagged (fail closed), even when local state is supplied.
+        orch = self._make()
+        portfolio = Mock()
+        portfolio.position_repo.list_open.return_value = []
+        portfolio.trade_repo.get_open.return_value = []
+        orch.portfolio_service = portfolio
+        local_positions, local_orders = orch._local_reconciliation_state()
+
+        broker = Mock()
+        broker.get_positions.return_value = [{"symbol": "ROGUE", "qty": 9.0}]
+        broker.get_open_orders.return_value = []
+        service = BrokerStateReconciliationService(broker)
+        result = service.reconcile(local_positions=local_positions, local_orders=local_orders)
+        assert result.failed
+        assert service.can_accept_orders is False

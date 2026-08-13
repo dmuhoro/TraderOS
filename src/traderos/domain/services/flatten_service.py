@@ -4,9 +4,13 @@
 opens, every position the application believes it holds is closed via market
 orders through the **real** broker adapter (the same seam live orders use), so
 the flatten provably goes through the true submission path — journaled broker →
-guardrails → rate limiter → Alpaca. Flattening is exactly-once per process
-(broker idempotency is the adapter's job; this service guarantees it is not
-re-issued on every cycle once the circuit is open).
+circuit breaker → Alpaca. The flatten uses the dedicated ``place_flatten_order``
+emergency seam, which bypasses the broker rate limiter and the order-size
+guardrails: a kill-switch close must never be throttled by a strategy's own rate
+usage nor refused by size policy (it closes exactly the exposure we hold).
+Idempotency journaling and the circuit breaker stay on the path. Flattening is
+exactly-once per process (broker idempotency is the adapter's job; this service
+guarantees it is not re-issued on every cycle once the circuit is open).
 """
 
 from __future__ import annotations
@@ -68,7 +72,7 @@ class FlattenService:
             side = "sell" if pos.quantity > 0 else "buy"
             price = self._market_prices(pos.market_id) if self._market_prices else pos.current_price
             try:
-                fill = self._broker.place_market_order(pos.market_id, side, qty, close_price=price)
+                fill = self._broker.place_flatten_order(pos.market_id, side, qty, close_price=price)
             except Exception as e:  # noqa: BLE001 — a failed close must never crash flatten
                 result.failed_orders += 1
                 result.errors.append(f"{pos.market_id}: flatten close failed: {e}")

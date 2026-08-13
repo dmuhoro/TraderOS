@@ -44,6 +44,7 @@ class NotificationService:
     log: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
     notifier: NotifierPort | None = None
     oncall: Any | None = None
+    webhook_on_critical: bool = False
 
     def send(
         self,
@@ -68,6 +69,21 @@ class NotificationService:
             self._send_file(event)
         elif ch == NotificationChannel.WEBHOOK:
             self._send_webhook(event)
+        if (
+            self.webhook_on_critical
+            and level == NotificationLevel.CRITICAL
+            and ch != NotificationChannel.WEBHOOK
+        ):
+            self._send_webhook(
+                NotificationEvent(
+                    channel=NotificationChannel.WEBHOOK,
+                    level=level,
+                    title=title,
+                    message=message,
+                    timestamp=event.timestamp,
+                    metadata=event.metadata,
+                )
+            )
         if self.oncall is not None:
             self.oncall.route(event.level, event.title, event.message, event.metadata)
         return event
@@ -77,32 +93,36 @@ class NotificationService:
         title: str,
         message: str = "",
         channel: NotificationChannel | None = None,
+        metadata: dict[str, str | float | int | None] | None = None,
     ) -> NotificationEvent:
-        return self.send(NotificationLevel.INFO, title, message, channel)
+        return self.send(NotificationLevel.INFO, title, message, channel, metadata)
 
     def warning(
         self,
         title: str,
         message: str = "",
         channel: NotificationChannel | None = None,
+        metadata: dict[str, str | float | int | None] | None = None,
     ) -> NotificationEvent:
-        return self.send(NotificationLevel.WARNING, title, message, channel)
+        return self.send(NotificationLevel.WARNING, title, message, channel, metadata)
 
     def error(
         self,
         title: str,
         message: str = "",
         channel: NotificationChannel | None = None,
+        metadata: dict[str, str | float | int | None] | None = None,
     ) -> NotificationEvent:
-        return self.send(NotificationLevel.ERROR, title, message, channel)
+        return self.send(NotificationLevel.ERROR, title, message, channel, metadata)
 
     def critical(
         self,
         title: str,
         message: str = "",
         channel: NotificationChannel | None = None,
+        metadata: dict[str, str | float | int | None] | None = None,
     ) -> NotificationEvent:
-        return self.send(NotificationLevel.CRITICAL, title, message, channel)
+        return self.send(NotificationLevel.CRITICAL, title, message, channel, metadata)
 
     def _send_console(self, event: NotificationEvent) -> None:
         msg = f"[{event.level.name}] {event.title}"

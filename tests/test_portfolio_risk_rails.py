@@ -363,7 +363,7 @@ class TestFlattenServiceEdgePaths:
 
     def test_broker_exception_records_failure_and_continues(self) -> None:
         broker = Mock()
-        broker.place_market_order.side_effect = [
+        broker.place_flatten_order.side_effect = [
             RuntimeError("exchange down"),
             FillResult(True, 2.0, 100.0, 0.0, "filled", "o1"),
         ]
@@ -376,7 +376,7 @@ class TestFlattenServiceEdgePaths:
 
     def test_unfilled_close_records_failure(self) -> None:
         broker = Mock()
-        broker.place_market_order.return_value = FillResult(False, 0.0, 0.0, 2.0, "rejected", "")
+        broker.place_flatten_order.return_value = FillResult(False, 0.0, 0.0, 2.0, "rejected", "")
         svc = self._svc(broker, [self._pos(2.0)])
         result = svc.flatten()
         assert result.close_orders == 0

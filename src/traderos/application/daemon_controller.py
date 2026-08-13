@@ -24,6 +24,7 @@ from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
 from traderos.domain.services.reconciliation_service import ReconciliationResult
+from traderos.infrastructure.fatal_handler import FatalExceptionHandler
 from traderos.infrastructure.ha_failover import FailoverManager
 from traderos.infrastructure.supervision import SupervisionService
 
@@ -55,6 +56,8 @@ class DaemonController:
         supervision: SupervisionService | None = None,
         failover: FailoverManager | None = None,
         standby_poll_seconds: float = 5.0,
+        fatal_handler: FatalExceptionHandler | None = None,
+        local_state_provider: Callable[[], tuple[list[dict], list[dict]]] | None = None,
     ) -> None:
         self._mode = mode
         self._cycle_executor = cycle_executor
@@ -76,6 +79,8 @@ class DaemonController:
         self._supervision = supervision
         self._failover = failover
         self._standby_poll_seconds = standby_poll_seconds
+        self._fatal_handler = fatal_handler
+        self._local_state_provider = local_state_provider
         self._running = False
         self._crash_recovered = False
 
@@ -129,6 +134,27 @@ class DaemonController:
         except Exception:  # noqa: BLE001 — journal access is best-effort, never fatal
             return None
         return items if items else None
+
+    def _fetch_local_state(self) -> tuple[list[dict] | None, list[dict] | None]:
+        """Return ``(local_positions, local_orders)`` for reconciliation.
+
+        Without a provider there is no local view to reconcile against, so both
+        are ``None`` (the reconciliation service then treats local as empty and
+        flags any broker-held state — fail closed). A provider failure is also
+        treated as "local unknown" rather than crashing the daemon; the broker
+        side is still checked, so an unverifiable local state blocks trading via
+        the normal mismatch path instead of silently passing.
+        """
+        if self._local_state_provider is None:
+            return None, None
+        try:
+            positions, orders = self._local_state_provider()
+        except Exception:  # noqa: BLE001 — local read failure must not crash the daemon
+            self._notifications.warning(
+                "Reconciliation", "Failed to read local state; reconciling broker vs empty"
+            )
+            return None, None
+        return positions, orders
 
     def _run_startup_reconciliation(
         self,
@@ -251,12 +277,22 @@ class DaemonController:
 
     def run_forever(self, interval_seconds: int = 60, shutdown_timeout: int = 30) -> None:
         self._recover_from_crash()
-        if not self._run_startup_reconciliation():
+        local_positions, local_orders = self._fetch_local_state()
+        if not self._run_startup_reconciliation(local_positions, local_orders):
             self._notifications.critical(
                 "Startup Reconciliation Failed",
                 "Broker state reconciliation failed at startup. Trading blocked.",
             )
         self.start()
+        if self._fatal_handler is not None:
+            self._fatal_handler.install()
+        try:
+            self._run_forever_loop(interval_seconds, shutdown_timeout)
+        finally:
+            if self._fatal_handler is not None:
+                self._fatal_handler.uninstall()
+
+    def _run_forever_loop(self, interval_seconds: int, shutdown_timeout: int) -> None:
         shutdown_at: float | None = None
         shutdown_graceful_done = False
 
@@ -331,7 +367,7 @@ class DaemonController:
                 except _CYCLE_EXCEPTIONS as e:  # pragma: no cover
                     self._notifications.warning("Cycle Panic", f"{mid}: {e}")
                     self._health.report_unhealthy(f"market.{mid}", str(e))
-            self._run_periodic_reconciliation()
+            self._run_periodic_reconciliation(*self._fetch_local_state())
             if self._post_cycle_hook:
                 self._post_cycle_hook()
             time.sleep(interval_seconds)
