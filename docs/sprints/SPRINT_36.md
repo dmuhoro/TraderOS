@@ -151,6 +151,8 @@ rogue broker-held position fail-closed).
   future layer is added to the chain, it must explicitly decide whether the
   flatten bypasses it — the default must stay "flatten gets through."
 - `infrastructure/async_streaming.py` (asyncio-native market-data ingestor) is
-  present and 100%-tested but **not wired** into any production path and is out
-  of scope for this execution-safety sprint; it is intentionally not committed
-  here.
+  committed and 100%-tested but **not wired** into any production path. It is a
+  tested building block (24 tests), not an active protection — the live data
+  path remains the synchronous `market_stream.py` worker; wiring the async
+  transport selection into the factory is a future decision and must be proven
+  by a drill before it can claim to guard the live loop.

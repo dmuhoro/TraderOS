@@ -280,7 +280,7 @@ class TestCliRiskCommands:
         orch.broker_reconciliation = MagicMock()
         orch.broker_reconciliation.can_accept_orders = True
         orch.broker_reconciliation.reconcile.return_value = SimpleNamespace(mismatches=[])
-        orch.broker.pending = lambda: []
+        orch.broker.pending = list
         with patch("traderos.interfaces.cli.main.build_orchestrator", return_value=orch):
             out, code = _run_exit(
                 cli_main.cmd_risk, risk_cmd="reconcile", mode="paper", json=False, verb=None
@@ -318,7 +318,7 @@ class TestCliRiskCommands:
     def test_risk_unknown_subcommand_shows_help(self):
         orch = MagicMock()
         with patch("traderos.interfaces.cli.main.build_orchestrator", return_value=orch):
-            out, code = _run_exit(
+            _, code = _run_exit(
                 cli_main.cmd_risk, risk_cmd="bogus", mode="paper", json=False, command="risk"
             )
         assert code in (0, 2)
@@ -366,9 +366,7 @@ class TestCliMetrics:
     def test_metrics_unknown_subcommand_shows_help(self):
         orch = MagicMock()
         with patch("traderos.interfaces.cli.main.build_orchestrator", return_value=orch):
-            out, code = _run_exit(
-                cli_main.cmd_metrics, metrics_cmd="bogus", mode="paper", json=False
-            )
+            _, code = _run_exit(cli_main.cmd_metrics, metrics_cmd="bogus", mode="paper", json=False)
         assert code in (0, 2)
 
 
@@ -598,7 +596,6 @@ class TestCliDb:
 
         def _restore(path, cfg):
             seen["path"] = path
-            return None
 
         monkeypatch.setattr(cli_main, "restore_backup", _restore)
         output = self._cmd_db(monkeypatch, db_cmd="restore", backup="/backups/y.sqlite.gz")
@@ -623,7 +620,7 @@ class TestCliDb:
         assert "Database restored" in output
 
     def test_db_restore_latest_no_backups(self, monkeypatch):
-        monkeypatch.setattr(cli_main, "list_backups", lambda: [])
+        monkeypatch.setattr(cli_main, "list_backups", list)
         output = self._cmd_db(monkeypatch, db_cmd="restore", latest=True)
         assert "No backups found." in output
 
@@ -655,7 +652,7 @@ class TestCliDb:
         assert "12 bytes" in output
 
     def test_db_list_backups_empty(self, monkeypatch):
-        monkeypatch.setattr(cli_main, "list_backups", lambda: [])
+        monkeypatch.setattr(cli_main, "list_backups", list)
         output = self._cmd_db(monkeypatch, db_cmd="list-backups")
         assert "No backups found." in output
 

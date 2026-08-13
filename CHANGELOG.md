@@ -42,8 +42,14 @@
 - Full suite **2193 passed / 7 skipped**, **100.00% coverage (0 missing of
   12,453 statements)**, `fail_under = 100`.
 - `pyright src/traderos/`: 0 errors / 0 warnings.
-- `ruff check src/traderos/`: clean. (Pre-existing lint debt in a few untouched
-  `tests/` files remains; CI lints `src/traderos/` only.)
+- `ruff check src/traderos/ tests/`: clean — **all 18 pre-existing lint issues
+  in `tests/` fixed** (unused noqa, verbose `Decimal`, useless lambdas, unused
+  unpack vars, nested `with`); CI lint gate extended to cover `tests/` so the
+  clean state is enforced on every push.
+- `infrastructure/async_streaming.py` + `tests/test_async_streaming.py`
+  committed (asyncio-native market-data ingestor, 100% covered, 24 tests) — a
+  tested building block, **not yet wired** into the live data path
+  (`market_stream.py` remains the active transport).
 - Evidence drills re-run today (timestamps refreshed), oracle conformance
   unchanged (reference PnL still locked: trades=55/-0.094886, withheld
   18/-0.028102).

@@ -34,7 +34,7 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: pip install --upgrade pip
       - run: pip install ruff==0.16.0
-      - run: ruff check src/traderos/
+      - run: ruff check src/traderos/ tests/
 
   typecheck:
     runs-on: ubuntu-latest
