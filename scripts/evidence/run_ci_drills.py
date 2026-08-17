@@ -45,6 +45,7 @@ DRILLS: tuple[tuple[str, str], ...] = (
     ("causal_replay", "run_causal_replay.py"),
     ("firm_ops", "run_firm_ops_drill.py"),
     ("governance", "run_governance_drill.py"),
+    ("market_brain", "run_market_brain_drill.py"),
     ("multirestart_replay", "run_multirestart_replay.py"),
     ("oncall_transport", "run_oncall_drill.py"),
     ("operational_health", "run_operational_health_drill.py"),

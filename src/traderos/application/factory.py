@@ -28,6 +28,7 @@ from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.flatten_service import FlattenService
 from traderos.domain.services.knowledge_graph_service import KnowledgeGraphService
 from traderos.domain.services.live_readiness import LiveReadinessService
+from traderos.domain.services.market_brain_service import MarketBrainService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.operator_session import OperatorSessionService
@@ -77,6 +78,7 @@ from traderos.infrastructure.probe_scheduler import health_probe
 from traderos.infrastructure.probe_scheduler import rate_limit_probe
 from traderos.infrastructure.probe_scheduler import vault_probe
 from traderos.infrastructure.rate_limiter import RateLimiter
+from traderos.infrastructure.repositories.brain_candle_store import BrainCandleStore
 from traderos.infrastructure.repositories.in_memory import InMemoryBacktestResultRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryExperimentRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryExperimentResultRepository
@@ -102,6 +104,9 @@ from traderos.infrastructure.repositories.sqlite import SQLitePositionRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteSignalRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteStrategyRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteTradeRepository
+from traderos.infrastructure.repositories.sqlite.historical_candles import (
+    SQLiteHistoricalCandleRepository,
+)
 from traderos.infrastructure.run_manifest import RunManifestService as InMemoryManifestService
 from traderos.infrastructure.secrets import EnvSecretProvider
 from traderos.infrastructure.secrets import SecretRotator
@@ -471,6 +476,13 @@ def build_orchestrator(
     else:
         mids = [uuid.uuid4()]
 
+    # --- Market Brain (Sprint 38): opt-in per-market chart watcher ---
+    brain = _build_market_brain(cfg, store=_brain_store(cfg, db))
+    brain_history_bars = 300
+    brain_raw = cfg.get("market_brain")
+    if isinstance(brain_raw, dict):
+        brain_history_bars = int(brain_raw.get("history_bars", 300))
+
     orch = TradingOrchestrator(
         mode=trading_mode,
         signal_service=signal_service,
@@ -520,6 +532,8 @@ def build_orchestrator(
         ),
         failover=_build_failover(cfg, notifications, audit),
         streaming_feed=streaming_feed,
+        brain=brain,
+        brain_history_bars=brain_history_bars,
     )
 
     # WP2 probe scheduler: runs the real probes every 30s (env-overridable) and
@@ -607,7 +621,42 @@ def build_async_daemon(
         notifications=orch.notifications,
         run_manifest=orch.run_manifest,
         ingestor=ingestor,
+        brain=orch.brain,
+        brain_history_bars=orch.brain_history_bars,
+        data_ingestion=orch.data_ingestion,
     )
+
+
+def _build_market_brain(cfg: Config, store: Any | None = None) -> MarketBrainService | None:
+    """Build the Market Brain from ``market_brain.*`` config (opt-in).
+
+    Returns None when the section is absent, not a mapping, or ``enabled`` is
+    False — the Brain never engages without an explicit opt-in. ``history_bars``
+    is consumed at the daemon level (``brain_history_bars``), not by the
+    service itself; the risk cap is the hard clamp on every advised position.
+    """
+    raw = cfg.get("market_brain")
+    if not isinstance(raw, dict):
+        return None
+    if not bool(raw.get("enabled", True)):
+        return None
+    return MarketBrainService(
+        min_candles=int(raw.get("min_candles", 60)),
+        action_threshold=float(raw.get("action_threshold", 0.55)),
+        max_risk_fraction=float(raw.get("max_risk_fraction", 0.01)),
+        store=store,
+    )
+
+
+def _brain_store(cfg: Config, db: Any | None) -> BrainCandleStore | None:
+    """Durable candle store for the Brain when a database is wired.
+
+    Without a connection the Brain runs in-memory only (no durable replay);
+    with one, seeded history and tick aggregates survive a restart.
+    """
+    if db is None:
+        return None
+    return BrainCandleStore(SQLiteHistoricalCandleRepository(db))
 
 
 def _stream_interval_seconds(cfg: Config) -> int:

@@ -51,16 +51,19 @@ class SQLiteHistoricalCandleRepository:
         self,
         source: str,
         symbol: str,
-        timeframe: str,
+        timeframe: str | None = None,
         start_ts: int | None = None,
         end_ts: int | None = None,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         sql = (
             "SELECT source, symbol, timeframe, ts, open, high, low, close, volume "
-            "FROM historical_candles WHERE source=? AND symbol=? AND timeframe=?"
+            "FROM historical_candles WHERE source=? AND symbol=?"
         )
-        params: list[Any] = [source, symbol, timeframe]
+        params: list[Any] = [source, symbol]
+        if timeframe is not None:
+            sql += " AND timeframe=?"
+            params.append(timeframe)
         if start_ts is not None:
             sql += " AND ts>=?"
             params.append(int(start_ts))
