@@ -1,10 +1,10 @@
 PAPER SOAK (bounded, deterministic) — G-02 exit-test essentials
-started 2026-08-04T17:05:50.250536+00:00 finished 2026-08-04T17:05:50.791234+00:00
-cycles=300 forced_disconnects=60 submit_attempts=361
+started 2026-08-17T18:11:42.566657+00:00 finished 2026-08-17T18:11:43.971390+00:00
+cycles=250 forced_disconnects=50 submit_attempts=301
 
-broker_orders=300 journal_confirmed=300 trades=300
+broker_orders=250 journal_confirmed=250 trades=250
 journal_pending=0
-restart: pre_restart_orders=300 post_restart_orders=301
+restart: pre_restart_orders=250 post_restart_orders=251
 reconcile_errors=0 mismatches=0
 
 1. 0 duplicate orders (broker==journal==trades): True

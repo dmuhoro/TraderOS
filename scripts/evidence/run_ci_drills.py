@@ -52,6 +52,10 @@ DRILLS: tuple[tuple[str, str], ...] = (
     ("oracle_conformance", "run_oracle_conformance.py"),
     ("paper_soak", "run_paper_soak.py"),
     ("partial_fill_reconnect", "run_partial_fill_reconnect.py"),
+    # Network-free by design: reuses the newest committed frozen snapshot
+    # (docs/evidence/frozen/) with no external call; --refresh is the only
+    # network path and is never invoked by the deterministic CI job.
+    ("real_market_walk_forward", "run_real_market_walk_forward.py"),
     ("risk_rails", "run_risk_rails_drill.py"),
     ("runbook_cli", "run_runbook_cli_drill.py"),
     ("secret_lifecycle", "run_secret_lifecycle_drill.py"),
@@ -61,8 +65,8 @@ DRILLS: tuple[tuple[str, str], ...] = (
 
 # Drills that are intentionally OUT of this deterministic CI job: they need
 # live account credentials, a managed secret store, a Postgres instance, or
-# live public-market network access. Credential/instance-gated drills are
-# operator-run gates; network-gated ones (e.g. real-market walk-forward) are
+# live public-market network access (real-time streams). Credential/instance-
+# gated drills are operator-run gates; the real-time network-gated drill is
 # exercised by the normal test suite when the external feed is reachable.
 # Keeping this list explicit (and asserting every entry still exists) prevents
 # a credential/network-needing drill from silently joining the deterministic
@@ -72,7 +76,6 @@ KEY_GATED: tuple[str, ...] = (
     "run_deployment_drill.py",
     "run_postgres_parity_drill.py",
     "run_real_binance_stream_drill.py",
-    "run_real_market_walk_forward.py",
     "run_real_paper_soak.py",
     "run_unattended_paper_soak.py",
     "run_vault_secret_manager_drill.py",

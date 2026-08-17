@@ -8,13 +8,18 @@ unauthenticated kline REST endpoint (data, not an account, per
 
 Design (honest, reproducible, fails closed):
 
-- **Real data, frozen.** The script downloads ≥1 year of ``BTCUSDT`` 1h candles
-  from ``api.binance.com/api/v3/klines`` (paginated, 1000/request, oldest→
-  newest). It writes the raw klines to a **frozen CSV dataset pointer** under
-  ``docs/evidence/frozen/`` so a re-run or another machine replicates the exact
-  same candles (dataset-freeze discipline, §A2 2nd order). If the download is
-  empty or the network is down the run **fails closed** (exit 1, NO-GO) — it
-  never fabricates candles.
+- **Real data, frozen — and reused, never overwritten.** The script downloads
+  ≥1 year of ``BTCUSDT`` 1h candles from ``api.binance.com/api/v3/klines``
+  (paginated, 1000/request, oldest→newest) and writes the raw klines to a
+  **date-stamped frozen CSV dataset pointer** under ``docs/evidence/frozen/``
+  (dataset-freeze discipline, §A2 2nd order). A re-run **reuses the newest
+  existing snapshot from disk** — no network, bit-identical candles on any
+  machine or CI checkout. Refreshing is an explicit, deliberate act: pass
+  ``--refresh`` to download fresh data and write a *new* dated snapshot; the
+  previously frozen file is never mutated in place, so committed evidence can
+  not silently change. If neither a frozen snapshot nor a usable download
+  exists the run **fails closed** (exit 1, NO-GO) — it never fabricates
+  candles.
 - **Cost-adjusted walk-forward.** The last ~35% of the real series is withheld
   as out-of-sample; full costs (fee 10bps + slippage 5bps + latency 10bps)
   across 5 folds — the same engine as ``run_walk_forward_evidence.py``.
@@ -24,10 +29,12 @@ Design (honest, reproducible, fails closed):
 
 Run:
   PYTHONPATH=src:src/tests python3 scripts/evidence/run_real_market_walk_forward.py
+  PYTHONPATH=src:src/tests python3 scripts/evidence/run_real_market_walk_forward.py --refresh
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import sys
@@ -51,8 +58,11 @@ from traderos.domain.services.execution_service import ExecutionService  # noqa:
 from traderos.domain.services.strategy_framework import registry as strategy_registry  # noqa: E402
 
 OUT = REPO_ROOT / "docs" / "evidence" / "2026-08-06_real_market_walk_forward.log"
+OUT_SPEC = OUT.name  # stable evidence-log name; refresh updates its content only
 FROZEN_DIR = REPO_ROOT / "docs" / "evidence" / "frozen"
-FROZEN_CSV = FROZEN_DIR / "binance_btcusdt_1h_2026-08-06.csv"
+# Snapshot naming: binance_btcusdt_1h_<freeze-date>.csv. The newest file on
+# disk is the reproducibility anchor; a refresh writes a NEW dated file and
+# never mutates a committed one.
 MARKET_ID = uuid.UUID("8b2b6f3c-2d3a-4e9a-9f0a-1c2d3e4f5a6b")
 SYMBOL = "BTCUSDT"
 INTERVAL = "1h"
@@ -61,6 +71,51 @@ HOUR_MS = 3_600_000
 CANDLES_PER_CALL = 1000
 OOS_FRACTION = 0.35
 KLINES_URL = "https://api.binance.com/api/v3/klines"
+MIN_CANDLES = 876  # ~1 year of 1h candles
+
+
+def _snapshot_name() -> str:
+    """Microsecond-precision snapshot name that can never collide with an
+    existing file — a refresh must write a NEW file, never overwrite a
+    committed one. Fixed-width components keep lexical order == time order."""
+    now = datetime.now(UTC)
+    candidate = f"binance_btcusdt_1h_{now.strftime('%Y-%m-%dT%H%M%S%f')}.csv"
+    for counter in range(2, 100):
+        if not (FROZEN_DIR / candidate).exists():
+            return candidate
+        candidate = f"binance_btcusdt_1h_{now.strftime('%Y-%m-%dT%H%M%S%f')}-{counter}.csv"
+    raise FileExistsError(f"could not allocate a fresh snapshot name under {FROZEN_DIR}")
+
+
+def _load_frozen(path: Path) -> list[dict]:
+    """Read a frozen CSV snapshot back into row dicts (the reproducibility
+    anchor: a re-run consumes exactly the committed candles, no network)."""
+    with path.open(newline="") as fh:
+        reader = csv.DictReader(fh)
+        rows = [
+            {
+                "timestamp": int(r["timestamp"]),
+                "open": r["open"],
+                "high": r["high"],
+                "low": r["low"],
+                "close": r["close"],
+                "volume": r["volume"],
+            }
+            for r in reader
+        ]
+    return rows
+
+
+def _latest_snapshot() -> Path | None:
+    """Newest existing frozen snapshot, else None. Deterministic ordering on the
+    ISO date embedded in the filename so a re-run picks the same file."""
+    if not FROZEN_DIR.is_dir():
+        return None
+    candidates = sorted(
+        (p for p in FROZEN_DIR.glob("binance_btcusdt_1h_*.csv")),
+        key=lambda p: p.name,
+    )
+    return candidates[-1] if candidates else None
 
 
 def _fetch_klines(start_ms: int, end_ms: int) -> list[list]:
@@ -101,9 +156,10 @@ def _download_one_year() -> list[dict]:
     return rows
 
 
-def _freeze(rows: list[dict]) -> None:
-    FROZEN_DIR.mkdir(parents=True, exist_ok=True)
-    with FROZEN_CSV.open("w", newline="") as fh:
+def _freeze(rows: list[dict], path: Path) -> None:
+    """Write a NEW dated snapshot (never mutates an existing committed one)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as fh:
         writer = csv.DictWriter(
             fh, fieldnames=["timestamp", "open", "high", "low", "close", "volume"]
         )
@@ -136,33 +192,81 @@ def _cost_adjusted() -> BacktestingService:
     )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Real-market cost-adjusted walk-forward evidence.")
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Re-download fresh Binance candles and write a NEW dated snapshot instead of "
+        "reusing the newest existing frozen one. Never mutates a committed snapshot.",
+    )
+    args = parser.parse_args(argv)
+
     lines: list[str] = []
     lines.append("REAL-MARKET WALK-FORWARD — G-01 cost-adjusted, out-of-sample (A3)")
     lines.append(f"started {datetime.now(UTC).isoformat()}")
     lines.append("engine: next-bar fills, side-aware slippage 5bps, fee 10bps, latency 10bps")
-    lines.append(f"dataset: real public Binance {SYMBOL} {INTERVAL} klines via REST (paginated)")
 
-    try:
-        rows = _download_one_year()
-    except Exception as exc:  # noqa: BLE001 — any failure must fail closed
-        lines.append(f"  DOWNLOAD FAILED (fails closed, no fabricated data): {exc}")
-        lines.append("VERDICT: NO-GO — could not fetch real Binance candles over the network")
-        OUT.parent.mkdir(parents=True, exist_ok=True)
-        OUT.write_text("\n".join(lines) + "\n")
-        print("\n".join(lines))
-        return 2
+    source_path: Path | None
+    rows: list[dict] = []
+    refresh = bool(args.refresh)
+    if not refresh:
+        source_path = _latest_snapshot()
+        if source_path is not None:
+            try:
+                rows = _load_frozen(source_path)
+            except Exception as exc:  # noqa: BLE001 — unusable frozen data must fail closed
+                lines.append(f"  FROZEN SNAPSHOT UNREADABLE (fails closed): {source_path}: {exc}")
+                lines.append("VERDICT: NO-GO — cannot reuse a corrupt frozen dataset")
+                OUT.parent.mkdir(parents=True, exist_ok=True)
+                OUT.write_text("\n".join(lines) + "\n")
+                print("\n".join(lines))
+                return 2
+            lines.append("dataset: frozen Binance BTCUSDT 1h snapshot (no network; reused)")
+        else:
+            lines.append("dataset: real public Binance BTCUSDT 1h klines via REST (paginated)")
+    else:
+        lines.append(
+            "dataset: real public Binance BTCUSDT 1h klines via REST (paginated, --refresh)"
+        )
+        source_path = FROZEN_DIR / _snapshot_name()
 
-    if len(rows) < 876:  # ~1 year of 1h candles
-        lines.append(f"  TOO FEW CANDLES ({len(rows)} < 876): fails closed, no edge claim")
-        lines.append("VERDICT: NO-GO — insufficient real data")
-        OUT.parent.mkdir(parents=True, exist_ok=True)
-        OUT.write_text("\n".join(lines) + "\n")
-        print("\n".join(lines))
-        return 2
+    if refresh or source_path is None:
+        try:
+            rows = _download_one_year()
+        except Exception as exc:  # noqa: BLE001 — any failure must fail closed
+            lines.append(f"  DOWNLOAD FAILED (fails closed, no fabricated data): {exc}")
+            lines.append("VERDICT: NO-GO — could not fetch real Binance candles over the network")
+            OUT.parent.mkdir(parents=True, exist_ok=True)
+            OUT.write_text("\n".join(lines) + "\n")
+            print("\n".join(lines))
+            return 2
 
-    rows.sort(key=lambda r: int(r["timestamp"]))
-    _freeze(rows)
+        if len(rows) < MIN_CANDLES:
+            lines.append(
+                f"  TOO FEW CANDLES ({len(rows)} < {MIN_CANDLES}): fails closed, no edge claim"
+            )
+            lines.append("VERDICT: NO-GO — insufficient real data")
+            OUT.parent.mkdir(parents=True, exist_ok=True)
+            OUT.write_text("\n".join(lines) + "\n")
+            print("\n".join(lines))
+            return 2
+
+        rows.sort(key=lambda r: int(r["timestamp"]))
+        assert source_path is not None  # refresh always supplies the snapshot path
+        _freeze(rows, source_path)
+    else:
+        if len(rows) < MIN_CANDLES:
+            lines.append(
+                f"  FROZEN SNAPSHOT TOO SHORT ({len(rows)} < {MIN_CANDLES}): "
+                "fails closed, no edge claim"
+            )
+            lines.append("VERDICT: NO-GO — frozen dataset below the reproducibility floor")
+            OUT.parent.mkdir(parents=True, exist_ok=True)
+            OUT.write_text("\n".join(lines) + "\n")
+            print("\n".join(lines))
+            return 2
+
     candles = _to_candles(rows)
     withheld = int(len(candles) * OOS_FRACTION)
     out_of_sample = candles[-withheld:]
@@ -173,7 +277,7 @@ def main() -> int:
         f"  withheld out-of-sample window: {len(out_of_sample)} candles "
         f"({out_of_sample[0].timestamp.date()} -> {out_of_sample[-1].timestamp.date()})"
     )
-    lines.append(f"  frozen dataset pointer: {FROZEN_CSV.relative_to(REPO_ROOT)}")
+    lines.append(f"  frozen dataset pointer: {source_path.relative_to(REPO_ROOT)}")
     lines.append("")
 
     results: list[tuple[str, float, float]] = []

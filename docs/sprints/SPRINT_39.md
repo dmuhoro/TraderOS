@@ -96,18 +96,26 @@ configure).
   positive expectancy after costs on OOS → pilot remains **DATA-VALIDATION
   ONLY**, no PnL claim (LIVE_RUN_POLICY). Evidence recorded with the fresh run
   date.
-- **CI drill suite**: 17/17 credential-free drills PASS (incl. full pytest at
-  100% coverage, ruff clean, pyright strict clean).
+- **CI drill suite**: 17/17 credential-free drills PASS at the time of this
+  sprint (incl. full pytest at 100% coverage, ruff clean, pyright strict
+  clean). SPRINT_40 later promoted the real-market walk-forward into the
+  deterministic set — final count **18/18**.
 
 ## 6. Governance / honesty notes
 
 - The npm-style `version = "0.2.12"` bump referenced in an earlier task note
   was a stale transcription; the repo's real version scheme is the package
-  version (`pyproject.toml version = "1.1.0"`, unchanged since Sprint 31) plus
-  sprint-scoped changelog entries. No spurious release version was invented.
+  version (`pyproject.toml version = "1.1.0"` at the time, stable since
+  Sprint 31) plus sprint-scoped changelog entries. No spurious release version
+  was invented then; the plan is to fold the sprint sections into a single
+  aligned release cut (`1.2.0`) when shipping, closing the G17/VB6
+  version/tag drift (a `v1.1.0` tag never existed for the released changelog
+  version).
 - Pre-existing working-tree drift in `docs/evidence/` (regenerated drill logs
   and the frozen Binance CSV touched by an earlier local run) was left unstaged
-  and is reported in the commit, not silently swept the other way.
+  and is reported in the commit, not silently swept the other way. The
+  frozen-dataset re-fetch/overwrite behavior itself is fixed separately (see
+  SPRINT_40): the drill now reuses the committed dataset instead of mutating it.
 
 ## Verification closure
 
@@ -116,7 +124,7 @@ configure).
 | `pytest -q` (full suite) | 2245 passed, 7 skipped, **100.00%** coverage (gate 100) |
 | `ruff check src/ scripts/ tests/` | All checks passed |
 | `pyright` (strict) | 0 errors, 0 warnings |
-| CI drill suite | 17/17 PASS |
+| CI drill suite | 17/17 PASS (18/18 after SPRINT_40 drill promotion) |
 | Docker build `traderos-api` | builds clean |
 | Container boot (production posture, proxy-TLS) | healthy; auth boundary 401/200/401; metrics ok |
 | Container boot fail-closed (no proxy flag, production) | refuses to boot (`SecurityPolicyError`) |
