@@ -161,6 +161,22 @@ class TestRestore:
             result = restore_backup(Path("x.dump"), mock_cfg)
         assert result is None
 
+    def test_restore_backup_sqlite_branch(
+        self, temp_db: str, tmp_path: Path, clean_backup_dir: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_cfg = MagicMock()
+        mock_cfg.database_url = ""
+        mock_cfg.db_path = str(tmp_path / "restored.db")
+        monkeypatch.delenv("DB_PATH", raising=False)
+        backup = backup_sqlite(temp_db)
+        result = restore_backup(backup, mock_cfg)
+        assert result is not None
+        conn = sqlite3.connect(result)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT value FROM test WHERE id = 1").fetchone()
+        assert row["value"] == "hello"
+        conn.close()
+
 
 class TestListBackups:
     def test_list_backups_empty(self, clean_backup_dir: None):

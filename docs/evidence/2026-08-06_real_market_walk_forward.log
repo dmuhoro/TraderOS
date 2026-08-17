@@ -1,5 +1,5 @@
 REAL-MARKET WALK-FORWARD — G-01 cost-adjusted, out-of-sample (A3)
-started 2026-08-17T19:25:11.117552+00:00
+started 2026-08-17T19:51:44.716009+00:00
 engine: next-bar fills, side-aware slippage 5bps, fee 10bps, latency 10bps
 dataset: frozen Binance BTCUSDT 1h snapshot (no network; reused)
   full series: 8880 candles (8880 hours, 370 days)

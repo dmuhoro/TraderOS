@@ -28,10 +28,16 @@ def _ensure_backup_dir() -> Path:
 
 
 def _timestamp() -> str:
-    return datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    # Microsecond precision: second-resolution timestamps collided when two
+    # backups ran within the same second, silently overwriting one another.
+    return datetime.now(UTC).strftime("%Y%m%d_%H%M%S%f")
 
 
-def _rotate_backups(prefix: str, max_count: int = MAX_BACKUPS) -> None:
+def _rotate_backups(prefix: str, max_count: int | None = None) -> None:
+    # Resolve at call time, not import time: MAX_BACKUPS is a tunable env knob
+    # (DB_MAX_BACKUPS) and tests must be able to lower it per-run.
+    if max_count is None:
+        max_count = MAX_BACKUPS
     backups = sorted(BACKUP_DIR.glob(f"{prefix}_*.sqlite.gz"))
     while len(backups) > max_count:
         oldest = backups.pop(0)
