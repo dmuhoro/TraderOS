@@ -1,0 +1,84 @@
+# Production settings template (G-03) — copy to configs/settings.yaml on the
+# deployed daemon, or export the equivalent RISK_* env overrides.
+#
+# The `traderos-api` web service is env-only (see runbooks/RAILWAY_DEPLOY.md);
+# this file arms the SAME risk rails for any process that constructs the
+# orchestrator via Config.load() (daemon, CLI cycles, governance gate).
+#
+# FAIL-CLOSED: LIVE mode refuses to boot unless every numeric rail is set
+# explicitly AND require_allowlist=true with a non-empty allowed_markets list.
+# Paper mode may use the conservative dataclass defaults, but production runs
+# should pin the rails here so the behavior is auditable and reviewable.
+#
+# Secrets NEVER belong in this file. Supply ALPACA_API_KEY / ALPACA_SECRET_KEY
+# via the platform secret manager (Railway Variables / Vault / env).
+
+project_name: "Market Intelligence Platform"
+version: "1.1.0"
+
+# Data persists under the platform volume (Railway mount /app/data). Never a
+# throwaway path: a redeploy with a new container filesystem must not orphan
+# the trade/audit history.
+database:
+  path: "data/trader.db"
+
+data_collection:
+  forex_symbols:
+    - "EURUSD"
+    - "GBPUSD"
+    - "USDJPY"
+  crypto_symbols:
+    - "BTCUSDT"
+    - "ETHUSDT"
+  timeframe: "1h"
+  # Real crypto feed only when enabled AND the Binance collector is installed;
+  # otherwise crypto falls back to the deterministic mock collector.
+  binance:
+    enabled: false
+    # A2: live WebSocket tick feed aggregated into candles. Requires
+    # binance.enabled=true AND the 'websockets' package. Ticks flow into the
+    # daemon's DataIngestionService so the G-03 data-gap breaker sees real
+    # data. Keep OFF until the upstream feed + credentials are validated.
+    streaming: false
+  history_days: 30
+
+analysis:
+  regime_windows:
+    short: 20
+    medium: 50
+    long: 200
+  volatility_window: 14
+
+liquidity:
+  swing_window: 5
+  sr_clustering_threshold: 0.002
+  consolidation_vol_threshold: 0.001
+  breakout_sensitivity: 2.0
+  sessions:
+    london: [8, 16]
+    new_york: [13, 21]
+    asian: [0, 8]
+
+# WP11 (G-03) — PRODUCTION risk rails. These are conservative by default and
+# are the SAME gate that protects the real submission path. Live mode is
+# refused unless every rail below is present and require_allowlist=true with
+# an allowed_markets list that names exactly the markets the loop may touch.
+# Overridable via env: RISK_DAILY_LOSS_PCT, RISK_MAX_GROSS_EXPOSURE,
+# RISK_MAX_POSITION_SIZE, RISK_MAX_POSITIONS_TOTAL,
+# RISK_MAX_DATA_STALENESS_SECONDS, RISK_ALLOWED_MARKETS (comma-separated),
+# RISK_REQUIRE_ALLOWLIST, RISK_OPERATOR_USER_ID.
+risk:
+  daily_loss_pct: 0.02          # realized daily loss budget, share of equity
+  max_gross_exposure: 1.0       # gross exposure cap, multiple of equity
+  max_position_size: 0.25       # single-order notional cap, share of equity
+  max_positions_total: 10
+  max_data_staleness_seconds: 300.0
+  require_allowlist: true       # LIVE requires non-empty allowed_markets below
+  allowed_markets:
+    - "EURUSD"
+    - "GBPUSD"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/platform.log"

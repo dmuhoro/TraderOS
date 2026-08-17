@@ -48,6 +48,24 @@ class TestCheckSecurityPosture:
         )
         assert any(f.check == "tls" and not f.ok for f in report.findings)
 
+    def test_production_tls_passes_when_proxy_flagged(self, monkeypatch) -> None:
+        monkeypatch.setenv("TRADEROS_ENV", "production")
+        report = check_security_posture(
+            authenticator=_authed(),
+            ssl_keyfile=None,
+            ssl_certfile=None,
+            tls_terminated_by_proxy="true",
+        )
+        assert all(f.ok for f in report.findings if f.check == "tls")
+        tls = next(f for f in report.findings if f.check == "tls")
+        assert "trusted platform edge" in tls.detail
+
+    def test_production_tls_reads_proxy_flag_from_env(self, monkeypatch) -> None:
+        monkeypatch.setenv("TRADEROS_ENV", "production")
+        monkeypatch.setenv("TLS_TERMINATED_BY_PROXY", "true")
+        report = check_security_posture(authenticator=_authed())
+        assert all(f.ok for f in report.findings if f.check == "tls")
+
     def test_production_flags_cors_allow_all(self, monkeypatch) -> None:
         monkeypatch.setenv("TRADEROS_ENV", "production")
         report = check_security_posture(authenticator=_authed(), cors_origins="*")
@@ -112,6 +130,15 @@ class TestAssertProductionPolicy:
             authenticator=_authed(),
             ssl_keyfile="/keys/server.key",
             ssl_certfile="/keys/server.crt",
+        )
+
+    def test_passes_when_tls_terminated_by_proxy(self, monkeypatch) -> None:
+        monkeypatch.setenv("TRADEROS_ENV", "production")
+        assert_production_policy(
+            authenticator=_authed(),
+            ssl_keyfile=None,
+            ssl_certfile=None,
+            tls_terminated_by_proxy="true",
         )
 
     def test_accepts_prebuilt_report(self, monkeypatch) -> None:
