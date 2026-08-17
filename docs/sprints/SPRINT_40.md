@@ -152,6 +152,19 @@ workflow's expectation was stale. Fixed to `Schema version: 8`, the true
 latest migration. This is the same class of "gate that can rot while the real
 path advances" defect this sprint was created to root out.
 
+### Fourth gate: flaky time-based signal test
+
+The Release workflow's test job exposed a flaky unit test:
+`TestPaperSessionFlow.test_process_candle_executes_filled_signal` failed
+intermittently with `ValueError: expires_at must be after generated_at`
+(`src/traderos/domain/entities/signal.py`). The test helper built signals with
+`generated_at=datetime.now(UTC)` and `expires_at=datetime.now(UTC)` as two
+separate calls — when the clock did not tick between them, the production
+invariant (expiry strictly after generation) correctly fired. The invariant is
+right; the test was racing the clock. Fix: build from a single `generated_at`
+and add `timedelta(minutes=1)` for expiry. Verified stable across 30 repeated
+runs.
+
 ## 7. Governance / honesty notes
 
 - As in SPRINT_39, the `0.2.12` npm-style bump reference is a stale

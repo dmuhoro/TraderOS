@@ -1,6 +1,6 @@
 REAL BINANCE STREAM DRILL — A2 live market-data seam
-  latest candle 2026-08-17T19:53:45+00:00 O=64308.75000000 C=64308.74000000 V=0.01467000
-  ticks seen by probe: 17, drained by collector: 17
+  latest candle 2026-08-17T20:15:20+00:00 O=64310.83000000 C=64310.83000000 V=0.01560000
+  ticks seen by probe: 103, drained by collector: 103
 
 [PASS] real_ticks_received
 [PASS] ticks_exchange_time_ordered
