@@ -92,7 +92,31 @@ re-anchoring. No `NO-GO` or `FAIL` record exists in the staged set.
 > hook-environment artifact, not a project gate, and is unchanged by this
 > sprint.
 
-## 6. Governance / honesty notes
+## 6. CI pipeline made genuinely green (three pre-existing gate failures)
+
+**Problem:** the GitHub Actions pipeline was **never green**. Every run back
+to sprint-38 failed on three jobs that had nothing to do with the release cut:
+
+| Job | Failure (every run) | Root cause |
+|---|---|---|
+| `test` | `ModuleNotFoundError: No module named 'pytz'` during collection | `alpaca-py` declares `pytz` only as a transitive requirement; a fresh CI resolution did not install it, so test collection broke on the alpaca import chain. |
+| `governance` | `ModuleNotFoundError: No module named 'scripts'` | `scripts/governance/live_gate.py` is executed as a bare script but imports `from scripts.governance.sign_release import ...` (package-relative). Only `src/` was added to `sys.path`, not the repo root, so `scripts` was unresolvable in the runner. |
+| `security` | `traderos Dependency not found on PyPI and could not be audited: traderos (1.2.0)` | `pip-audit` attempts to audit the locally editable `traderos` package, which is not published to PyPI — a false failure on a first-party package. |
+
+**Closure:**
+- `pyproject.toml`: `pytz>=2020.1` made an explicit member of the `alpaca`
+  extra (it is a hard runtime requirement of `alpaca-py==0.30.0`).
+- `scripts/governance/live_gate.py`: repo root added to `sys.path` so the
+  package-style `scripts.governance.*` imports resolve when the script is run
+  as a file.
+- `.github/workflows/ci.yml`: `pip-audit --skip-editable` — the audited
+  surface is every real third-party dependency; the first-party package is
+  covered by tests, not the PyPI advisory feed.
+- Verified after the fixes: `pytest` 2245 passed / 7 skipped / 100% coverage,
+  ruff, black, pyright, and `pre-commit` all green; `live_gate.py` exits 0 in
+  paper mode and 1 (fail-closed) in live mode.
+
+## 7. Governance / honesty notes
 
 - As in SPRINT_39, the `0.2.12` npm-style bump reference is a stale
   transcription; the repo's real version scheme is the package version. The

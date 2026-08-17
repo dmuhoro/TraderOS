@@ -1,5 +1,5 @@
 ORACLE CONFORMANCE — G-06 frozen reference PnL lock
-started 2026-08-17T18:43:31.288480+00:00
+started 2026-08-17T19:25:06.942199+00:00
 [PASS] full_frozen_dataset: trades=55 (want 55), return=-0.094886 (want -0.094886)
 [PASS] withheld_window: trades=18 (want 18), return=-0.028102 (want -0.028102)
 

@@ -25,7 +25,12 @@ api = [
     "pydantic==2.13.4",
     "httpx==0.28.1",
 ]
-alpaca = ["alpaca-py==0.30.0"]
+alpaca = [
+    "alpaca-py==0.30.0",
+    # Explicit, not transitive-only: alpaca-py declares pytz>=2020.1 but a
+    # fresh CI resolution did not install it, breaking test collection.
+    "pytz>=2020.1",
+]
 postgres = ["psycopg2-binary==2.9.12"]
 monitoring = ["prometheus-client==0.21.1"]
 dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.0", "pyright==1.1.411", "black==26.5.1", "isort==8.0.1"]

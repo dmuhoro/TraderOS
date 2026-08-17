@@ -1,5 +1,5 @@
 PARTIAL-FILL + RECONNECT DRILL — G-02 broker-side surprises
-started 2026-08-17T18:44:56.699057+00:00
+started 2026-08-17T19:26:35.901668+00:00
 cycles=12 forced_disconnects=4 submit_attempts=17 fill_pct=0.5
 broker_orders=12 journal_confirmed=12 trades=12
 journal_pending=0
