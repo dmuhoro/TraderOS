@@ -78,7 +78,7 @@ re-anchoring. No `NO-GO` or `FAIL` record exists in the staged set.
 
 | Check | Result |
 |---|---|
-| `pytest -q` (full suite) | 2245 passed, 7 skipped, **100.00%** coverage (gate 100) |
+| `pytest -q` (full suite) | 2246 passed, 7 skipped, **100.00%** coverage (gate 100) |
 | `ruff check .` | All checks passed |
 | `black --check .` | 367 files left unchanged |
 | `pyright` (strict, `src/traderos`) | 0 errors, 0 warnings |
@@ -112,9 +112,32 @@ to sprint-38 failed on three jobs that had nothing to do with the release cut:
 - `.github/workflows/ci.yml`: `pip-audit --skip-editable` — the audited
   surface is every real third-party dependency; the first-party package is
   covered by tests, not the PyPI advisory feed.
-- Verified after the fixes: `pytest` 2245 passed / 7 skipped / 100% coverage,
+- Verified after the fixes: `pytest` 2246 passed / 7 skipped / 100% coverage,
   ruff, black, pyright, and `pre-commit` all green; `live_gate.py` exits 0 in
   paper mode and 1 (fail-closed) in live mode.
+
+### Follow-up hardening on the first green run
+
+The first all-green attempt surfaced two more environment-dependent gates that
+had to be made deterministic, plus one real security finding:
+
+- **Backup filename collision (real bug):** `_timestamp()` in
+  `src/traderos/infrastructure/database/backup.py` used second resolution, so
+  two backups in the same second silently overwrote each other — silent data
+  loss. Now microsecond precision (`%Y%m%d_%H%M%S%f`), the same fix applied to
+  frozen-snapshot naming in this sprint.
+- **Environment-dependent coverage gate:** `_rotate_backups()` bound its
+  default `max_count=MAX_BACKUPS` at import time, so the rotation test's
+  `mod.MAX_BACKUPS = 2` had no effect — the rotation branch was only covered
+  locally by accumulated state in the shared backup dir, never in CI. Default
+  is now resolved at call time, and `restore_backup`'s SQLite branch got its
+  own test (the Postgres branch was already covered). Coverage is genuinely
+  100% in a clean environment.
+- **Security finding:** CI's fresh `pip-audit` DB flagged
+  `PYSEC-2026-2275` on `requests==2.32.4` (fix `2.33.0`); bumped to
+  `requests==2.33.0`. (The local audit DB is stale and did not surface it —
+  the CI finding is authoritative.)
+- Re-verified with the fixes: **2246 passed, 7 skipped, 100.00% coverage**.
 
 ## 7. Governance / honesty notes
 
@@ -130,7 +153,7 @@ to sprint-38 failed on three jobs that had nothing to do with the release cut:
 
 | Check | Result |
 |---|---|
-| `pytest -q` (full suite) | 2245 passed, 7 skipped, **100.00%** coverage (gate 100) |
+| `pytest -q` (full suite) | 2246 passed, 7 skipped, **100.00%** coverage (gate 100) |
 | `ruff check .` | All checks passed |
 | `black --check .` | all unchanged |
 | `pyright` (strict) | 0 errors, 0 warnings |

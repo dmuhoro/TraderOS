@@ -53,6 +53,15 @@ Ship-sprint release: the Railway deploy path is consolidated and elite-grade.
   when run as a file, (3) `pip-audit --skip-editable` so the first-party
   (non-PyPI) `traderos` package no longer trips the advisory audit. All three
   jobs now pass end-to-end.
+- **Backup collision bug fixed:** backup filenames were second-resolution, so
+  two backups in the same second silently overwrote one another — now
+  microsecond-precision, no silent data loss.
+- **Coverage gate made environment-independent:** `_rotate_backups()` default
+  resolved at call time (was bound at import, so the rotation branch was only
+  covered by accumulated local state); SQLite restore branch added its own
+  test. 100% coverage now holds in a clean environment.
+- **Security:** `requests` bumped `2.32.4` → `2.33.0` to clear
+  PYSEC-2026-2275 surfaced by CI's fresh audit DB.
 
 ### Sprint 39 (Railway shipping path: deploy config consolidation, proxy-TLS posture, deploy runbook)
 
