@@ -132,7 +132,10 @@ jobs:
       - run: pip install pip-audit bandit
       - run: pip install -e ".[api,alpaca,postgres,monitoring]"
       - name: Check dependency vulnerabilities
-        run: pip-audit
+        # --skip-editable: the local `traderos` package is not on PyPI, so
+        # pip-audit cannot audit it; the audited surface is every real
+        # third-party dependency.
+        run: pip-audit --skip-editable
       - name: Check for hardcoded secrets and security issues
         run: bandit -r src/traderos/ -lll
 

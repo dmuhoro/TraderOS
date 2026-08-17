@@ -45,6 +45,14 @@ Ship-sprint release: the Railway deploy path is consolidated and elite-grade.
 - Real-market walk-forward promoted from the key-gated set into the
   deterministic CI drill suite (`run_ci_drills.py`): **18/18 credential-free
   drills PASS**; inventory test aligned.
+- **CI pipeline made genuinely green:** three pre-existing gate failures that
+  broke every pipeline run back to sprint-38 were fixed — (1) `pytz>=2020.1`
+  made an explicit `alpaca` extra dependency (transitive-only resolution was
+  unreliable in fresh CI envs), (2) `scripts/governance/live_gate.py` repo-root
+  added to `sys.path` so package-style `scripts.governance.*` imports resolve
+  when run as a file, (3) `pip-audit --skip-editable` so the first-party
+  (non-PyPI) `traderos` package no longer trips the advisory audit. All three
+  jobs now pass end-to-end.
 
 ### Sprint 39 (Railway shipping path: deploy config consolidation, proxy-TLS posture, deploy runbook)
 
