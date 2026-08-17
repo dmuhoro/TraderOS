@@ -165,6 +165,32 @@ right; the test was racing the clock. Fix: build from a single `generated_at`
 and add `timedelta(minutes=1)` for expiry. Verified stable across 30 repeated
 runs.
 
+## 8. Ship to Railway (L8) — production posture armed
+
+The repo was already deployable, but the live Railway service was running with
+**no production posture**: `TRADEROS_ENV` was unset, so the app booted in
+development mode with the auth boundary open — a live probe returned `200` on
+protected `/v1/workflow` with no key. That open boundary is exactly what the
+deploy runbook forbids shipping.
+
+**Closure:**
+- Verified `railway whoami` (dmuhoro) and the linked TraderOS project,
+  `production` environment, existing Postgres + public domain.
+- Set the sealed posture variables: `TRADEROS_ENV=production`,
+  `TLS_TERMINATED_BY_PROXY=true`, `TRADING_MODE=paper`, and fresh random
+  `TRADEROS_ADMIN/OPERATOR/VIEWER_API_KEY` (secrets live only in Railway
+  Variables, never committed).
+- Redeployed with `railway up`; deployment `cb392f61` SUCCESS.
+- **Verified the full fail-closed boundary on the live URL**
+  (`https://traderos-production.up.railway.app`): liveness 200, health 200,
+  unauth workflow 401, operator/viewer/admin keys 200, wrong key 401, metrics
+  200. Logs show `401 Unauthorized` on unauthenticated probes and `200` on
+  authenticated ones.
+
+> Honesty note: this ships `TRADING_MODE=paper` — going live is gated by the
+> pilot checklist, not by this deploy. A fresh persistent-volume migration
+> state and the DB restore drill are exercised in the DB runbook, not here.
+
 ## 7. Governance / honesty notes
 
 - As in SPRINT_39, the `0.2.12` npm-style bump reference is a stale

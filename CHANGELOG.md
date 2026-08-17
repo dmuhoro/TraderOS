@@ -71,6 +71,13 @@ Ship-sprint release: the Railway deploy path is consolidated and elite-grade.
   not tick between them the production invariant (expiry strictly after
   generation) correctly raised. Expiry now derives from `generated_at +
   timedelta` — stable across 30 repeated runs.
+- **Live deployment armed (Ship 40):** the Railway production service was
+  running with no production posture (`TRADEROS_ENV` unset → development mode,
+  open auth boundary returning 200 on protected routes). Set the sealed
+  posture variables, redeployed, and verified the fail-closed boundary on the
+  live URL: unauth 401, all role keys 200, wrong key 401, health/metrics 200.
+  Deployment `cb392f61` SUCCESS at
+  `https://traderos-production.up.railway.app`.
 
 ### Sprint 39 (Railway shipping path: deploy config consolidation, proxy-TLS posture, deploy runbook)
 
