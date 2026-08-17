@@ -66,6 +66,11 @@ Ship-sprint release: the Railway deploy path is consolidated and elite-grade.
   `Schema version: 6` while the migration set has reached v008 — the gate
   rotted silently (masked by earlier failing jobs). Now asserts the true latest
   version (8); migration code/tests were already correct.
+- **Flaky signal test fixed:** the paper-trading test built signals with two
+  separate `now()` calls for `generated_at`/`expires_at`; when the clock did
+  not tick between them the production invariant (expiry strictly after
+  generation) correctly raised. Expiry now derives from `generated_at +
+  timedelta` — stable across 30 repeated runs.
 
 ### Sprint 39 (Railway shipping path: deploy config consolidation, proxy-TLS posture, deploy runbook)
 

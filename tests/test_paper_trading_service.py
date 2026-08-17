@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC
 from datetime import datetime
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -394,13 +395,14 @@ class TestPaperSessionFlow:
             svc.process_candle(uuid.uuid4(), uuid.uuid4(), 100.0, datetime.now(UTC))
 
     def _signal(self, strategy_id, market_id):
+        generated_at = datetime.now(UTC)
         return Signal(
             market_id=market_id,
             strategy_id=strategy_id,
             direction=SignalDirection.LONG,
             confidence=0.8,
-            generated_at=datetime.now(UTC),
-            expires_at=datetime.now(UTC),
+            generated_at=generated_at,
+            expires_at=generated_at + timedelta(minutes=1),
             id=uuid.uuid4(),
         )
 
