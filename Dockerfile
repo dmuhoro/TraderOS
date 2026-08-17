@@ -16,6 +16,7 @@ WORKDIR /app
 COPY --from=builder /root/.local /app/.local
 ENV PATH=/app/.local/bin:$PATH
 ENV PYTHONPATH=/app/src
+ENV PYTHONUNBUFFERED=1
 
 COPY . .
 
@@ -27,7 +28,7 @@ RUN groupadd -r traderos && useradd -r -g traderos -d /app traderos && \
 USER traderos
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD traderos health || exit 1
+    CMD curl -fsS http://127.0.0.1:8000/v1/healthz || exit 1
 
 EXPOSE 8000
 

@@ -11,6 +11,17 @@ from traderos.infrastructure.secrets import SECRET_ROTATION_INTERVAL
 
 PRODUCTION_ENV = "production"
 ENV_VAR = "TRADEROS_ENV"
+TLS_PROXY_ENV = "TLS_TERMINATED_BY_PROXY"
+
+
+def _tls_terminated_by_proxy(proxy_flag: str | None = None) -> bool:
+    """True when TLS is provided by a trusted platform edge (Railway/Fly/NGINX)
+    that terminates HTTPS and forwards plaintext HTTP to the app.
+
+    This is the standard PaaS posture: the app itself serves HTTP, the public
+    URL is HTTPS. It is explicit opt-in — production never assumes it."""
+    raw = proxy_flag if proxy_flag is not None else os.getenv(TLS_PROXY_ENV, "").strip()
+    return raw.lower() in ("true", "1", "yes")
 
 
 class SecurityPolicyError(ConfigError):
@@ -73,18 +84,23 @@ def check_security_posture(
     ssl_certfile: str | None = None,
     cors_origins: str | None = None,
     rotation_interval: int | None = None,
+    tls_terminated_by_proxy: str | None = None,
 ) -> SecurityReport:
     """Assess the deployment posture against the policy for the active environment.
 
     Production requires authentication and TLS and forbids CORS allow-all.
-    Development/CI are open by default (matching ``APIKeyAuthenticator``), so
-    the checks pass with informational detail while local work stays unblocked.
+    TLS may be self-terminated (``ssl_keyfile``/``ssl_certfile``) or provided
+    by a trusted platform edge (``TLS_TERMINATED_BY_PROXY=true``). Development/
+    CI are open by default (matching ``APIKeyAuthenticator``), so the checks
+    pass with informational detail while local work stays unblocked.
     """
     env = deployment_environment()
     auth = authenticator if authenticator is not None else APIKeyAuthenticator.from_env()
     report = SecurityReport(environment=env)
 
-    tls_ok = _tls_configured(ssl_keyfile, ssl_certfile)
+    tls_ok = _tls_configured(ssl_keyfile, ssl_certfile) or _tls_terminated_by_proxy(
+        tls_terminated_by_proxy
+    )
     cors_ok = not _cors_allow_all(cors_origins)
     interval = rotation_interval if rotation_interval is not None else SECRET_ROTATION_INTERVAL
 
@@ -96,13 +112,16 @@ def check_security_posture(
                 "API keys configured" if auth.enabled else "API authentication disabled (open)",
             )
         )
-        report.findings.append(
-            SecurityFinding(
-                "tls",
-                tls_ok,
-                "TLS configured" if tls_ok else "TLS not configured (plaintext HTTP)",
+        tls_detail = (
+            "TLS configured"
+            if _tls_configured(ssl_keyfile, ssl_certfile)
+            else (
+                "TLS terminated at trusted platform edge"
+                if _tls_terminated_by_proxy(tls_terminated_by_proxy)
+                else "TLS not configured (plaintext HTTP)"
             )
         )
+        report.findings.append(SecurityFinding("tls", tls_ok, tls_detail))
         report.findings.append(
             SecurityFinding(
                 "cors",

@@ -1,5 +1,51 @@
 # Changelog - TraderOS
 
+## [Unreleased] - Sprint 39 (Railway shipping path: deploy config consolidation, proxy-TLS posture, deploy runbook)
+
+### Deployment (G-04)
+- `railway.json` and `nixpacks.toml` removed — `railway.toml` is the single
+  source of deploy truth (previously three descriptors with divergent
+  behavior: two health-check paths and a Nixpacks path bypassing the
+  Dockerfile).
+- `Dockerfile` — `ENV PYTHONUNBUFFERED=1` (failures reach the platform log
+  stream) and the HEALTHCHECK now curls the real HTTP liveness route
+  `/v1/healthz` (same wire Railway polls).
+
+### Production posture
+- `infrastructure/security_policy.py` — proxy-TLS production posture:
+  `TLS_TERMINATED_BY_PROXY=true` marks TLS as held at the trusted platform
+  edge (the PaaS standard), so a `TRADEROS_ENV=production` boot on Railway
+  can pass the security policy without app-level certs. TLS is satisfied by
+  either self-terminated certs or the declared platform edge; production
+  never assumes the edge. Finding detail names the mechanism.
+- `tests/test_security_policy.py` +3 (18/18) — proxy flag and env-var
+  propagation.
+- Proven in the built image both ways: proxy-flagged production boots healthy
+  with the auth boundary fail-closed (401/200/401); production without the
+  flag refuses to boot (`SecurityPolicyError: tls: TLS not configured`).
+
+### Configuration (G-03)
+- `configs/settings.production.example.yaml` — armed conservative risk rails
+  with `require_allowlist: true` and a non-empty `allowed_markets`, persistent
+  `/app/data` DB path, secrets kept out of YAML.
+
+### Runbook (G-04)
+- `docs/runbooks/RAILWAY_DEPLOY.md` — production env matrix, deploy steps,
+  verification curls (liveness, auth-boundary 401, authenticated 200,
+  metrics), honest smoke-test limits, on-call basics, secret rotation, and
+  rollback.
+
+### Ship-gate evidence
+- Paper soak ×10 (2500 cycles, 500 forced ack-drops through the real
+  CycleExecutor → JournaledBroker → AlpacaBrokerAdapter chain): PASS — 0
+  duplicate/lost orders, restart re-submits nothing, reconcile clean.
+  `docs/evidence/2026-08-17_sprint39_paper_soak_10x.log`.
+- Walk-forward re-run on the frozen oracle (35% withheld OOS, full costs):
+  honest outcome unchanged — no strategy shows positive expectancy after
+  costs on OOS; pilot stays DATA-VALIDATION ONLY (no PnL claim).
+- Full verification green: 2245 tests / 100% coverage, ruff clean, pyright
+  strict clean, CI drill suite 17/17.
+
 ## [Unreleased] - Sprint 38 (Market Brain: tick-fed chart watcher wired into the async execution path)
 
 ### Market Brain — Slice A: domain chart watcher + real-path gate (2026-08-13)
