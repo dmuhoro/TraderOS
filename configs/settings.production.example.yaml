@@ -14,7 +14,7 @@
 # via the platform secret manager (Railway Variables / Vault / env).
 
 project_name: "Market Intelligence Platform"
-version: "1.1.0"
+version: "1.2.0"
 
 # Data persists under the platform volume (Railway mount /app/data). Never a
 # throwaway path: a redeploy with a new container filesystem must not orphan

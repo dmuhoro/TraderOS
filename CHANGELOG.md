@@ -1,6 +1,52 @@
 # Changelog - TraderOS
 
-## [Unreleased] - Sprint 39 (Railway shipping path: deploy config consolidation, proxy-TLS posture, deploy runbook)
+## [1.2.0] - 2026-08-17
+
+Ship-sprint release: the Railway deploy path is consolidated and elite-grade.
+
+### Highlights
+- **Deploy config consolidation (Ship 39):** `railway.json` / `nixpacks.toml`
+  removed — `railway.toml` is the single source of deploy truth; `Dockerfile`
+  hardened (`PYTHONUNBUFFERED=1`, HEALTHCHECK on the real `/v1/healthz` wire).
+- **Proxy-TLS production posture (Ship 39):** `TLS_TERMINATED_BY_PROXY=true`
+  lets a PaaS-hosted app pass the sealed production security gate (TLS at the
+  platform edge); fail-closed boot without it — proven both ways in the image.
+- **Production config template (G-03):** `configs/settings.production.example.yaml`
+  with armed conservative risk rails + allowlist.
+- **Railway deploy runbook (G-04):** `docs/runbooks/RAILWAY_DEPLOY.md` —
+  env matrix, deploy, verify, on-call, rotation, rollback.
+- **Frozen dataset discipline fix (this release):** the real-market walk-forward
+  drill now reuses the committed frozen Binance dataset instead of re-fetching
+  and overwriting committed data every run (`--refresh` to re-freeze) — the
+  reproducibility anchor is stable.
+- **Evidence:** paper soak 2500 cycles / 500 forced ack-drops PASS (0 dup/lost,
+  restart-safe, reconcile clean); walk-forward honest verdict on real OOS.
+- **Verification:** 2245+ tests at 100% coverage, ruff + pyright (+ pre-commit)
+  green, CI drill suite green.
+- **Release provenance fixed (G17/VB6):** `v1.1.0` release tag back-filled at
+  its release commit; this release cut as `v1.2.0` aligned to `pyproject.toml`.
+
+### Sprint 40 (release cut: version/tag provenance, frozen-dataset discipline, drill-set promotion)
+
+- Single version source enforced: `pyproject.toml`, `configs/settings.yaml`
+  and `configs/settings.production.example.yaml` all pinned to `1.2.0`; CI
+  version gate re-verified (pyproject == settings, no tracked `VERSION`).
+- `v1.1.0` release tag back-filled at its changelog release commit (`122f5bb`);
+  this release cut as `v1.2.0` — both tags match `pyproject.toml` at their
+  commits (G17/VB6 release-provenance gap closed).
+- Real-market walk-forward drill (`scripts/evidence/run_real_market_walk_forward.py`)
+  no longer re-fetches/overwrites committed market data: it reuses the newest
+  committed frozen snapshot by default (network-free, bit-deterministic), and
+  `--refresh` writes a NEW dated snapshot instead of mutating a committed one.
+  Corrupt/missing data fails closed (`VERDICT: NO-GO`, exit 2), never
+  fabricates.
+- Frozen snapshot re-anchored to its honest content date:
+  `docs/evidence/frozen/binance_btcusdt_1h_2026-08-17.csv` (git-rename).
+- Real-market walk-forward promoted from the key-gated set into the
+  deterministic CI drill suite (`run_ci_drills.py`): **18/18 credential-free
+  drills PASS**; inventory test aligned.
+
+### Sprint 39 (Railway shipping path: deploy config consolidation, proxy-TLS posture, deploy runbook)
 
 ### Deployment (G-04)
 - `railway.json` and `nixpacks.toml` removed — `railway.toml` is the single
@@ -44,9 +90,10 @@
   honest outcome unchanged — no strategy shows positive expectancy after
   costs on OOS; pilot stays DATA-VALIDATION ONLY (no PnL claim).
 - Full verification green: 2245 tests / 100% coverage, ruff clean, pyright
-  strict clean, CI drill suite 17/17.
+  strict clean, CI drill suite 17/17 at the time (Sprint 40 promoted the
+  real-market walk-forward to the deterministic set: **18/18**).
 
-## [Unreleased] - Sprint 38 (Market Brain: tick-fed chart watcher wired into the async execution path)
+### Sprint 38 (Market Brain: tick-fed chart watcher wired into the async execution path)
 
 ### Market Brain — Slice A: domain chart watcher + real-path gate (2026-08-13)
 - `domain/services/market_brain_service.py` — `MarketBrainService`, the
@@ -142,7 +189,7 @@
 - Evidence: `tests/test_market_brain_persistence.py` — async live-seed and
   empty-source fail-closed coverage.
 
-## [Unreleased] - Sprint 37 (tick-fed async execution loop: Pareto ingestor wired into the real submission path)
+### Sprint 37 (tick-fed async execution loop: Pareto ingestor wired into the real submission path)
 
 ### Async daemon — tick-driven event loop over the real submission path (2026-08-13)
 - `application/async_daemon.py` — `AsyncDaemonController`: `handle_tick` maps
@@ -173,7 +220,7 @@
   pipeline + `run_forever` end-to-end; forced-shutdown drain), factory wiring
   proofs in `tests/test_factory_ingestion.py`.
 
-## [Unreleased] - Sprint 36 (Pareto execution-safety hardening: freeze rail, fail-closed throttle, true local↔broker reconcile)
+### Sprint 36 (Pareto execution-safety hardening: freeze rail, fail-closed throttle, true local↔broker reconcile)
 
 ### Gap 3 — fatal-exception freeze rail (2026-08-13)
 - `infrastructure/fatal_handler.py` — `FatalExceptionHandler`, an installable
@@ -227,7 +274,7 @@
   unchanged (reference PnL still locked: trades=55/-0.094886, withheld
   18/-0.028102).
 
-## [Unreleased] - Sprint 35 (Test coverage 97.07% → 100%, gate raised to 100%)
+### Sprint 35 (Test coverage 97.07% → 100%, gate raised to 100%)
 
 ### Layer 4 bucket 3 — server / cli / config / logging / SSE to 100% (2026-08-11)
 - `interfaces/api/sse_tokens.py` (76), `infrastructure/config/config_loader.py`
@@ -270,7 +317,7 @@
   provisioned in-process only (never committed); MT5 deferred. **NO-GO for real
   capital stands.**
 
-## [Unreleased] - Sprint 34 (Test coverage 95.16% → 97.07%, gate raised to 97%)
+### Sprint 34 (Test coverage 95.16% → 97.07%, gate raised to 97%)
 
 ### Batch A — flagged infrastructure + domain offenders to 100% (2026-08-11)
 - `application/factory.py` (28 missing), `infrastructure/cache.py` (22),
@@ -319,7 +366,7 @@
   oracle conformance lock unaffected (2/2 PASS); real-market walk-forward still
   shows no positive expectancy after full costs on OOS data.
 
-## [Unreleased] - Sprint 33 (Disaster-recovery runbook commands run via `python -m traderos`)
+### Sprint 33 (Disaster-recovery runbook commands run via `python -m traderos`)
 
 ### WP1 — module entrypoint + parser/handler wiring (2026-08-10)
 - New `src/traderos/__main__.py` so `python -m traderos` matches the
@@ -363,7 +410,7 @@
   the durable trail, `audit verify` PASS, `run --mode paper` starts the engine
   and stops cleanly on SIGTERM.
 
-## [Unreleased] - Sprint 32 (Production risk-rail config + kill-surface surfacing + regulator attribution view + CI evidence-drill job)
+### Sprint 32 (Production risk-rail config + kill-surface surfacing + regulator attribution view + CI evidence-drill job)
 
 ### WP11 — G-03 production risk rails are configured AND enforced at boot (2026-08-10)
 - New `application/risk_config.py`: `resolve_risk_rails(risk_section, *, live)`
@@ -417,7 +464,7 @@
   `isort --check` clean on changed files; `pyright src/traderos/` 0 errors;
   dashboard `node --check` clean.
 
-## [Unreleased] - Sprint 31 (Session-based operator auth + Market Overview/Research Lab + on-call providers)
+### Sprint 31 (Session-based operator auth + Market Overview/Research Lab + on-call providers)
 
 ### WP8 — Operator login is session-based, not a static roaming API key (2026-08-09)
 - Dashboard sign-in is username+password against `/v1/auth/login` (PBKDF2 via
@@ -459,7 +506,7 @@
   assertions (Finish Line Dashboard, login/me/advance/kill-switch/report,
   `EventSource`) unchanged.
 
-## [Unreleased] - Sprint 30 (Real Alpaca paper smoke-soak + WP6 latency + WP7 re-arm runway)
+### Sprint 30 (Real Alpaca paper smoke-soak + WP6 latency + WP7 re-arm runway)
 
 ### WP5 — G-02 real Alpaca paper soak: smoke PASS + production-defect fix (2026-08-09)
 - `scripts/evidence/run_real_paper_soak.py` now drives the real production
@@ -501,7 +548,7 @@
 - Drill + soak + secret hygiene tests: 9 passed; `ruff` clean on changed core
   files; `pyright src tests` 0 errors.
 
-## [Unreleased] - Sprint 29 (Execution-immune-system hardening: WP1-WP4)
+### Sprint 29 (Execution-immune-system hardening: WP1-WP4)
 
 ### WP1 — Breaker wiring: verified at the real boundaries (2026-08-09)
 - Confirmed the uncommitted wrap-ins sit at the real submission/data paths, not a shared
@@ -536,7 +583,7 @@
 - Full suite WITHOUT PG, 3 consecutive runs: 1494 passed / 79 skipped x3 (green proof).
 - `ruff`/`black`/`isort` clean on `src`+`tests`; `pyright src tests`: 0 errors.
 
-## [Unreleased] - Sprint 28 (Product track: user accounts + per-user risk rails + manufacturing meta)
+### Sprint 28 (Product track: user accounts + per-user risk rails + manufacturing meta)
 
 ### AS-7 — Immune-system layer: broker circuit breaker + synthetic probes (2026-08-09)
 - `infrastructure/resilience.py` — dependency-free, thread-safe circuit breaker
@@ -704,7 +751,7 @@
 - `tests/performance/test_sprint9_benchmarks.py`: throughput band 2.0s→4.0s
   (10k ticks/2.5k msg/s guard) to de-flake on slower CI.
 
-## [Sprint 27] - Released (Every readiness gap to 80+, evidence-backed)
+### Sprint 27 - Released (Every readiness gap to 80+, evidence-backed)
 
 ### HA failover + secrets rotation audit (G-04) (2026-08-04)
 - `src/traderos/infrastructure/ha_failover.py`: lease-based leadership
@@ -763,7 +810,7 @@
 - Suite **1351 passed, 1 skipped**; whole-tree pyright 0 errors; ruff/black clean;
   all seven sprint-27 drills suite-locked; `GAP_READINESS.md` rescored 80+ (G-07 85).
 
-## [Unreleased] - Sprint 26 (Evidence-backed live-ops hardening)
+### Sprint 26 (Evidence-backed live-ops hardening)
 
 ### Supervision + unclean-shutdown alerting (2026-08-04)
 - `SupervisionService` wired into `DaemonController` and `Orchestrator`
@@ -819,7 +866,7 @@
   allowlist enforced).
 - Full suite `1328 passed, 1 skipped`; ruff clean; pyright 0 errors.
 
-## [Unreleased] - Sprint 25 (Idempotent order submission at the Alpaca boundary)
+### Sprint 25 (Idempotent order submission at the Alpaca boundary)
 
 ### Idempotent submit under retry (2026-08-04)
 - **Stable `client_order_id` at the innermost live boundary:** `AlpacaBrokerAdapter`
@@ -844,7 +891,7 @@
   retry). Broker-outage soak, WS reconnect, lost-order reconciliation beyond the
   journal, and kill-flatten/portfolio-cap live drill remain open.
 
-## [Unreleased] - Sprint 24 (Order-level risk enforcement at the live submission boundary)
+### Sprint 24 (Order-level risk enforcement at the live submission boundary)
 
 ### Order-level risk gate (2026-08-04)
 - **Per-order gate at the real submission seam:** new
@@ -874,7 +921,7 @@
   live boundary). Backtest realism, live-ops maturity, HA, and the rest of the
   OpenCode audit remain open and scheduled for larger work blocks.
 
-## [Unreleased] - Sprint 23 (Real-data backtesting: unified Alpaca + Binance data foundation)
+### Sprint 23 (Real-data backtesting: unified Alpaca + Binance data foundation)
 
 ### Real-data backtesting (2026-08-02)
 - **Unified, durable data model:** `HistoricalDataService` normalizes
@@ -896,7 +943,7 @@
   — live 1h fetch + identical cache-recall on both providers; CLI backtests
   fill trades on both. Full suite `1279 passed, 1 skipped`; coverage 92.56%.
 
-## [Unreleased] - Sprint 22 (Postgres reproducibility — environment-independent CI signal)
+### Sprint 22 (Postgres reproducibility — environment-independent CI signal)
 
 ### Postgres reproducibility programme (2026-08-02)
 - **Root cause fixed (test-harness only, no `src/` changes):** an independent
@@ -920,7 +967,7 @@
   redundant copy, repointed internal links; `NEXT_STEPS_TO_COMPLETION.md`
   marks WP-N1 DONE, folds WP-N0, closes WP-N2.
 
-## [Unreleased] - Sprint 21 (Order-Survivability: durable journal wire-up L1-L4)
+### Sprint 21 (Order-Survivability: durable journal wire-up L1-L4)
 
 ### Order-Survivability Sprint (2026-08-02)
 - **L1 — durable, idempotent order path**: new `infrastructure/journaled_broker.py`
@@ -945,7 +992,7 @@
 - **Honest residual**: L5 (real-money pilot + switch) intentionally gated on
   explicit operator funding/approval — not fabricated.
 
-## [Unreleased] - Sprint 20 (Programme Ω — First genuine execution evidence)
+### Sprint 20 (Programme Ω — First genuine execution evidence)
 
 ### Programme Ω (2026-08-02)
 - **Bootstrap fix**: `Config.load()` now auto-creates runtime dirs (`data_dir`, `exports_dir`, `db_path` dir), so `pilot dry-run` works from a genuinely fresh checkout (`test_load_creates_missing_db_directory` regression test).
@@ -960,7 +1007,7 @@
 - **Gate**: full suite **1266 passed, 1 skipped**; `ruff check .` 0 errors; black/isort/pyright strict clean.
 - **Honest residual (still open, not fabricated)**: real-money live pilot, Binance live (R-01), Postgres failure drill (R-02), durable journal wire-up (CLOSURE-12), runbook→CLI parity (CLOSURE-14).
 
-## [Unreleased] - Sprint 19 (Engineering Closure & Code Freeze Preparation)
+### Sprint 19 (Engineering Closure & Code Freeze Preparation)
 
 ### Engineering Closure pass (2026-08-02)
 - **Build green**: installed missing `prometheus-client` (pinned) so `/metrics` returns **200** (was 501); fixed the previously failing `test_health_and_metrics_stay_open`.
@@ -971,7 +1018,7 @@
 - **Release docs**: replaced aspirational placeholders with verified `ENGINEERING_CLOSURE_AUDIT.md`, honest `FINISH_LINE_DASHBOARD.md`, `ENGINEERING_CLOSURE_REPORT.md`; delta sections added to `AUDIT_GROUND_TRUTH.md` and `STRATEGIC_COMPLETION_BLUEPRINT.md`.
 - **Closure backlog opened (no speculative features)**: live-connectivity drills, replay wiring (CLOSURE-12), runbook→CLI parity, controlled pilot.
 
-## [Unreleased] - Sprint 18 (Coverage to 91.8% + Production Security Hardening)
+### Sprint 18 (Coverage to 91.8% + Production Security Hardening)
 
 ### WP-1 — Close the coverage gap (86.80% → 91.82%)
 - **Layer 1a — flagged modules to unit coverage**: `market_hours_engine` 38% → 98%, `webhook_notifier` 43% → 84%, `leader_election` 58% → 97%, `message_queue` 67% → 100%, `interfaces/api/main.py` 33% → 94%.
@@ -990,7 +1037,7 @@
 ### Verification
 - **1201 tests passing, 1 skipped** (full suite), **91.82% coverage** (threshold 70%), **ruff 0 errors** and **pyright 0 errors** on all changed files. Sprint report: `docs/sprints/SPRINT_18.md`.
 
-## [Unreleased] - Sprint 17 (Pilot Readiness — Order Surface, Service Wiring, Security Hardening, Pilot CLI)
+### Sprint 17 (Pilot Readiness — Order Surface, Service Wiring, Security Hardening, Pilot CLI)
 
 ### WP-2 — Order surface
 - **Broker ABC** (`domain/adapters/broker_adapter.py`): `place_stop_order`, `place_trailing_stop_order`, `modify_order`.
@@ -1017,7 +1064,7 @@
 ### Verification
 - **1060 tests passing, 1 skipped** (full suite), **86.80% coverage** (threshold 70%), **ruff 0 errors** and **pyright 0 errors** on all changed files. Sprint report: `docs/sprints/SPRINT_17.md`.
 
-## [Unreleased] - Sprint 16 (Programme C — Auth, Observability, Dashboard, Live Verification, Ops)
+### Sprint 16 (Programme C — Auth, Observability, Dashboard, Live Verification, Ops)
 
 ### WP-3 — Auth / RBAC
 - **API-key authentication** (`infrastructure/auth.py` + `interfaces/api/security.py`): `TRADEROS_ADMIN_API_KEY`/`TRADEROS_OPERATOR_API_KEY`/`TRADEROS_VIEWER_API_KEY` (legacy `TRADEROS_API_KEY` → admin). Open-by-default: enforcement activates only when keys are configured.
@@ -1044,7 +1091,7 @@
 ### Verification
 - **1031 tests passing, 1 skipped** (full suite, repeated runs), **86.80% coverage** (threshold 70%), **ruff 0 errors** and **pyright 0 errors** on all changed files. Sprint report: `docs/sprints/SPRINT_16.md`.
 
-## [Unreleased] - Sprint 15 (Deployment, Railway, Maintenance/Release)
+### Sprint 15 (Deployment, Railway, Maintenance/Release)
 
 ### Deployment
 - **Compose stack** (`docker-compose.yml` rewritten): `postgres` (16-alpine, healthchecked), `traderos-api` (PG-backed, healthchecked via `/v1/healthz`), `traderos-daemon` (paper mode, 60s interval), `postgres-test` (test profile). `docker compose config -q` clean.
@@ -1058,7 +1105,7 @@
 - **Secret rotation**: `SecretRotator` (env provider) wired into the orchestrator lifecycle and surfaced in `get_status()`.
 - **Retention**: `order_events` journal purged via `applied_at` in `purge_old_entries`; file logging uses `RotatingFileHandler` (`LOG_MAX_BYTES`, `LOG_BACKUP_COUNT`).
 
-## [Unreleased] - Sprint 14 (Programme C — Commercial Surface)
+### Sprint 14 (Programme C — Commercial Surface)
 
 ### C2 — Enforced operator workflow
 - **`OperatorWorkflow`** (`domain/services/operator_workflow.py`): 10-step canonical lifecycle (start → preflight → broker_check → market_data_check → paper_trading → performance_review → strategy_promotion → controlled_live → shutdown → session_report). Strict ordering: only the immediate next step or a re-run of the current one; out-of-order attempts raise `WorkflowError`.
@@ -1079,7 +1126,7 @@
 - **`docs/engineering/FINISH_LINE_DASHBOARD.md`** (new): authoritative operator-surface design doc (workflow semantics, endpoint map, error semantics, catalog, report contract, DoD).
 - **`README.md`**: productized entry point — new features, operator curl examples, documentation table.
 
-## [Unreleased] - Sprint 13 (Programme B — Operational Trust)
+### Sprint 13 (Programme B — Operational Trust)
 
 ### OT-001 — Binance WebSocket transport (thin; live connectivity = declared risk)
 - **`BinanceStreamTransport`** (`infrastructure/market_stream.py`): subscribes to `<symbol>@aggTrade`, parses frames, yields normalized raw ticks. Pure `parse_trade_frame` (handles combined-stream envelopes + raw `aggTrade`/`trade`, skips acks/klines), `build_subscription_frame`, `binance_stream_symbol`. Connector injected for offline tests; default lazily imports `websockets`. Live connect is **not** claimed — no network in this environment.
@@ -1120,7 +1167,7 @@
 - **864 tests passing, 0 failures**, **83.77% coverage** (threshold 70%), **ruff clean on `src/traderos`**, **pyright 0 errors**.
 - **Declared, non-fabricated remaining risks:** R-01 live Binance WS connectivity (no network/`websockets` in sandbox); R-02 live Alpaca/Postgres behavior (no credentials/server). Both are contract/structure-tested only.
 
-## [Unreleased] - Sprint 12 (Programme A — Core Loop Integrity)
+### Sprint 12 (Programme A — Core Loop Integrity)
 
 ### D1/D2 — Fills now create positions; paper-broker fills no longer crash
 - **`CycleExecutor.run()` routes every accepted fill through `PortfolioService.fill_trade`** (`application/cycle_executor.py`): the only method that creates/updates `Position` rows. Previously the executor's `open_trade → submit → fill → update_trade` sequence left the position repo untouched (D1).
@@ -1150,7 +1197,7 @@
 ### Verification
 - **843 tests passing, 0 failures** (`python3 -m pytest -q -p no:randomly`), **84.63% coverage** (baseline 84.42%), **ruff clean on `src/traderos` + touched tests**, **pyright 0 errors**. Sprint report: `docs/sprints/SPRINT_12.md`.
 
-## [Unreleased] - Sprint 11 (Programme Ω — Operational Verification)
+### Sprint 11 (Programme Ω — Operational Verification)
 
 ### Ω.1 — Audit Integrity (GATE 1)
 - **`verify_chain()` content-integrity fix** (`infrastructure/audit.py`, `observability.py`, `observability_postgres.py`): All 3 backends now recompute each entry's expected hash from field values and compare against stored hash, plus verify previous_hash link integrity. Tampering with any of the 7 auditable fields (id, action, actor, resource, detail, timestamp, previous_hash) is detected.
@@ -1215,7 +1262,7 @@
 - **SPRINT_11.md**: Programme Ω complete — all 9 Codex rejection points resolved across 8 layers.
 - **832 tests passing, 0 failures, 0 lint errors.**
 
-## [Unreleased] - Sprint 9
+### Sprint 9
 
 ### Added
 - Provider-neutral streaming market data pipeline with bounded backpressure, heartbeat, latency, clock-drift observation, reconnect handling, candle aggregation and replay recording.
