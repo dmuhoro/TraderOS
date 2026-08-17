@@ -202,7 +202,7 @@ jobs:
             traderos:ci db migrate
           docker run --rm --network host --entrypoint traderos \
             -e DATABASE_URL="$DATABASE_URL" \
-            traderos:ci db check | grep "Schema version: 6"
+            traderos:ci db check | grep "Schema version: 8"
       - name: Verify API container health
         run: |
           docker run --rm -d --network host --name traderos-api-smoke \

@@ -62,6 +62,10 @@ Ship-sprint release: the Railway deploy path is consolidated and elite-grade.
   test. 100% coverage now holds in a clean environment.
 - **Security:** `requests` bumped `2.32.4` → `2.33.0` to clear
   PYSEC-2026-2275 surfaced by CI's fresh audit DB.
+- **Stale deploy-check assertion fixed:** the migration smoke test grepped for
+  `Schema version: 6` while the migration set has reached v008 — the gate
+  rotted silently (masked by earlier failing jobs). Now asserts the true latest
+  version (8); migration code/tests were already correct.
 
 ### Sprint 39 (Railway shipping path: deploy config consolidation, proxy-TLS posture, deploy runbook)
 

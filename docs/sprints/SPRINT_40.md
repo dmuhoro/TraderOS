@@ -139,6 +139,19 @@ had to be made deterministic, plus one real security finding:
   the CI finding is authoritative.)
 - Re-verified with the fixes: **2246 passed, 7 skipped, 100.00% coverage**.
 
+### Third gate: stale schema-version assertion in `deploy-check`
+
+With every earlier job green, the `deploy-check` job finally executed and
+failed on a **stale hard-coded expectation**: it greps `Schema version: 6` in
+`.github/workflows/ci.yml`, but the migration set has advanced to **v008** —
+the assertion was last correct when v006 was the newest migration, and was
+silently rotting ever since (masked because prior jobs failed first). The
+migration code and its tests were already correct
+(`tests/test_migration_down_paths.py` asserts current version 8); only the
+workflow's expectation was stale. Fixed to `Schema version: 8`, the true
+latest migration. This is the same class of "gate that can rot while the real
+path advances" defect this sprint was created to root out.
+
 ## 7. Governance / honesty notes
 
 - As in SPRINT_39, the `0.2.12` npm-style bump reference is a stale
