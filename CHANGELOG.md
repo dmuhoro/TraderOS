@@ -37,6 +37,65 @@
   risk cap under extremes, sub-threshold and range-bound refusals, and the Event
   flow carrying direction/confidence/risk for the EA.
 
+### Market Brain — Slice B: sync gate on the DaemonController loop + config (2026-08-17)
+- `application/daemon_controller.py` — `DaemonController(brain=...,
+  brain_history_bars=...)` with `_brain_gate(brain, market_id)` in front of the
+  real `_cycle_executor.run`: the sync loop now runs the same fail-closed Brain
+  read as the async daemon. An allowed read meters `sync_daemon.brain_advised`
+  and audits `sync.brain.advice`; a refused read meters
+  `sync_daemon.brain_blocks`, audits `sync.brain.blocked`, publishes
+  `brain.advice` (allowed=False) and skips the cycle — the real seam is never
+  invoked. `get_status()` reports `brain.advised`; without a brain the loop is
+  byte-for-byte the old behaviour (parity proven).
+- `application/factory.py` — `_build_market_brain(cfg)` reads `market_brain.*`
+  (opt-in: `enabled`; disabled/malformed build NO brain — fail closed);
+  `build_orchestrator` wires brain + `history_bars` into `TradingOrchestrator`;
+  `build_async_daemon` reuses the same brain.
+- `application/orchestrator.py` — `brain`/`brain_history_bars` fields pass
+  through to the daemon controller.
+- Evidence: `tests/test_market_brain_sync_gate.py` — seam proof on the sync loop
+  (unreadable brain -> `executor.run` call_count stays 0, blocks + event
+  counted; readable brain -> real cycle runs), no-brain parity, no-data-source
+  fail-closed, and factory config-knob wiring.
+
+### Market Brain — Slice C: durable persistence / restart-safe replay (2026-08-17)
+- `domain/services/market_brain_service.py` — `CandleStorePort` protocol
+  (dependency-direction clean); `store` field; `warm_from_store(market_id,
+  limit)` replays durable bars into a fresh Brain (False when no store/history);
+  `seed_candles` and `update_tick` persist through the store when wired.
+- `infrastructure/repositories/brain_candle_store.py` — durable adapter over
+  the existing provider candle store (`source="market_brain"` +
+  `symbol=str(market_id)`), upsert-idempotent by (timeframe, ts);
+  `load_candles` reads across timeframes so the index-based indicators replay
+  exactly.
+- `infrastructure/repositories/sqlite/historical_candles.py` — `load` accepts
+  `timeframe=None` for cross-timeframe reads (existing callers unaffected).
+- Both daemons warm **once per market** before the first read, so a restarted
+  loop never reads an UNKNOWN market it has durable history for. Honest
+  boundary: the durable seat is per-bar-timestamp (a same-timestamp synthetic
+  tape collapses deterministically LAST-WINS; in-memory reads keep every bar).
+- Evidence: `tests/test_market_brain_persistence.py` — restart identity, seeding
+  idempotency, aggregate-candle durability, LAST-WINS collapse, and daemon
+  warm-from-store before read/tick.
+
+### Market Brain — Slice D: production live-wiring + end-to-end evidence (2026-08-17)
+- `application/async_daemon.py` — `AsyncDaemonController(data_ingestion=...)`:
+  `_warm_brain_from_store` seeds the Brain from the live data source when the
+  durable store is empty, so a fresh async deployment can read its chart; with
+  neither store nor live history the Brain stays UNKNOWN and blocks (fail
+  closed).
+- `application/factory.py` — `build_async_daemon` wires the orchestrator's real
+  `data_ingestion` into the async controller.
+- `scripts/evidence/run_market_brain_drill.py` — credential-free, network-free
+  end-to-end drill over the real services and the real `CycleExecutor` seam:
+  sync fail-closed, sync no-ingestion fail-closed, restart-safe durable replay
+  driving the real cycle, async live-seed + warm-once, async empty-source
+  fail-closed, and config wiring. Verdict PASS
+  (`2026-08-17_market_brain_drill.log`); registered in the WP13 CI drill job
+  (now **17 credential-free drills**).
+- Evidence: `tests/test_market_brain_persistence.py` — async live-seed and
+  empty-source fail-closed coverage.
+
 ## [Unreleased] - Sprint 37 (tick-fed async execution loop: Pareto ingestor wired into the real submission path)
 
 ### Async daemon — tick-driven event loop over the real submission path (2026-08-13)

@@ -11,6 +11,7 @@ from traderos.application.models import TradingMode
 from traderos.domain.exceptions import InfrastructureError
 from traderos.domain.exceptions import ServiceError
 from traderos.domain.ports import AuditPort
+from traderos.domain.ports import Event
 from traderos.domain.ports import EventBusPort
 from traderos.domain.ports import HealthPort
 from traderos.domain.ports import ManifestPort
@@ -20,6 +21,7 @@ from traderos.domain.services.broker_state_reconciliation_service import (
     BrokerStateReconciliationService,
 )
 from traderos.domain.services.data_ingestion_service import DataIngestionService
+from traderos.domain.services.market_brain_service import MarketBrainService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
@@ -58,6 +60,8 @@ class DaemonController:
         standby_poll_seconds: float = 5.0,
         fatal_handler: FatalExceptionHandler | None = None,
         local_state_provider: Callable[[], tuple[list[dict], list[dict]]] | None = None,
+        brain: MarketBrainService | None = None,
+        brain_history_bars: int = 300,
     ) -> None:
         self._mode = mode
         self._cycle_executor = cycle_executor
@@ -83,6 +87,10 @@ class DaemonController:
         self._local_state_provider = local_state_provider
         self._running = False
         self._crash_recovered = False
+        self._brain = brain
+        self._brain_history_bars = brain_history_bars
+        self._brain_advised = 0
+        self._brain_warmed: set[uuid.UUID] = set()
 
     @property
     def leading(self) -> bool:
@@ -134,6 +142,73 @@ class DaemonController:
         except Exception:  # noqa: BLE001 — journal access is best-effort, never fatal
             return None
         return items if items else None
+
+    def _brain_gate(self, brain: MarketBrainService, market_id: uuid.UUID) -> bool:
+        """Read the market through the Brain and gate the real cycle.
+
+        Warm path (once per market): durable store replay first (restart-safe),
+        then the live data source when the store held nothing. Returns True when
+        the Brain has a readable, actionable read — the cycle may proceed; False
+        when the gate refuses it. Every refusal is counted, audited, and
+        published as a ``brain.advice`` event — no silent drops (fail closed).
+        """
+        if market_id not in self._brain_warmed:
+            warmed = brain.warm_from_store(market_id, limit=self._brain_history_bars)
+            if not warmed and self._data_ingestion is not None:
+                candles = self._data_ingestion.fetch_candles(
+                    market_id, limit=self._brain_history_bars
+                )
+                if candles:
+                    brain.seed_candles(market_id, candles)
+            self._brain_warmed.add(market_id)
+        advice = brain.advise(market_id)
+        if advice.allowed:
+            self._brain_advised += 1
+            self._metrics.counter("sync_daemon.brain_advised")
+            top = advice.moves[0]
+            self._audit.record(
+                "sync.brain.advice",
+                "system",
+                "sync_daemon",
+                (
+                    f"market={market_id} direction={top.direction} "
+                    f"confidence={top.confidence} risk={top.risk_fraction} {top.rationale}"
+                ),
+            )
+            self._event_bus.publish(
+                Event(
+                    event_type="brain.advice",
+                    payload={
+                        "market_id": str(market_id),
+                        "allowed": True,
+                        "direction": top.direction,
+                        "confidence": top.confidence,
+                        "risk_fraction": top.risk_fraction,
+                        "reason": advice.reason,
+                    },
+                    market=str(market_id),
+                )
+            )
+            return True
+        self._metrics.counter("sync_daemon.brain_blocks")
+        self._audit.record(
+            "sync.brain.blocked",
+            "system",
+            "sync_daemon",
+            f"market={market_id} reason={advice.reason}",
+        )
+        self._event_bus.publish(
+            Event(
+                event_type="brain.advice",
+                payload={
+                    "market_id": str(market_id),
+                    "allowed": False,
+                    "reason": advice.reason,
+                },
+                market=str(market_id),
+            )
+        )
+        return False
 
     def _fetch_local_state(self) -> tuple[list[dict] | None, list[dict] | None]:
         """Return ``(local_positions, local_orders)`` for reconciliation.
@@ -360,6 +435,10 @@ class DaemonController:
                         )
                         self._health.report_unhealthy(f"market.{mid}", "no price data")
                         continue
+                    if self._brain is not None and not self._brain_gate(self._brain, mid):
+                        # Brain has no readable/actionable read — the cycle for
+                        # this market is refused (counted + audited, fail closed).
+                        continue
                     result = self._cycle_executor.run(mid, close_price)
                     if result.errors:
                         for err in result.errors:
@@ -373,7 +452,7 @@ class DaemonController:
             time.sleep(interval_seconds)
 
     def get_status(self) -> dict[str, Any]:
-        return {
+        status: dict[str, Any] = {
             "mode": self._mode.value,
             "running": self._running,
             "markets": len(self._market_ids),
@@ -381,3 +460,9 @@ class DaemonController:
             "metrics": self._metrics.snapshot(),
             "crash_recovered": self._crash_recovered,
         }
+        if self._brain is not None:
+            status["brain"] = {
+                "markets": len(self._market_ids),
+                "advised": self._brain_advised,
+            }
+        return status

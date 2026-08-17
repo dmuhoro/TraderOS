@@ -31,6 +31,7 @@ from traderos.domain.services.execution_service import ExecutionService
 from traderos.domain.services.flatten_service import FlattenService
 from traderos.domain.services.knowledge_graph_service import KnowledgeGraphService
 from traderos.domain.services.live_readiness import LiveReadinessService
+from traderos.domain.services.market_brain_service import MarketBrainService
 from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.operator_session import OperatorSessionService
@@ -95,6 +96,8 @@ class TradingOrchestrator:
     streaming_feed: Any | None = None
     standby_poll_seconds: float = 5.0
     probe_scheduler: ProbeScheduler | None = None
+    brain: MarketBrainService | None = None
+    brain_history_bars: int = 300
 
     def _pre_cycle_check(self) -> None:
         if self.preflight_service is not None:
@@ -190,6 +193,8 @@ class TradingOrchestrator:
                 metrics=self.metrics,
                 mode=self.mode.value,
             ),
+            brain=self.brain,
+            brain_history_bars=self.brain_history_bars,
         )
 
     @property

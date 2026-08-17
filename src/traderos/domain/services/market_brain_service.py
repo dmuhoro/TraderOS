@@ -18,6 +18,12 @@ Design rules (execution guardrails / Constitution):
   collapses synthetic series that share an identical timestamp.
 - No silent advice: an unready or range-bound market returns an explicit
   ``reason``, which the async daemon audits and surfaces.
+- Durable replay (Slice C): when a ``CandleStorePort`` is wired, seeded history
+  and tick aggregates are persisted, and ``warm_from_store`` rebuilds a fresh
+  Brain to the same state across a restart (the daemon warms before its first
+  read). Persistence is per-bar-timestamp (the store's natural identity), so
+  distinct bars sharing a timestamp collapse deterministically LAST-WINS on
+  replay while the in-memory index-based read keeps every bar.
 """
 
 from __future__ import annotations
@@ -55,6 +61,20 @@ class _PriceTick(Protocol):
 
     @property
     def exchange_timestamp(self) -> datetime: ...
+
+
+class CandleStorePort(Protocol):
+    """Durable candle persistence the Brain can replay across a restart.
+
+    Kept as a protocol in the domain so the domain never imports
+    infrastructure (dependency-direction guard). The adapter keys bars by
+    (timeframe, ts); ``load_candles`` returns the market's bars across
+    timeframes in timestamp order so the index-based indicators replay exactly.
+    """
+
+    def save_candles(self, market_id: uuid.UUID, candles: Iterable[Candle]) -> None: ...
+
+    def load_candles(self, market_id: uuid.UUID, limit: int) -> list[Candle]: ...
 
 
 class TrendStage(StrEnum):
@@ -115,6 +135,7 @@ class MarketBrainService:
     candle_seconds: int = 60
     confidence_momentum_scale: float = 4.0
     high_volatility_percentile: float = 0.8
+    store: CandleStorePort | None = None
 
     _views: dict[uuid.UUID, _BrainMarketView] = field(
         default_factory=lambda: defaultdict(_BrainMarketView)
@@ -124,7 +145,31 @@ class MarketBrainService:
         """Seed historical candles (e.g. from the data-ingestion source or a
         replay tape). Idempotent by bar identity (timestamp + full OHLCV):
         re-seeding the exact same bars replaces them; distinct bars that share
-        a timestamp (e.g. a synthetic tape) are all kept and read index-based."""
+        a timestamp (e.g. a synthetic tape) are all kept and read index-based.
+        When a durable store is wired, the merged series is persisted
+        idempotently (the store upserts by (timeframe, ts))."""
+        self._merge_candles(market_id, candles)
+        if self.store is not None:
+            view = self._views[market_id]
+            self.store.save_candles(market_id, view.candles)
+
+    def warm_from_store(self, market_id: uuid.UUID, limit: int = 300) -> bool:
+        """Replay the durable bars for a market into memory (restart-safe).
+
+        Returns True when durable history existed and was loaded into the
+        in-memory view; False when there is no store or no durable history, in
+        which case the Brain stays UNKNOWN (fail closed — nothing is assumed).
+        """
+        if self.store is None:
+            return False
+        candles = self.store.load_candles(market_id, limit)
+        if not candles:
+            return False
+        self._merge_candles(market_id, candles)
+        return True
+
+    def _merge_candles(self, market_id: uuid.UUID, candles: Iterable[Candle]) -> None:
+        """Merge bars into the market's in-memory view, idempotent by identity."""
         view = self._views[market_id]
         key = lambda c: (  # noqa: E731
             c.timestamp,
@@ -142,12 +187,16 @@ class MarketBrainService:
 
     def update_tick(self, market_id: uuid.UUID, tick: _PriceTick) -> None:
         """Ingest one live tick: record it for liquidity/momentum and aggregate
-        into the candle for its time interval when it is a newer bar."""
+        into the candle for its time interval when it is a newer bar. New
+        aggregate candles are persisted when a durable store is wired."""
         view = self._views[market_id]
         view.ticks.append(tick)
         interval_start = self._interval_start(tick.exchange_timestamp, self.candle_seconds)
         if view.candles and interval_start > view.candles[-1].timestamp:
-            view.candles.append(self._candle_from_ticks(market_id, interval_start))
+            candle = self._candle_from_ticks(market_id, interval_start)
+            view.candles.append(candle)
+            if self.store is not None:
+                self.store.save_candles(market_id, [candle])
 
     @staticmethod
     def _interval_start(ts: datetime, seconds: int | None = None) -> datetime:

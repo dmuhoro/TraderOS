@@ -38,6 +38,7 @@ from traderos.domain.ports import EventBusPort
 from traderos.domain.ports import HealthPort
 from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricsPort
+from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.market_brain_service import MarketBrainService
 from traderos.domain.services.notification_service import NotificationService
 from traderos.infrastructure.async_streaming import ParetoWebSocketIngestor
@@ -70,6 +71,8 @@ class AsyncDaemonController:
         run_manifest: ManifestPort,
         ingestor: ParetoWebSocketIngestor | None = None,
         brain: MarketBrainService | None = None,
+        brain_history_bars: int = 300,
+        data_ingestion: DataIngestionService | None = None,
     ) -> None:
         self._mode = mode
         self._cycle_executor = cycle_executor
@@ -91,8 +94,11 @@ class AsyncDaemonController:
         self._run_manifest = run_manifest
         self._ingestor = ingestor
         self._brain = brain
+        self._brain_history_bars = brain_history_bars
+        self._data_ingestion = data_ingestion
         self._brain_since = datetime.now(tz=UTC)
         self._brain_advised = 0
+        self._brain_warmed: set[uuid.UUID] = set()
         self._running = False
         self._last_seen: dict[uuid.UUID, datetime] = {}
         self._cycles_run = 0
@@ -167,6 +173,7 @@ class AsyncDaemonController:
             f"market={market_id} symbol={tick.symbol} price={tick.price}",
         )
         if self._brain is not None:
+            self._warm_brain_from_store(market_id)
             self._brain.update_tick(market_id, tick)
             advice = self._brain.advise(market_id)
             self._metrics.counter("async_daemon.brain_cycles")
@@ -226,6 +233,27 @@ class AsyncDaemonController:
         self._cycles_run += 1
         self._metrics.counter("async_daemon.cycles")
         self._health.report_healthy(f"market.{market_id}", f"cycle #{self._cycles_run}")
+
+    def _warm_brain_from_store(self, market_id: uuid.UUID) -> None:
+        """Replay durable bars into the Brain once per market before any read.
+
+        Restart-safe: a fresh Brain has nothing in memory until this loads the
+        durable history (if the store held any). With no durable history the
+        Brain is seeded from the live data source (same fetch the sync gate
+        uses); with neither it stays UNKNOWN and the gate below blocks the
+        cycle (fail closed). Warm runs exactly once per market.
+        """
+        if market_id in self._brain_warmed:
+            return
+        if self._brain is not None:
+            warmed = self._brain.warm_from_store(market_id, limit=self._brain_history_bars)
+            if not warmed and self._data_ingestion is not None:
+                candles = self._data_ingestion.fetch_candles(
+                    market_id, limit=self._brain_history_bars
+                )
+                if candles:
+                    self._brain.seed_candles(market_id, candles)
+        self._brain_warmed.add(market_id)
 
     def on_tick(self, tick: Tick) -> None:
         """Synchronous bridge for ``ParetoWebSocketIngestor.run_pipeline``.

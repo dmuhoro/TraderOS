@@ -1,7 +1,7 @@
 POSTGRES PARITY DRILL — A5 (repo completeness + no in-memory fallback)
-started 2026-08-13T16:27:07.268239+00:00
+started 2026-08-17T06:48:38.622853+00:00
   factory wired strategy/workflow/backtest-result on Postgres (no in-memory fallback on PG)
-  strategy round-trip: name=parity_drill_1786638428 params_persisted=True
+  strategy round-trip: name=parity_drill_1786949319 params_persisted=True
 -------
   [PASS] pg_strategy_repo: wired=PostgresStrategyRepository in_memory_fallback=No
   [PASS] pg_workflow_repo: wired=PostgresOperatorWorkflowRepository in_memory_fallback=No
