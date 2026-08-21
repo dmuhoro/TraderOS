@@ -1,5 +1,33 @@
 # Changelog - TraderOS
 
+## [Unreleased]
+
+### Sprint 41 (2026-08-20) — product completeness: honest backtest, durable research store, pagination, real-feed wiring
+
+- **Deep audit + codebase index:** full inventory of `src/traderos` (190
+  modules), the `/v1` API, migrations, and tests; corrected two stale claims
+  in the readiness docs (operator login WP8 and market/research WP9 were
+  already shipped).
+- **Honest backtest:** `POST /v1/backtest` no longer fabricates synthetic
+  candles — it runs the engine against the real ingested candle series and
+  fails closed on unknown/empty symbol (404/503). Consumers get `symbol` and
+  `candles` so a UI can never display fabricated-in-place numbers.
+- **Durable research store:** research data (observations/hypotheses/
+  experiments/results/lessons) was in-memory-only and lost on restart. Now
+  wired to SQLite (was already implemented) and **new Postgres repos**
+  (`postgres/research.py`) for production durability.
+- **Pagination:** `limit`/`offset` added to `/v1/audit`, `/v1/manifest`,
+  `/v1/trades`, `/v1/positions`, `/v1/orders`, `/v1/strategies`,
+  `/v1/papertrade/sessions`; `RunManifest.get_runs` gained `offset`.
+- **Real-feed wiring:** `BINANCE_ENABLED` / `BINANCE_STREAMING` env-var
+  overrides switch the real Binance feed on for a deployed instance without
+  editing committed YAML (committed default stays off for CI).
+- **README rewritten** as a living product-state document (status, capabilities,
+  honest gaps, env reference).
+- `.env.example` refreshed with the full current variable set.
+- Verification: new tests for backtest honesty, Postgres research repos (6),
+  env-override (2), pagination offset; full suite green at 100% coverage.
+
 ## [1.2.0] - 2026-08-17
 
 Ship-sprint release: the Railway deploy path is consolidated and elite-grade.

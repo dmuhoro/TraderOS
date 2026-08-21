@@ -93,12 +93,22 @@ from traderos.infrastructure.repositories.in_memory import InMemorySignalReposit
 from traderos.infrastructure.repositories.in_memory import InMemoryStrategyRepository
 from traderos.infrastructure.repositories.in_memory import InMemoryTradeRepository
 from traderos.infrastructure.repositories.postgres import PostgresBacktestResultRepository
+from traderos.infrastructure.repositories.postgres import PostgresExperimentRepository
+from traderos.infrastructure.repositories.postgres import PostgresExperimentResultRepository
+from traderos.infrastructure.repositories.postgres import PostgresHypothesisRepository
+from traderos.infrastructure.repositories.postgres import PostgresLessonRepository
+from traderos.infrastructure.repositories.postgres import PostgresObservationRepository
 from traderos.infrastructure.repositories.postgres import PostgresOperatorWorkflowRepository
 from traderos.infrastructure.repositories.postgres import PostgresPositionRepository
 from traderos.infrastructure.repositories.postgres import PostgresSignalRepository
 from traderos.infrastructure.repositories.postgres import PostgresStrategyRepository
 from traderos.infrastructure.repositories.postgres import PostgresTradeRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteBacktestResultRepository
+from traderos.infrastructure.repositories.sqlite import SQLiteExperimentRepository
+from traderos.infrastructure.repositories.sqlite import SQLiteExperimentResultRepository
+from traderos.infrastructure.repositories.sqlite import SQLiteHypothesisRepository
+from traderos.infrastructure.repositories.sqlite import SQLiteLessonRepository
+from traderos.infrastructure.repositories.sqlite import SQLiteObservationRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteOperatorWorkflowRepository
 from traderos.infrastructure.repositories.sqlite import SQLitePositionRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteSignalRepository
@@ -117,6 +127,20 @@ from traderos.infrastructure.supervision import SupervisionService
 _LOGGER = logging.getLogger(__name__)
 
 PG_BACKEND = "postgres"
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    """Resolve a boolean from an env-var override, falling back to config.
+
+    Env vars take precedence so a deployed instance (Railway Variables) can
+    switch the real Binance feed on without editing the committed YAML —
+    while the committed default (off) keeps CI/tests network-free. Parses
+    truthy/falsy strings; an unset var returns the configured default.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return bool(default)
+    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 def build_orchestrator(
@@ -266,7 +290,9 @@ def build_orchestrator(
     # config (data_collection.binance.enabled) AND the collector is available.
     # Defaults to the deterministic mock collector so CI/tests never touch the
     # network (Constitution §2 Principle 6: Test Before Trust).
-    binance_enabled = bool(cfg.get("data_collection.binance.enabled", False))
+    binance_enabled = _env_flag(
+        "BINANCE_ENABLED", cfg.get("data_collection.binance.enabled", False)
+    )
     crypto_collector_type = (
         CollectorType.BINANCE
         if binance_enabled and collector_registry.get(CollectorType.BINANCE) is not None
@@ -279,7 +305,9 @@ def build_orchestrator(
     # served through DataIngestionService, so the G-03 data-gap breaker sees
     # real, fresh data. Defaults off so CI/tests stay offline (Test Before Trust).
     streaming_feed: Any | None = None
-    streaming_enabled = bool(cfg.get("data_collection.binance.streaming", False))
+    streaming_enabled = _env_flag(
+        "BINANCE_STREAMING", cfg.get("data_collection.binance.streaming", False)
+    )
     if streaming_enabled and crypto_collector_type == CollectorType.BINANCE:
         try:
             from traderos.infrastructure.collectors.binance_collector import BinanceCollector
@@ -415,13 +443,31 @@ def build_orchestrator(
         nodes=InMemoryKnowledgeNodeRepository(),
         edges=InMemoryKnowledgeEdgeRepository(),
     )
-    research = ResearchService(
-        observations=InMemoryObservationRepository(),
-        hypotheses=InMemoryHypothesisRepository(),
-        experiments=InMemoryExperimentRepository(),
-        results=InMemoryExperimentResultRepository(),
-        lessons=InMemoryLessonRepository(),
-    )
+    if db is not None:
+        if backend == PG_BACKEND:
+            research = ResearchService(
+                observations=PostgresObservationRepository(db),
+                hypotheses=PostgresHypothesisRepository(db),
+                experiments=PostgresExperimentRepository(db),
+                results=PostgresExperimentResultRepository(db),
+                lessons=PostgresLessonRepository(db),
+            )
+        else:
+            research = ResearchService(
+                observations=SQLiteObservationRepository(db),
+                hypotheses=SQLiteHypothesisRepository(db),
+                experiments=SQLiteExperimentRepository(db),
+                results=SQLiteExperimentResultRepository(db),
+                lessons=SQLiteLessonRepository(db),
+            )
+    else:
+        research = ResearchService(
+            observations=InMemoryObservationRepository(),
+            hypotheses=InMemoryHypothesisRepository(),
+            experiments=InMemoryExperimentRepository(),
+            results=InMemoryExperimentResultRepository(),
+            lessons=InMemoryLessonRepository(),
+        )
 
     if db is not None and backend != PG_BACKEND:
         strategy_repo = SQLiteStrategyRepository(db)
@@ -600,7 +646,9 @@ def build_async_daemon(
         market_symbols[uuid.uuid5(uuid.NAMESPACE_DNS, f"traderos/{symbol}")] = symbol
 
     ingestor: ParetoWebSocketIngestor | None = None
-    streaming_enabled = bool(cfg.get("data_collection.binance.streaming", False))
+    streaming_enabled = _env_flag(
+        "BINANCE_STREAMING", cfg.get("data_collection.binance.streaming", False)
+    )
     if streaming_enabled and isinstance(crypto, list) and crypto:
         try:
             ingestor = ParetoWebSocketIngestor(

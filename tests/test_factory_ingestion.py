@@ -16,6 +16,8 @@ from traderos.infrastructure.config.config_loader import Config
 @pytest.fixture(autouse=True)
 def _memory_db(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DB_PATH", ":memory:")
+    monkeypatch.delenv("BINANCE_ENABLED", raising=False)
+    monkeypatch.delenv("BINANCE_STREAMING", raising=False)
 
 
 def _config(binance_enabled: bool | None = None) -> Config:
@@ -68,6 +70,26 @@ def test_forex_never_uses_binance() -> None:
     orch = build_orchestrator(config=_config(binance_enabled=True))
     sources = _source_types(orch)
     assert sources["EURUSD"] == CollectorType.MOCK.value
+
+
+def test_binance_env_override_enables_real_feed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator can enable the real Binance feed on a deployed instance via
+    env var without editing the committed YAML (which stays off for CI)."""
+    monkeypatch.setenv("BINANCE_ENABLED", "true")
+    orch = build_orchestrator(config=_config(binance_enabled=False))
+    sources = _source_types(orch)
+    assert sources["BTCUSDT"] == CollectorType.BINANCE.value
+
+
+def test_binance_env_override_false_disables_real_feed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BINANCE_ENABLED", "false")
+    orch = build_orchestrator(config=_config(binance_enabled=True))
+    sources = _source_types(orch)
+    assert sources["BTCUSDT"] == CollectorType.MOCK.value
 
 
 def test_streaming_off_by_default_even_when_binance_enabled() -> None:

@@ -55,6 +55,13 @@ class TestRunManifestService:
             svc.record("test", f"run_{i}")
         assert len(svc.get_runs(limit=3)) == 3
 
+    def test_get_runs_offset(self) -> None:
+        svc = RunManifestService()
+        for i in range(10):
+            svc.record("test", f"run_{i}")
+        assert len(svc.get_runs(limit=3, offset=2)) == 3
+        assert len(svc.get_runs(limit=100, offset=8)) == 2
+
 
 class TestDurableRunManifest:
     """SQLite-backed manifest: crash detection, filtering, clear, close."""
@@ -88,6 +95,14 @@ class TestDurableRunManifest:
         manifest.record("signal", "evaluate")
         assert len(manifest.get_runs()) == 2
         assert len(manifest.get_runs(service="backtest")) == 1
+
+    def test_get_runs_offset(self) -> None:
+        conn = self._conn()
+        manifest = DurableRunManifest(conn=conn)
+        for i in range(6):
+            manifest.record("test", f"run_{i}")
+        assert len(manifest.get_runs(limit=2, offset=2)) == 2
+        assert len(manifest.get_runs(limit=2, offset=5)) == 1
 
     def test_clear_empties_the_table(self) -> None:
         conn = self._conn()
