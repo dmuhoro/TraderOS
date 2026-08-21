@@ -38,8 +38,14 @@ class TestFullDowngradeChain:
     def test_migrate_down_to_zero_drops_every_v001_v002_v003_table(self) -> None:
         conn = sqlite3.connect(":memory:")
         migrate(conn)
-        assert get_current_version(conn) == 8
-        for table in ("market_data", "observations", "risk_limits"):
+        assert get_current_version(conn) == 9
+        for table in (
+            "market_data",
+            "observations",
+            "risk_limits",
+            "experiments",
+            "knowledge_nodes",
+        ):
             row = conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
             ).fetchone()
@@ -67,6 +73,10 @@ class TestFullDowngradeChain:
             "health_history",
             "run_manifest",
             "strategy_registry",
+            "experiments",
+            "experiment_results",
+            "knowledge_nodes",
+            "knowledge_edges",
         ]
         for table in dropped:
             row = conn.execute(

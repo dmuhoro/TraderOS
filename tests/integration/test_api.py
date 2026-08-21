@@ -112,6 +112,29 @@ class TestApiBacktest:
         assert resp.status_code == 404
         assert "error" in resp.json()
 
+    def test_backtest_history_records_and_lists(self):
+        client = _make_client()
+        # Run a backtest so a result is persisted against the strategy.
+        resp = client.post(
+            "/v1/backtest",
+            json={"strategy": "mean_reversion", "candles": 10, "symbol": "BTCUSDT"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["recorded"] is True
+        # The seeded strategies are wired to a durable results repo in the
+        # test DB, so history should surface at least the run above.
+        hist = client.get("/v1/backtest/history?strategy=mean_reversion")
+        assert hist.status_code == 200
+        body = hist.json()
+        assert body["strategy"] == "mean_reversion"
+        assert len(body["results"]) >= 1
+        assert "sharpe_ratio" in body["results"][0]
+
+    def test_backtest_history_unknown_strategy_404(self):
+        resp = _make_client().get("/v1/backtest/history?strategy=not_real")
+        assert resp.status_code == 404
+        assert "error" in resp.json()
+
 
 class TestApiPaperTrade:
     def test_create_paper_session(self):

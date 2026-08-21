@@ -265,3 +265,88 @@ class TestStrategyCatalogAnalysis:
         assert report["template"] == "moving_average_trend"
         assert report["status"] == StrategyStatus.ACTIVE.value
         assert "created_at" in report
+
+
+class TestRecordBacktestAndHistory:
+    def _catalog(self) -> StrategyCatalogService:
+        catalog = StrategyCatalogService(
+            repo=InMemoryStrategyRepository(),
+            backtest=BacktestingService(execution=ExecutionService()),
+            backtest_results=InMemoryBacktestResultRepository(),
+        )
+        catalog.ensure_seeded()
+        return catalog
+
+    def _run_backtest(self, catalog: StrategyCatalogService):
+        import uuid
+        from datetime import UTC
+        from datetime import datetime
+
+        from traderos.domain.entities import OHLCV
+        from traderos.domain.entities import Candle
+        from traderos.domain.entities import Timeframe
+
+        mid = uuid.uuid4()
+        candles = [
+            Candle(
+                market_id=mid,
+                ohlcv=OHLCV(
+                    open=100 + i,
+                    high=101 + i,
+                    low=99 + i,
+                    close=100 + i,
+                    volume=1000,
+                ),
+                timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+                timeframe=Timeframe.DAY_1,
+            )
+            for i in range(30)
+        ]
+        strategy = catalog._require("moving_average_trend")
+        cls = catalog.registry.get(strategy.template or strategy.name)
+        return catalog.backtest.run(cls(params=strategy.params), candles, mid)
+
+    def test_record_and_history(self) -> None:
+        catalog = self._catalog()
+        result, _ = self._run_backtest(catalog)
+        rid = catalog.record_backtest(
+            "moving_average_trend",
+            result.market_id,
+            result.metrics,
+            result.equity_curve,
+            result.period_start,
+            result.period_end,
+        )
+        assert rid is not None
+        hist = catalog.history("moving_average_trend")
+        assert hist["strategy"] == "moving_average_trend"
+        assert len(hist["results"]) >= 1
+        assert "sharpe_ratio" in hist["results"][0]
+
+    def test_record_without_repo_returns_none(self) -> None:
+        catalog = StrategyCatalogService(
+            repo=InMemoryStrategyRepository(),
+            backtest=BacktestingService(execution=ExecutionService()),
+            backtest_results=None,
+        )
+        catalog.ensure_seeded()
+        result, _ = self._run_backtest(catalog)
+        rid = catalog.record_backtest(
+            "moving_average_trend",
+            result.market_id,
+            result.metrics,
+            result.equity_curve,
+            result.period_start,
+            result.period_end,
+        )
+        assert rid is None
+        assert catalog.history("moving_average_trend")["results"] == []
+
+    def test_history_unknown_strategy_raises(self) -> None:
+        catalog = self._catalog()
+        try:
+            catalog.history("nope")
+        except StrategyLifecycleError:
+            pass
+        else:
+            raise AssertionError("expected StrategyLifecycleError")

@@ -237,12 +237,14 @@ traderos/
     └── cli/          # Command-line interface
 ```
 
-### Migrations (v001–v008)
+### Migrations (v001–v009)
 
 `v001_initial`, `v002_observability`, `v003_strategies`, `v004_external_order_id`,
 `v005_order_event_journal`, `v006_operator_surface`, `v007_historical_candles`,
-`v008_user_accounts`. Backend: SQLite (dev/test), Postgres (production),
-in-memory (tests).
+`v008_user_accounts`, `v009_research_knowledge` (canonical research + knowledge
+tables). Backend: SQLite (dev/test), Postgres (production), in-memory (tests).
+Research store, knowledge graph, and backtest history are durable on SQLite and
+Postgres — not lost on restart.
 
 ---
 

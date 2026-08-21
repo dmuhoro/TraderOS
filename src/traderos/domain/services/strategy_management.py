@@ -3,11 +3,15 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from dataclasses import field
+from datetime import datetime
 from typing import NamedTuple
 
 from traderos.domain.entities import ENABLED_STRATEGY_STATUSES
+from traderos.domain.entities import BacktestResult
 from traderos.domain.entities import Strategy
 from traderos.domain.entities import StrategyStatus
+from traderos.domain.entities.value_objects import EquityCurve
+from traderos.domain.entities.value_objects import Metrics
 from traderos.domain.exceptions import DomainError
 from traderos.domain.repositories.strategy_repository import BacktestResultRepository
 from traderos.domain.repositories.strategy_repository import StrategyRepository
@@ -228,6 +232,60 @@ class StrategyCatalogService:
                 for r in results
             ]
         return report
+
+    def record_backtest(
+        self,
+        strategy_name: str,
+        market_id: uuid.UUID,
+        metrics: Metrics,
+        equity_curve: EquityCurve,
+        period_start: datetime,
+        period_end: datetime,
+    ) -> uuid.UUID | None:
+        """Persist a backtest result against a strategy if a durable results
+        repo is wired. Returns the result id, or None when no repo is present
+        (results are then ephemeral — callers should surface that honestly).
+        """
+        if self.backtest_results is None:
+            return None
+        strategy = self._require(strategy_name)
+        result = BacktestResult(
+            strategy_id=strategy.id,
+            market_id=market_id,
+            metrics=metrics,
+            equity_curve=equity_curve,
+            period_start=period_start,
+            period_end=period_end,
+        )
+        self.backtest_results.add(result)
+        return result.id
+
+    def history(self, strategy_name: str, limit: int = 20) -> dict:
+        """Recent persisted backtest results for a strategy (empty if none)."""
+        strategy = self._require(strategy_name)
+        results: list[dict] = []
+        if self.backtest_results is not None:
+            sorted_results = sorted(
+                self.backtest_results.get_by_strategy(strategy.id),
+                key=lambda r: r.created_at,
+                reverse=True,
+            )[:limit]
+            results = [
+                {
+                    "id": str(r.id),
+                    "market_id": str(r.market_id),
+                    "total_return": r.metrics.total_return,
+                    "sharpe_ratio": r.metrics.sharpe_ratio,
+                    "sortino_ratio": r.metrics.sortino_ratio,
+                    "max_drawdown": r.metrics.max_drawdown,
+                    "win_rate": r.metrics.win_rate,
+                    "period_start": r.period_start.isoformat(),
+                    "period_end": r.period_end.isoformat(),
+                    "created_at": r.created_at.isoformat(),
+                }
+                for r in sorted_results
+            ]
+        return {"strategy": strategy_name, "results": results}
 
     def _template_names(self) -> list[str]:
         return list(self.registry.list())

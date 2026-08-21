@@ -1,4 +1,6 @@
 from traderos.infrastructure.repositories.postgres.base import PostgresRepository
+from traderos.infrastructure.repositories.postgres.knowledge import PostgresKnowledgeEdgeRepository
+from traderos.infrastructure.repositories.postgres.knowledge import PostgresKnowledgeNodeRepository
 from traderos.infrastructure.repositories.postgres.research import PostgresExperimentRepository
 from traderos.infrastructure.repositories.postgres.research import (
     PostgresExperimentResultRepository,
@@ -23,6 +25,8 @@ __all__ = [
     "PostgresExperimentRepository",
     "PostgresExperimentResultRepository",
     "PostgresHypothesisRepository",
+    "PostgresKnowledgeEdgeRepository",
+    "PostgresKnowledgeNodeRepository",
     "PostgresLessonRepository",
     "PostgresObservationRepository",
     "PostgresOperatorWorkflowRepository",
