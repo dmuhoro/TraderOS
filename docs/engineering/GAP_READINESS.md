@@ -194,3 +194,18 @@ real capital** an auditable decision rather than a vibe.
   operator-run gates (managed Vault rotation, live on-call delivery). The
   execution/order path was not touched — real order execution is tested last
   per directive.
+- **Sprint 42 — durability completion.** Three more software-closeable gaps
+  closed: (1) the **knowledge graph** was in-memory-only and lost on restart —
+  now wired to durable SQLite and new Postgres repos (`postgres/knowledge.py`),
+  closing the last ephemeral-store gap in the research/knowledge layer; (2)
+  **migration v009** added the canonical `experiments`, `experiment_results`,
+  `knowledge_nodes`, `knowledge_edges` tables so a fresh Postgres schema
+  (applied through migrations) matches what the repos read/write — verified on
+  PG 16 to schema version 9; (3) **backtest results are now persisted** through
+  the strategy catalog and surfaced via `GET /v1/backtest/history`, so a
+  strategy's backtest history is retained across restarts instead of being
+  computed-on-the-fly. These close the **ephemeral-knowledge-graph** and
+  **non-retained-backtest** trust gaps. They do **not** close G-02's
+  full-window paper soak, G-01's real-edge proof, or the operator-run gates
+  (managed Vault rotation, live on-call delivery). The execution/order path was
+  not touched — real order execution is tested last per directive.

@@ -96,6 +96,8 @@ from traderos.infrastructure.repositories.postgres import PostgresBacktestResult
 from traderos.infrastructure.repositories.postgres import PostgresExperimentRepository
 from traderos.infrastructure.repositories.postgres import PostgresExperimentResultRepository
 from traderos.infrastructure.repositories.postgres import PostgresHypothesisRepository
+from traderos.infrastructure.repositories.postgres import PostgresKnowledgeEdgeRepository
+from traderos.infrastructure.repositories.postgres import PostgresKnowledgeNodeRepository
 from traderos.infrastructure.repositories.postgres import PostgresLessonRepository
 from traderos.infrastructure.repositories.postgres import PostgresObservationRepository
 from traderos.infrastructure.repositories.postgres import PostgresOperatorWorkflowRepository
@@ -107,6 +109,8 @@ from traderos.infrastructure.repositories.sqlite import SQLiteBacktestResultRepo
 from traderos.infrastructure.repositories.sqlite import SQLiteExperimentRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteExperimentResultRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteHypothesisRepository
+from traderos.infrastructure.repositories.sqlite import SQLiteKnowledgeEdgeRepository
+from traderos.infrastructure.repositories.sqlite import SQLiteKnowledgeNodeRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteLessonRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteObservationRepository
 from traderos.infrastructure.repositories.sqlite import SQLiteOperatorWorkflowRepository
@@ -439,10 +443,21 @@ def build_orchestrator(
 
     backtest = BacktestingService(execution=execution)
 
-    knowledge_graph = KnowledgeGraphService(
-        nodes=InMemoryKnowledgeNodeRepository(),
-        edges=InMemoryKnowledgeEdgeRepository(),
-    )
+    if db is not None and backend == PG_BACKEND:
+        knowledge_graph = KnowledgeGraphService(
+            nodes=PostgresKnowledgeNodeRepository(db),
+            edges=PostgresKnowledgeEdgeRepository(db),
+        )
+    elif db is not None:
+        knowledge_graph = KnowledgeGraphService(
+            nodes=SQLiteKnowledgeNodeRepository(db),
+            edges=SQLiteKnowledgeEdgeRepository(db),
+        )
+    else:
+        knowledge_graph = KnowledgeGraphService(
+            nodes=InMemoryKnowledgeNodeRepository(),
+            edges=InMemoryKnowledgeEdgeRepository(),
+        )
     if db is not None:
         if backend == PG_BACKEND:
             research = ResearchService(

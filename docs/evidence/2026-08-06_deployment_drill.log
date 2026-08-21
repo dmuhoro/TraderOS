@@ -1,11 +1,11 @@
 DEPLOYMENT DRILL — A4
-started 2026-08-20T18:25:42.707730+00:00
-  migrations-on-boot: schema_version=8
+started 2026-08-21T04:49:18.612034+00:00
+  migrations-on-boot: schema_version=9
   healthz: alive
   supervisor manifest: PASS
   no-secrets scan: clean=True
 -------
-  [PASS] migrations_on_boot: schema_version=8
+  [PASS] migrations_on_boot: schema_version=9
   [PASS] healthz: status=alive
   [PASS] supervisor_manifest: Procfile web+worker present
   [PASS] no_secrets_in_repo: 0 findings

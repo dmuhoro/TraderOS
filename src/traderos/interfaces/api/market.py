@@ -224,9 +224,24 @@ def register_market_research_endpoints(
         except Exception as exc:
             raise HTTPException(400, f"Backtest failed: {exc}") from exc
         m = result.metrics
+        recorded = False
+        catalog = getattr(orch, "strategy_catalog", None)
+        if catalog is not None:
+            recorded = (
+                catalog.record_backtest(
+                    strategy,
+                    series[0].market_id,
+                    result.metrics,
+                    result.equity_curve,
+                    result.period_start,
+                    result.period_end,
+                )
+                is not None
+            )
         return {
             "strategy": strategy,
             "symbol": symbol,
+            "recorded": recorded,
             "total_return": m.total_return,
             "sharpe_ratio": m.sharpe_ratio,
             "sortino_ratio": m.sortino_ratio,

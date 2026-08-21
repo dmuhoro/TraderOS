@@ -397,10 +397,24 @@ def build_app() -> Any:
         svc = BacktestingService(execution=ExecutionService())
         result, _ = svc.run(strategy, candles, mid)
         m = result.metrics
+        # Persist the result so it appears in the strategy review / history
+        # (surfaces None when no durable repo is wired — consumers can treat
+        # that as "result not retained").
+        recorded = None
+        if orch.strategy_catalog is not None:
+            recorded = orch.strategy_catalog.record_backtest(
+                req.strategy,
+                mid,
+                result.metrics,
+                result.equity_curve,
+                result.period_start,
+                result.period_end,
+            )
         return {
             "strategy": req.strategy,
             "symbol": req.symbol,
             "candles": len(candles),
+            "recorded": recorded is not None,
             "total_return": m.total_return,
             "sharpe_ratio": m.sharpe_ratio,
             "max_drawdown": m.max_drawdown,
@@ -408,6 +422,20 @@ def build_app() -> Any:
             "sortino_ratio": m.sortino_ratio,
             "calmar_ratio": m.calmar_ratio,
         }
+
+    @router.get("/backtest/history", dependencies=[Depends(require_read)])
+    def backtest_history(strategy: str, limit: int = Query(20, ge=1, le=100)):
+        orch = create_orchestrator()
+        if orch.strategy_catalog is None:  # pragma: no cover — always set by factory
+            raise HTTPException(503, "Strategy catalog not configured")
+        try:
+            return orch.strategy_catalog.history(strategy, limit=limit)
+        except Exception as exc:
+            from traderos.domain.exceptions import DomainError
+
+            if isinstance(exc, DomainError):
+                raise HTTPException(404, str(exc)) from exc
+            raise  # pragma: no cover — history only raises DomainError
 
     @router.post("/orchestrator/start", dependencies=[Depends(require_admin)])
     def start_orchestrator():

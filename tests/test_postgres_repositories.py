@@ -16,6 +16,8 @@ from traderos.domain.entities import Experiment
 from traderos.domain.entities import ExperimentResult
 from traderos.domain.entities import Hypothesis
 from traderos.domain.entities import HypothesisStatus
+from traderos.domain.entities import KnowledgeEdge
+from traderos.domain.entities import KnowledgeNode
 from traderos.domain.entities import Lesson
 from traderos.domain.entities import Metrics
 from traderos.domain.entities import Observation
@@ -32,6 +34,8 @@ from traderos.infrastructure.repositories.postgres.base import from_json
 from traderos.infrastructure.repositories.postgres.base import to_dt
 from traderos.infrastructure.repositories.postgres.base import to_json
 from traderos.infrastructure.repositories.postgres.base import to_uuid
+from traderos.infrastructure.repositories.postgres.knowledge import PostgresKnowledgeEdgeRepository
+from traderos.infrastructure.repositories.postgres.knowledge import PostgresKnowledgeNodeRepository
 from traderos.infrastructure.repositories.postgres.research import PostgresExperimentRepository
 from traderos.infrastructure.repositories.postgres.research import (
     PostgresExperimentResultRepository,
@@ -86,6 +90,8 @@ _REPO_TABLES = (
     "experiments",
     "experiment_results",
     "lessons",
+    "knowledge_nodes",
+    "knowledge_edges",
 )
 
 
@@ -751,3 +757,65 @@ class TestPostgresResearchRepositories:
         assert fetched.tags == ["risk"]
         assert any(item.id == lesson.id for item in repo.get_by_result(res.id))
         assert any(item.id == lesson.id for item in repo.get_by_tags(["risk"]))
+
+
+class TestPostgresKnowledgeGraphRepositories:
+    def _make_node(self, **kw) -> KnowledgeNode:
+        fields = {
+            "label": "trend-following",
+            "node_type": "strategy",
+            "content": "breakout strategy notes",
+            "embedding": [0.1, 0.2, 0.3],
+        }
+        fields.update(kw)
+        return KnowledgeNode(**fields)
+
+    def test_node_roundtrip_and_queries(self, pg_conn) -> None:
+        repo = PostgresKnowledgeNodeRepository(pg_conn)
+        node = self._make_node()
+        repo.add(node)
+        fetched = repo.get(node.id)
+        assert fetched is not None
+        assert fetched.label == "trend-following"
+        assert fetched.embedding == [0.1, 0.2, 0.3]
+        assert any(n.id == node.id for n in repo.get_by_label("trend-following"))
+        assert any(n.id == node.id for n in repo.get_by_type("strategy"))
+        assert any(n.id == node.id for n in repo.search("breakout"))
+        assert repo.get_by_label("missing") == []
+
+    def test_node_delete(self, pg_conn) -> None:
+        repo = PostgresKnowledgeNodeRepository(pg_conn)
+        node = self._make_node()
+        repo.add(node)
+        repo.delete(node.id)
+        assert repo.get(node.id) is None
+
+    def test_edge_roundtrip_and_neighbors(self, pg_conn) -> None:
+        node_repo = PostgresKnowledgeNodeRepository(pg_conn)
+        edge_repo = PostgresKnowledgeEdgeRepository(pg_conn)
+        a = self._make_node(label="a")
+        b = self._make_node(label="b")
+        node_repo.add(a)
+        node_repo.add(b)
+        edge = KnowledgeEdge(source_id=a.id, target_id=b.id, relationship="leads_to", weight=2.0)
+        edge_repo.add(edge)
+        fetched = edge_repo.get(edge.id)
+        assert fetched is not None
+        assert fetched.relationship == "leads_to"
+        assert fetched.weight == 2.0
+        assert any(e.id == edge.id for e in edge_repo.get_by_source(a.id))
+        assert any(e.id == edge.id for e in edge_repo.get_by_target(b.id))
+        # Neighbors of the source (b discovered via target branch).
+        neighbors = edge_repo.get_neighbors(a.id)
+        assert any(n.id == b.id for n in neighbors)
+        # Neighbors of the target (a discovered via source branch) — covers the
+        # inverse traversal in get_neighbors.
+        neighbors_of_target = edge_repo.get_neighbors(b.id)
+        assert any(n.id == a.id for n in neighbors_of_target)
+
+    def test_edge_neighbors_no_match(self, pg_conn) -> None:
+        edge_repo = PostgresKnowledgeEdgeRepository(pg_conn)
+        node_repo = PostgresKnowledgeNodeRepository(pg_conn)
+        node = self._make_node(label="solo")
+        node_repo.add(node)
+        assert edge_repo.get_neighbors(node.id) == []

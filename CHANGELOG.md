@@ -28,6 +28,24 @@
 - Verification: new tests for backtest honesty, Postgres research repos (6),
   env-override (2), pagination offset; full suite green at 100% coverage.
 
+### Sprint 42 (2026-08-20) — durability completion: knowledge graph, migration v009, persisted backtest history
+
+- **Durable knowledge graph:** `KnowledgeGraphService` was in-memory-only and
+  lost on restart. Now wired to SQLite (existed) + **new Postgres repos**
+  (`postgres/knowledge.py`) for production durability — same gap closed for
+  the research store in Sprint 41.
+- **Migration v009:** added canonical `experiments`, `experiment_results`,
+  `knowledge_nodes`, `knowledge_edges` tables for the Postgres store (the repos
+  self-create them, but the migration set lacked them). Fresh Postgres now
+  reaches schema version 9; all version assertions + CI `deploy-check` updated
+  8 → 9.
+- **Persisted backtest history:** `POST /v1/backtest` and
+  `POST /v1/research/backtest` now record results via the strategy catalog;
+  new `GET /v1/backtest/history?strategy=&limit=` surfaces them (404 on unknown
+  strategy). Results were previously computed on the fly and never retained.
+- Verification: 2268 passed / 7 skipped / 100% coverage, ruff/black/pyright/
+  pre-commit clean.
+
 ## [1.2.0] - 2026-08-17
 
 Ship-sprint release: the Railway deploy path is consolidated and elite-grade.
