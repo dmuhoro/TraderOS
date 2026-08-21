@@ -6,7 +6,8 @@ import logging
 import os
 import time
 import uuid
-from datetime import UTC
+from datetime import datetime
+from decimal import Decimal
 from importlib.metadata import version
 from typing import TYPE_CHECKING
 from typing import Any
@@ -85,6 +86,7 @@ class TradeRequest(BaseModel):  # type: ignore[valid-type,misc]
 class BacktestRequest(BaseModel):  # type: ignore[valid-type,misc]
     strategy: str
     candles: int = 50
+    symbol: str = "BTCUSDT"
 
 
 class OperatorLoginRequest(BaseModel):  # type: ignore[valid-type,misc]
@@ -338,37 +340,67 @@ def build_app() -> Any:
 
     @router.post("/backtest", dependencies=[Depends(require_read)])
     def run_backtest(req: BacktestRequest):
+        # Honest backtest: the engine runs against the REAL ingested candle
+        # series for the requested symbol (DataIngestionService) — the same
+        # data the live loop consumes — never synthetic constant candles
+        # fabricated in the handler. Fails closed (404/503) when the symbol is
+        # unknown or no data is available, so a UI can never display a
+        # fabricated-in-place result.
         strat_cls = strategy_registry.get(req.strategy)
         if strat_cls is None:
             raise HTTPException(404, f"Strategy '{req.strategy}' not found")
-        strategy = strat_cls()
-        svc = BacktestingService(execution=ExecutionService())
-        from datetime import datetime
-        from decimal import Decimal
+        orch = create_orchestrator()
+        if orch.data_ingestion is None:  # pragma: no cover — always set by factory
+            raise HTTPException(503, "Data ingestion not configured")
+        raw = orch.data_ingestion.fetch_all(limit=req.candles)
+        rows = raw.get(req.symbol)
+        if not rows:
+            raise HTTPException(404, f"Unknown or empty market symbol '{req.symbol}'")
+        mid = next(
+            (s.market_id for s in orch.data_ingestion.sources if s.symbol == req.symbol),
+            None,
+        )
+        if mid is None:  # pragma: no cover — a fetched symbol always has a source
+            raise HTTPException(404, f"No registered data source for market '{req.symbol}'")
 
         from traderos.domain.entities import OHLCV
         from traderos.domain.entities import Candle
         from traderos.domain.entities import Timeframe
 
-        mid = uuid.uuid4()
-        candles = [
-            Candle(
-                market_id=mid,
-                ohlcv=OHLCV(
-                    open=Decimal(str(100 + i)),
-                    high=Decimal(str(101 + i)),
-                    low=Decimal(str(99 + i)),
-                    close=Decimal(str(100 + i)),
-                    volume=Decimal(1000),
-                ),
-                timestamp=datetime(2024, 1, 1, tzinfo=UTC),
-                timeframe=Timeframe.DAY_1,
+        candles: list[Candle] = []
+        for r in rows[: req.candles]:
+            ts = r.get("timestamp")
+            ts_val: Any = ts
+            if isinstance(ts_val, str):
+                try:
+                    ts_val = datetime.fromisoformat(ts_val)
+                except ValueError:  # pragma: no cover — ingest always emits ISO
+                    ts_val = None
+            candles.append(
+                Candle(
+                    market_id=mid,
+                    ohlcv=OHLCV(
+                        open=Decimal(str(r["open"])),
+                        high=Decimal(str(r["high"])),
+                        low=Decimal(str(r["low"])),
+                        close=Decimal(str(r["close"])),
+                        volume=Decimal(str(r.get("volume", 0))),
+                    ),
+                    timestamp=ts_val,
+                    timeframe=Timeframe.HOUR_1,
+                    source=req.symbol,
+                )
             )
-            for i in range(req.candles)
-        ]
+        if not candles:  # pragma: no cover — non-empty rows yield non-empty candles
+            raise HTTPException(404, f"No candle data available for '{req.symbol}'")
+        strategy = strat_cls()
+        svc = BacktestingService(execution=ExecutionService())
         result, _ = svc.run(strategy, candles, mid)
         m = result.metrics
         return {
+            "strategy": req.strategy,
+            "symbol": req.symbol,
+            "candles": len(candles),
             "total_return": m.total_return,
             "sharpe_ratio": m.sharpe_ratio,
             "max_drawdown": m.max_drawdown,
@@ -417,19 +449,23 @@ def build_app() -> Any:
         )
 
     @router.get("/papertrade/sessions", dependencies=[Depends(require_read)])
-    def list_paper_sessions():
+    def list_paper_sessions(limit: int | None = Query(None, ge=1), offset: int = Query(0, ge=0)):
         orch = create_orchestrator()
         if orch.paper is None:
             return {"sessions": []}  # pragma: no cover
+        sessions = orch.paper.list_sessions()
+        sessions = sessions[offset:]
+        if limit is not None:
+            sessions = sessions[:limit]
         return {
             "sessions": [
                 {"id": str(s.id), "status": s.status.value, "capital": s.current_capital}
-                for s in orch.paper.list_sessions()
+                for s in sessions
             ]
         }
 
     @router.get("/audit", dependencies=[Depends(require_read)])
-    def get_audit(limit: int = Query(10, ge=1, le=100)):
+    def get_audit(limit: int = Query(10, ge=1, le=100), offset: int = Query(0, ge=0)):
         orch = create_orchestrator()
         return {
             "entries": [
@@ -439,7 +475,7 @@ def build_app() -> Any:
                     "resource": e.resource,
                     "timestamp": e.timestamp.isoformat(),
                 }
-                for e in orch.audit.get_entries(limit=limit)
+                for e in orch.audit.get_entries(limit=limit, offset=offset)
             ]
         }
 
@@ -451,7 +487,11 @@ def build_app() -> Any:
         return {"metrics": orch.metrics.snapshot()}
 
     @router.get("/manifest", dependencies=[Depends(require_read)])
-    def get_manifest(service: str | None = None):
+    def get_manifest(
+        service: str | None = None,
+        limit: int = Query(100, ge=1, le=1000),
+        offset: int = Query(0, ge=0),
+    ):
         orch = create_orchestrator()
         return {
             "runs": [
@@ -461,7 +501,7 @@ def build_app() -> Any:
                     "status": e.status,
                     "duration_ms": e.duration_ms,
                 }
-                for e in orch.run_manifest.get_runs(service=service)
+                for e in orch.run_manifest.get_runs(service=service, limit=limit, offset=offset)
             ]
         }
 

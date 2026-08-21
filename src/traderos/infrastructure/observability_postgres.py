@@ -347,19 +347,22 @@ class PostgresManifestService(ManifestPort):
         self.conn.commit()
         return entry
 
-    def get_runs(self, service: str | None = None, limit: int = 100) -> list[ManifestEntry]:
+    def get_runs(
+        self, service: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[ManifestEntry]:
         if service:
             with self.conn.cursor() as cur:
                 cur.execute(
-                    "SELECT * FROM run_manifest WHERE service = %s ORDER BY id DESC LIMIT %s",
-                    (service, limit),
+                    "SELECT * FROM run_manifest WHERE service = %s"
+                    " ORDER BY id DESC LIMIT %s OFFSET %s",
+                    (service, limit, offset),
                 )
                 rows = cur.fetchall()
         else:
             with self.conn.cursor() as cur:
                 cur.execute(
-                    "SELECT * FROM run_manifest ORDER BY id DESC LIMIT %s",
-                    (limit,),
+                    "SELECT * FROM run_manifest ORDER BY id DESC LIMIT %s OFFSET %s",
+                    (limit, offset),
                 )
                 rows = cur.fetchall()
         return [self._row_to_entry(r) for r in rows]

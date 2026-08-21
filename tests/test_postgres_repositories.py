@@ -12,7 +12,13 @@ import pytest
 
 from traderos.domain.entities import BacktestResult
 from traderos.domain.entities import EquityCurve
+from traderos.domain.entities import Experiment
+from traderos.domain.entities import ExperimentResult
+from traderos.domain.entities import Hypothesis
+from traderos.domain.entities import HypothesisStatus
+from traderos.domain.entities import Lesson
 from traderos.domain.entities import Metrics
+from traderos.domain.entities import Observation
 from traderos.domain.entities import Position
 from traderos.domain.entities import Signal
 from traderos.domain.entities import SignalDirection
@@ -26,6 +32,13 @@ from traderos.infrastructure.repositories.postgres.base import from_json
 from traderos.infrastructure.repositories.postgres.base import to_dt
 from traderos.infrastructure.repositories.postgres.base import to_json
 from traderos.infrastructure.repositories.postgres.base import to_uuid
+from traderos.infrastructure.repositories.postgres.research import PostgresExperimentRepository
+from traderos.infrastructure.repositories.postgres.research import (
+    PostgresExperimentResultRepository,
+)
+from traderos.infrastructure.repositories.postgres.research import PostgresHypothesisRepository
+from traderos.infrastructure.repositories.postgres.research import PostgresLessonRepository
+from traderos.infrastructure.repositories.postgres.research import PostgresObservationRepository
 from traderos.infrastructure.repositories.postgres.signals import PostgresSignalRepository
 from traderos.infrastructure.repositories.postgres.strategies import (
     PostgresBacktestResultRepository,
@@ -68,6 +81,11 @@ _REPO_TABLES = (
     "user_api_keys",
     "user_sessions",
     "users",
+    "observations",
+    "hypotheses",
+    "experiments",
+    "experiment_results",
+    "lessons",
 )
 
 
@@ -639,3 +657,97 @@ class TestPostgresUserRepository:
         repo.revoke_api_key(key.id)
         revoked = repo.get_api_key("key-hash-1")
         assert revoked is not None and revoked.revoked_at is not None
+
+
+class TestPostgresResearchRepositories:
+    def _make_observation(self, **kw) -> Observation:
+        fields = {
+            "timestamp": datetime.now(UTC),
+            "symbol": "BTCUSDT",
+            "content": "volume spike observed",
+            "tags": ["volume", "crypto"],
+        }
+        fields.update(kw)
+        return Observation(**fields)
+
+    def test_observation_roundtrip_and_get_by_symbol(self, pg_conn) -> None:
+        repo = PostgresObservationRepository(pg_conn)
+        obs = self._make_observation()
+        repo.add(obs)
+        fetched = repo.get(obs.id)
+        assert fetched is not None
+        assert fetched.symbol == "BTCUSDT"
+        assert fetched.tags == ["volume", "crypto"]
+        by_symbol = repo.get_by_symbol("BTCUSDT")
+        assert any(o.id == obs.id for o in by_symbol)
+        assert repo.get_by_symbol("NOPE") == []
+
+    def test_observation_delete(self, pg_conn) -> None:
+        repo = PostgresObservationRepository(pg_conn)
+        obs = self._make_observation()
+        repo.add(obs)
+        repo.delete(obs.id)
+        assert repo.get(obs.id) is None
+
+    def test_hypothesis_roundtrip_and_get_by_observation(self, pg_conn) -> None:
+        obs = self._make_observation()
+        PostgresObservationRepository(pg_conn).add(obs)
+        repo = PostgresHypothesisRepository(pg_conn)
+        hyp = Hypothesis(observation_id=obs.id, content="volume precedes breakout")
+        repo.add(hyp)
+        fetched = repo.get(hyp.id)
+        assert fetched is not None
+        assert fetched.status == HypothesisStatus.PROPOSED
+        assert fetched.observation_id == obs.id
+        by_obs = repo.get_by_observation(obs.id)
+        assert any(h.id == hyp.id for h in by_obs)
+
+    def test_experiment_roundtrip_and_get_by_hypothesis(self, pg_conn) -> None:
+        obs = self._make_observation()
+        PostgresObservationRepository(pg_conn).add(obs)
+        hyp = Hypothesis(observation_id=obs.id, content="test")
+        PostgresHypothesisRepository(pg_conn).add(hyp)
+        repo = PostgresExperimentRepository(pg_conn)
+        exp = Experiment(hypothesis_id=hyp.id, params={"window": 20}, results={"sharpe": 1.2})
+        repo.add(exp)
+        fetched = repo.get(exp.id)
+        assert fetched is not None
+        assert fetched.params == {"window": 20}
+        assert fetched.results == {"sharpe": 1.2}
+        by_hyp = repo.get_by_hypothesis(hyp.id)
+        assert any(e.id == exp.id for e in by_hyp)
+
+    def test_experiment_result_roundtrip_and_get_by_experiment(self, pg_conn) -> None:
+        obs = self._make_observation()
+        PostgresObservationRepository(pg_conn).add(obs)
+        hyp = Hypothesis(observation_id=obs.id, content="test")
+        PostgresHypothesisRepository(pg_conn).add(hyp)
+        exp = Experiment(hypothesis_id=hyp.id, params={})
+        PostgresExperimentRepository(pg_conn).add(exp)
+        repo = PostgresExperimentResultRepository(pg_conn)
+        res = ExperimentResult(experiment_id=exp.id, metrics={"pnl": 5.0}, visual_path="/tmp/x.png")
+        repo.add(res)
+        fetched = repo.get(res.id)
+        assert fetched is not None
+        assert fetched.metrics == {"pnl": 5.0}
+        assert fetched.visual_path == "/tmp/x.png"
+        by_exp = repo.get_by_experiment(exp.id)
+        assert any(r.id == res.id for r in by_exp)
+
+    def test_lesson_roundtrip_get_by_result_and_tags(self, pg_conn) -> None:
+        obs = self._make_observation()
+        PostgresObservationRepository(pg_conn).add(obs)
+        hyp = Hypothesis(observation_id=obs.id, content="test")
+        PostgresHypothesisRepository(pg_conn).add(hyp)
+        exp = Experiment(hypothesis_id=hyp.id, params={})
+        PostgresExperimentRepository(pg_conn).add(exp)
+        res = ExperimentResult(experiment_id=exp.id, metrics={})
+        PostgresExperimentResultRepository(pg_conn).add(res)
+        repo = PostgresLessonRepository(pg_conn)
+        lesson = Lesson(result_id=res.id, content="lesson", tags=["risk"])
+        repo.add(lesson)
+        fetched = repo.get(lesson.id)
+        assert fetched is not None
+        assert fetched.tags == ["risk"]
+        assert any(item.id == lesson.id for item in repo.get_by_result(res.id))
+        assert any(item.id == lesson.id for item in repo.get_by_tags(["risk"]))

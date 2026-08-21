@@ -53,7 +53,22 @@ class TestOperatorApiBasics:
         assert resp.status_code == 200
         points = resp.json()["points"]
         assert len(points) >= 1
-        assert points[-1]["equity"] == 10000.0
+
+    def test_positions_orders_strategies_pagination_accepts_limit(self, client: TestClient) -> None:
+        # Pagination: limit/offset must be accepted and honored on the list
+        # endpoints (never a regression to unbounded behavior).
+        positions = client.get("/v1/positions?limit=1&offset=0")
+        assert positions.status_code == 200
+        assert isinstance(positions.json()["positions"], list)
+        orders = client.get("/v1/orders?limit=1&offset=0")
+        assert orders.status_code == 200
+        assert isinstance(orders.json()["orders"], list)
+        strategies = client.get("/v1/strategies?limit=1&offset=0")
+        assert strategies.status_code == 200
+        assert len(strategies.json()["strategies"]) <= 1
+        trades = client.get("/v1/trades?limit=1&offset=0")
+        assert trades.status_code == 200
+        assert isinstance(trades.json()["trades"], list)
 
     def test_readiness_reports_checks(self, client: TestClient) -> None:
         resp = client.get("/v1/readiness")

@@ -86,15 +86,29 @@ class TestApiOrchestrator:
 class TestApiBacktest:
     def test_run_backtest(self):
         resp = _make_client().post(
-            "/v1/backtest", json={"strategy": "mean_reversion", "candles": 10}
+            "/v1/backtest",
+            json={"strategy": "mean_reversion", "candles": 10, "symbol": "BTCUSDT"},
         )
         assert resp.status_code == 200
         data = resp.json()
         assert "total_return" in data
         assert "sharpe_ratio" in data
+        assert data["symbol"] == "BTCUSDT"
+        assert data["candles"] == 10
 
     def test_run_backtest_strategy_not_found(self):
-        resp = _make_client().post("/v1/backtest", json={"strategy": "Invalid", "candles": 10})
+        resp = _make_client().post(
+            "/v1/backtest",
+            json={"strategy": "Invalid", "candles": 10, "symbol": "BTCUSDT"},
+        )
+        assert resp.status_code == 404
+        assert "error" in resp.json()
+
+    def test_run_backtest_unknown_symbol_fails_closed(self):
+        resp = _make_client().post(
+            "/v1/backtest",
+            json={"strategy": "mean_reversion", "candles": 10, "symbol": "NOT_A_SYMBOL"},
+        )
         assert resp.status_code == 404
         assert "error" in resp.json()
 
@@ -113,6 +127,14 @@ class TestApiPaperTrade:
         resp = client.get("/v1/papertrade/sessions")
         assert resp.status_code == 200
         assert "sessions" in resp.json()
+
+    def test_list_paper_sessions_paginated(self):
+        client = _make_client()
+        client.post("/v1/papertrade/session")
+        client.post("/v1/papertrade/session")
+        resp = client.get("/v1/papertrade/sessions?limit=1&offset=0")
+        assert resp.status_code == 200
+        assert len(resp.json()["sessions"]) <= 1
 
 
 class TestApiAudit:

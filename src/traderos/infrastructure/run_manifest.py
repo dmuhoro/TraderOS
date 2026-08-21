@@ -40,11 +40,14 @@ class RunManifestService(ManifestPort):
         self,
         service: str | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[ManifestEntry]:
         results = list(self._entries)
         if service:
             results = [e for e in results if e.service == service]
-        return results[-limit:]
+        end = len(results) - offset
+        start = max(0, end - limit)
+        return results[start:end]
 
     def summary(self) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -125,18 +128,19 @@ class DurableRunManifest(ManifestPort):
         self,
         service: str | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[ManifestEntry]:
         if service is None:
             rows = self.conn.execute(
                 "SELECT run_id, service, action, status, duration_ms, timestamp, metadata "
-                "FROM run_manifest ORDER BY id DESC LIMIT ?",
-                (limit,),
+                "FROM run_manifest ORDER BY id DESC LIMIT ? OFFSET ?",
+                (limit, offset),
             ).fetchall()
         else:
             rows = self.conn.execute(
                 "SELECT run_id, service, action, status, duration_ms, timestamp, metadata "
-                "FROM run_manifest WHERE service = ? ORDER BY id DESC LIMIT ?",
-                (service, limit),
+                "FROM run_manifest WHERE service = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                (service, limit, offset),
             ).fetchall()
         return [self._row_to_entry(row) for row in reversed(rows)]
 

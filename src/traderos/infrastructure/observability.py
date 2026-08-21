@@ -339,16 +339,19 @@ class SQLiteManifestService(ManifestPort):
         self.conn.commit()
         return entry
 
-    def get_runs(self, service: str | None = None, limit: int = 100) -> list[ManifestEntry]:
+    def get_runs(
+        self, service: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[ManifestEntry]:
         if service:
             cursor = self.conn.execute(
-                "SELECT * FROM run_manifest WHERE service = ?" " ORDER BY rowid DESC LIMIT ?",
-                (service, limit),
+                "SELECT * FROM run_manifest WHERE service = ?"
+                " ORDER BY rowid DESC LIMIT ? OFFSET ?",
+                (service, limit, offset),
             )
         else:
             cursor = self.conn.execute(
-                "SELECT * FROM run_manifest ORDER BY rowid DESC LIMIT ?",
-                (limit,),
+                "SELECT * FROM run_manifest ORDER BY rowid DESC LIMIT ? OFFSET ?",
+                (limit, offset),
             )
         return [
             ManifestEntry(

@@ -22,6 +22,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
+from fastapi import Query
 from fastapi import Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -258,9 +259,12 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
     @router.get(
         "/positions", dependencies=[Depends(require_read)], response_model=PositionsResponse
     )
-    def get_positions():
+    def get_positions(limit: int | None = Query(None, ge=1), offset: int = Query(0, ge=0)):
         orch = orch_provider()
         positions = orch.portfolio_service.position_repo.list()
+        positions = positions[offset:]
+        if limit is not None:
+            positions = positions[:limit]
         return {
             "trading_user_id": orch.trading_user_id,
             "positions": [
@@ -279,22 +283,26 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
         }
 
     @router.get("/orders", dependencies=[Depends(require_read)], response_model=OrdersResponse)
-    def get_orders():
+    def get_orders(limit: int | None = Query(None, ge=1), offset: int = Query(0, ge=0)):
         orch = orch_provider()
         open_orders = orch.broker.get_open_orders()
+        open_orders = open_orders[offset:]
+        if limit is not None:
+            open_orders = open_orders[:limit]
         return {
             "trading_user_id": orch.trading_user_id,
             "orders": [_normalize_order(o) for o in open_orders],
         }
 
     @router.get("/trades", dependencies=[Depends(require_read)], response_model=TradesResponse)
-    def get_trades(limit: int = 100):
+    def get_trades(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0)):
         orch = orch_provider()
         trades = sorted(
             orch.portfolio_service.trade_repo.list(),
             key=lambda t: t.created_at,
             reverse=True,
-        )[:limit]
+        )
+        trades = trades[offset : offset + limit]
         return {
             "trading_user_id": orch.trading_user_id,
             "trades": [
@@ -514,9 +522,15 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
     @router.get(
         "/strategies", dependencies=[Depends(require_read)], response_model=StrategiesResponse
     )
-    def list_catalog_strategies():
+    def list_catalog_strategies(
+        limit: int | None = Query(None, ge=1), offset: int = Query(0, ge=0)
+    ):
         orch = orch_provider()
         catalog = _catalog(orch)
+        strategies = catalog.list()
+        strategies = strategies[offset:]
+        if limit is not None:
+            strategies = strategies[:limit]
         return {
             "strategies": [
                 {
@@ -527,7 +541,7 @@ def register_operator_endpoints(router: APIRouter, orch_provider: OrchestratorPr
                     "version": s.version,
                     "created_at": s.created_at.isoformat(),
                 }
-                for s in catalog.list()
+                for s in strategies
             ]
         }
 
