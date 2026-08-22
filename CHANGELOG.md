@@ -81,6 +81,25 @@
   RAILWAY_TOKEN GitHub secret pending; one superseded FAILED redeploy row left
   in Railway history (documented in the sprint record).
 
+### Sprint 44 (2026-08-22) — operator gates closed: cloud G-02 soak live, gated auto-deploy activated
+
+- **Cloud soak launched:** dedicated `traderos-soak` Railway service runs the
+  self-supervised unattended runner (`railway.soak.toml` config-as-code,
+  evidence volume + stdout logging, `ON_FAILURE` restart policy) — hourly
+  batches of 10 real cycles through the full production chain against the
+  real Alpaca paper endpoint. Batch 001 PASS with submit→ack median 75 ms;
+  the 72-hour window ends ~2026-08-25T07:56Z and final PASS requires every
+  batch green.
+- **Credentials wired:** Alpaca paper keys set on both services via Railway
+  env (never echoed/committed); project-scoped `RAILWAY_TOKEN` stored as a
+  GitHub Actions secret and the deploy job hardened with explicit
+  `--project/--environment` flags for scoped tokens.
+- **Auto-deploy activated:** this sprint's own push exercises the gated
+  pipeline end-to-end — all nine quality gates must pass before production
+  deploys.
+- Evidence: `docs/evidence/2026-08-22_operator_gates_soak_launch.log`
+  (11/11 PASS); sprint record: `docs/sprints/SPRINT_44.md`.
+
 ## [1.2.0] - 2026-08-17
 
 Ship-sprint release: the Railway deploy path is consolidated and elite-grade.
