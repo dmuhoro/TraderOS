@@ -55,6 +55,32 @@
 - Verification: 2268 passed / 7 skipped / 100% coverage, ruff/black/pyright/
   pre-commit clean.
 
+### Sprint 43 (2026-08-22) — launch-prep infrastructure: EU region migration, gated auto-deploys, restart policy, live-feed activation
+
+- **EU region migration:** prior dashboard snapshot-and-patch attempts had
+  silently not taken effect (`region: sfo` / null). Completed the move via
+  Railway's GraphQL API — `serviceInstanceUpdate` with explicit region config
+  on both services, materialized by full-code deploys. **TraderOS + Postgres
+  now co-located in `ams`**; co-location proven empirically (the app reaches
+  the database over region-local `.internal` DNS).
+- **Restart policy:** `ON_FAILURE` with 10 retries codified in `railway.toml`
+  and applied to both service instances via API — a crashed container
+  recovers into durable state instead of staying down.
+- **Gated automated deploys:** new `deploy` CI job runs only after every
+  quality gate (version-check, lint, typecheck, test, evidence-drills,
+  security, docker, deploy-check, governance), only on pushes to `main`,
+  deploys via Railway CLI + `RAILWAY_TOKEN`, and **skips loudly (green) when
+  the token is absent** — no path deploys ungreen code; no silent skips.
+- **Live-feed activation:** orchestrator started on the EU deployment; real
+  BTCUSDT candles served through `/v1/market/candles` (HTTP 200) and **live
+  WebSocket ticks proven** by an in-candle freshness delta (close moved
+  77378.00 → 77293.34 and volume grew between reads 70 s apart).
+- Evidence: `docs/evidence/2026-08-22_region_migration_feed_activation.log`
+  (11 checks PASS); sprint record: `docs/sprints/SPRINT_43.md`.
+- Honest residuals: G-02 soak start awaits operator-issued Alpaca paper keys;
+  RAILWAY_TOKEN GitHub secret pending; one superseded FAILED redeploy row left
+  in Railway history (documented in the sprint record).
+
 ## [1.2.0] - 2026-08-17
 
 Ship-sprint release: the Railway deploy path is consolidated and elite-grade.
