@@ -135,6 +135,40 @@
 - Verification: 2293 passed / 7 skipped / 100% coverage, ruff/black/pyright
   clean; sprint record: `docs/sprints/SPRINT_45.md`.
 
+### Sprint 46 (2026-08-22) — verification-and-close: live backup/restore, rate-limiter load-shedding, SIGTERM flake, README
+
+- **Live Postgres backup→restore re-verified post-migration:** new drill
+  snapshots the production DB via `pg_dump -Fc` (Railway SSH tunnel), restores
+  into a throwaway scratch DB on the same server, compares per-table counts to
+  the backup-time fingerprint, and drops the scratch DB — VERDICT PASS
+  (`2026-08-22_postgres_backup_restore_drill.log`). Surfaced two real findings:
+  an **orphaned `postgres-volume`** (84 MB, detached) left by the Amsterdam
+  migration, and the **production image shipped no `postgresql-client`** (so
+  `traderos db backup` was impossible in production). The Dockerfile now
+  installs `postgresql-client-18` from PGDG to match Railway's PG 18.6
+  (older clients refuse a newer server with a version mismatch).
+- **Rate-limiter burst / load-shedding drill (13/13 PASS):** sustained bursts
+  through the real broker submission stack AND the real HTTP middleware. Fixed
+  three real defects on the live path: (1) `RateLimitExceededError` added to
+  `_CYCLE_EXCEPTIONS` (cycle/daemon no longer crash on load-shedding); (2) new
+  `non_failure_exception` on `CircuitBreakerConfig` + `BROKER_CB` so rate-limit
+  rejections never open the broker circuit (genuine failures still do); (3)
+  HTTP 429s now carry `Retry-After`/`X-RateLimit-Limit`/`X-RateLimit-Remaining`
+  per RFC 6585/9110. Registered in the CI credential-free drill set.
+- **HA SIGTERM flake root-caused and closed:** Sprint 29's "not reproduced"
+  case was a real defect — stop-signal handlers were installed only at the top
+  of `_run_forever_loop`, after slow startup reconciliation, so a SIGTERM in
+  that window hit the default handler and killed the process (mocked tests
+  never hit it because startup is near-instant). Handlers now install at the
+  first statement of `run_forever`; deterministic regression test proves
+  install-before-startup and real-signal survival. 44/44 ×10 under CPU load.
+- **README refreshed** to Sprints 41–45 reality: EU/Amsterdam migration, live
+  Binance feed + WS-resync, running G-02 cloud soak (batches 001–004 PASS),
+  gated auto-deploy, durable stores, live backup drill, rate-limiter drill;
+  honest headline and gaps section corrected.
+- Verification: full suite green at 100% coverage, ruff/black/isort/pyright
+  clean; sprint record: `docs/sprints/SPRINT_46.md`.
+
 ## [1.2.0] - 2026-08-17
 
 Ship-sprint release: the Railway deploy path is consolidated and elite-grade.

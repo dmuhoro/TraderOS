@@ -12,23 +12,31 @@ capital may move. It is updated as part of every sprint.
 
 ---
 
-## Current status (2026-08-17 — v1.2.0)
+## Current status (2026-08-22 — Sprints 41–45)
 
 | Area | Status | Evidence |
 |---|---|---|
-| Test suite | **2246 passed / 7 skipped / 100% line coverage** (gate `fail_under = 100`) | CI `test` job, `pytest --cov` |
+| Test suite | **2293 passed / 7 skipped / 100% line coverage** (gate `fail_under = 100`) | CI `test` job, `pytest --cov` |
 | Static checks | ruff, black, isort, pyright (strict, 0 errors), pre-commit (10 hooks) | CI `lint` + `typecheck` jobs |
-| CI pipeline | **Green end-to-end** (lint, typecheck, test, security, governance, version-check, evidence-drills, deploy-check, docker) | `gh run list` (Sprint 40) |
+| CI pipeline | **Green end-to-end** (lint, typecheck, test, security, governance, version-check, evidence-drills, deploy-check, docker, **deploy**) | `gh run list` (Sprint 44) |
 | Release | `v1.2.0` published: wheel + sdist + GitHub Release + GHCR image `ghcr.io/dmuhoro/traderos:1.2.0` | Sprint 40 |
-| Live deployment | `https://traderos-production.up.railway.app` — **auth boundary armed (fail-closed)**, paper mode, health/metrics live | Sprint 40 |
-| Evidence drills | 18 credential-free drills run as a CI gate; 7 key/network-gated drills operator-run | `docs/evidence/` (67 logs) |
+| Live deployment | **EU region (`ams`)**, `https://traderos-production.up.railway.app` — auth boundary armed (fail-closed), paper mode, **real Binance feed live** (REST + WS), orchestrator + soak service online | Sprints 43–44, `railway status` |
+| Real market data | **LIVE Binance REST + WebSocket feed proven end-to-end on the deployed instance** — daily-candle freshness delta + WS ticks; WS-resync reconciliation closes outage gaps against REST truth (VERDICT PASS) | `docs/evidence/2026-08-22_region_migration_feed_activation.log`, `2026-08-22_ws_resync_drill.log` |
+| G-02 cloud soak | **Running**: dedicated `traderos-soak` Railway service, self-supervised hourly batches ×10 through the real Alpaca paper endpoint; batches 001–004 PASS (window ends ~2026-08-25T07:56Z) | `2026-08-22_operator_gates_soak_launch.log`, `railway logs --service traderos-soak` |
+| Backups | `traderos db backup/restore` (SQLite + **Postgres** via `pg_dump`/`pg_restore`); **live Postgres backup→restore drill PASS** (schema v9, 35 tables round-trip intact) | `2026-08-22_postgres_backup_restore_drill.log` |
+| Rate limiting | Broker rate limiter on by default; **burst/load-shedding drill 13/13 PASS** — broker + HTTP 429s with `Retry-After`/`X-RateLimit-*`, circuit breaker stays closed under load, traffic resumes | `2026-08-22_rate_limiter_burst_drill.log` |
+| Evidence drills | 18 credential-free drills run as a CI gate; 8 key/network-gated drills operator-run | `docs/evidence/` (72 logs) |
 | Governance | Constitution, ADRs, release constitution, live-run policy, operator acknowledgment, fail-closed live gate | Sprint 40 |
+| Gated auto-deploy | Every `main` push runs full CI then **deploys production via Railway from CI** (project-scoped token, PATH fix proven) | Sprint 44, `2026-08-22_operator_gates_soak_launch.log` |
+| Durable stores | Knowledge graph, research store, and backtest history now **durable** (SQLite + Postgres repos, migration v009) — no data lost on restart | Sprints 41–42 |
 
-**Honest headline:** the engine is built, tested at 100% coverage, and
-deployed behind a verified fail-closed boundary — but the product has **never
-run on real market data, never placed a real order, and its research/backtest
-surfaces still need the durability and real-data wiring described below.**
-Launch posture is **NO-GO for real capital** until the exit tests in
+**Honest headline:** the engine is built, tested at 100% coverage, deployed
+behind a verified fail-closed boundary, **now ingesting real Binance market
+data on a live EU instance**, with the G-02 paper-broker soak **running** and
+batches passing. The product has still **never placed a real order** — order
+execution is deferred last per directive, and launch posture remains **NO-GO
+for real capital** until the G-02 soak window, G-01 edge proof (data-validation-
+only posture), and remaining operator gates in
 `docs/engineering/GAP_READINESS.md` are empirically met.
 
 ---
@@ -51,13 +59,24 @@ Launch posture is **NO-GO for real capital** until the exit tests in
 - Data-gap breaker: stops trading on stale or missing data.
 - Broker rate limiter on by default (opt-out is explicit); emergency flatten
   bypasses throttle but stays under the circuit breaker and journaled.
+- **Load-shedding is explicit, never a crash**: rate-limit rejections carry a
+  clear reason, are swallowed by the cycle/daemon handlers (the process keeps
+  running), and do **not** trip the broker circuit breaker — the HTTP layer
+  returns 429 with `Retry-After` + `X-RateLimit-*`, and legitimate traffic
+  resumes once the window closes (proven by the burst drill).
 
 ### Data
 - **Mock collector** (deterministic, default) for offline CI/tests.
 - **Binance REST collector** (`binance_collector.py`) and **Binance WebSocket
   streaming feed** aggregated into candles (`streaming_collector.py`) — both
-  present and tested, gated behind `data_collection.binance.enabled` /
-  `.streaming` (see *Gaps* — off by default in shipped config).
+  present and tested, **live on the deployed EU instance** (REST + WS proven;
+  `BINANCE_ENABLED`/`BINANCE_STREAMING` env switches, committed default off for CI).
+- **WS-resync reconciliation** (`streaming_collector.py`): after any reconnect,
+  the live cache is reconciled against Binance REST klines — interior gaps
+  filled, divergent candles replaced beyond a 5 bps tolerance, with a
+  rate-limited mop-up pass that verifies the damaged candle once its official
+  kline matures. Proven live: 3 forced outages → 2 resyncs → gapless,
+  kline-matching convergence (VERDICT PASS).
 - **Alpaca collector** for broker-market data; frozen Binance 1h snapshot
   committed for reproducible walk-forward evidence (network-free).
 
@@ -110,36 +129,35 @@ software, operator-run, or account-gated. The full register with scores and
 exit tests lives in `docs/engineering/GAP_READINESS.md`.
 
 ### Closeable in software (this sprint work)
-1. **`POST /v1/backtest` serves synthetic candles** (`server.py:353-368`) — it
-   fabricates a deterministic price ramp and never touches real data. The
-   research backtest (`POST /v1/research/backtest`) already uses real ingested
-   candles; the plain endpoint must be made honest (or removed).
-2. **Research store is in-memory only** — `ResearchService` is wired to
-   `InMemory*Repository` (`factory.py:418-424`); observations/hypotheses/
-   experiments/lessons are **lost on restart**. Full SQLite implementations
-   exist (`sqlite/research.py`) and must be wired; a PG variant is needed for
-   the deployed store.
-3. **No pagination** — audit/trades/positions/orders/strategies/manifest/
-   papertrade sessions/equity-curve/attribution chains return unbounded lists
-   (only `limit` on a few routes).
-4. **Real feed off in shipped config** — `configs/settings.yaml` sets
-   `binance.enabled: false` / `streaming: false`; the deployed instance serves
-   mock data. Needs an env-var override and a ≥24h real-feed run with the
-   data-gap breaker armed.
+Sprint 41 closed the four previously-listed software gaps: `POST /v1/backtest`
+is now **honest** (runs the engine on the real ingested candle series, fails
+closed on unknown/empty symbol), the research store is **durable** (SQLite +
+Postgres repos), list endpoints are **paginated** (`limit`/`offset`), and the
+real Binance feed is **switchable on deploy** via env vars. Sprint 42 added
+the durable knowledge graph, migration v009, and persisted backtest history.
+Sprint 45 proved WS-resync reconciliation live. Remaining software-closeable
+work is tracked in the sprint docs; the genuinely open items are below.
 
 ### Operator-run (need credentials/time, harness ready)
-5. **24–72h unattended Alpaca paper soak** (G-02 exit test) — `run_unattended_paper_soak.py`
-   ready and fails closed without keys; bounded runs pass; full window never
-   run.
-6. **Managed Vault/KMS rotation cadence** — proven against local Vault only.
-7. **Live on-call delivery** — transports proven on the wire in drills; no
+1. **72h G-02 paper-broker soak — RUNNING** (`run_unattended_paper_soak.py`,
+   dedicated `traderos-soak` Railway service, hourly batches ×10 cycles through
+   the real chain). Started 2026-08-22T07:56Z; **batches 001–004 PASS**; final
+   PASS requires every batch green through ~2026-08-25T07:56Z.
+2. **Managed Vault/KMS rotation cadence** — proven against local Vault only.
+3. **Live on-call delivery** — transports proven on the wire in drills; no
    real PagerDuty/Slack account has received a live incident.
+4. **Orphaned Postgres volume** — the Amsterdam migration left
+   `postgres-volume` (84 MB) detached and unused alongside the active
+   `postgres-volume-tZfp`; data survives on the attached volume (backup/restore
+   drill PASS), but the orphan should be deleted by an operator to avoid a
+   wrong-volume mount in an incident. Surfaced in
+   `2026-08-22_postgres_backup_restore_drill.log`.
 
 ### Account-gated (deferred last, per directive)
-8. **Real order execution** — real Alpaca connectivity proven once (read-only);
+5. **Real order execution** — real Alpaca connectivity proven once (read-only);
    **no real order has ever been submitted or filled**. Tested last, after all
    software and operator gates are green.
-9. **A cost-adjusted edge, or an explicit data-validation-only posture** —
+6. **A cost-adjusted edge, or an explicit data-validation-only posture** —
    walk-forward shows no positive expectancy after full costs on out-of-sample
    data; the launch claim must be decided honestly before real capital.
 
