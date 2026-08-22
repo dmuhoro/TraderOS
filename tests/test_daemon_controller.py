@@ -701,3 +701,92 @@ class TestDaemonControllerExt:
         assert any(
             "Received stop signal" in str(call) for call in notifications.warning.call_args_list
         )
+
+    def test_stop_signal_during_startup_reconciliation_is_handled(self) -> None:
+        """Regression (Sprint 29 'SIGTERM under load, not reproduced').
+
+        The stop-signal handlers must be installed BEFORE any slow startup work
+        (crash recovery, local-state fetch, broker reconciliation). Previously
+        they were installed at the top of _run_forever_loop — after
+        reconciliation — so a SIGTERM that arrived during a slow startup would
+        hit the DEFAULT handler and terminate the process instead of draining
+        gracefully. This test proves the ordering: the handler registration
+        happens first, so the process is never exposed to the default handler
+        during startup. The mocked startup path completes fast, so the window
+        is closed deterministically rather than probed by timing.
+        """
+        from traderos.application import daemon_controller as dc_module
+
+        order: list[str] = []
+        handlers: dict[int, object] = {}
+        original_signal = dc_module.signal.signal
+        original_fetch = None
+        original_recover = None
+
+        def _signal_spy(signum, handler):
+            order.append(f"install:{signum}")
+            handlers[signum] = handler
+            original_signal(signum, handler)  # delegate: really install it
+
+        dc_module.signal.signal = _signal_spy  # type: ignore[method-assign]
+
+        data_ingestion = Mock()
+        data_ingestion.get_latest_close.return_value = 100.0
+        notifications = Mock()
+        controller = self._controller(
+            data_ingestion=data_ingestion,
+            market_ids=[uuid.uuid4()],
+            notifications=notifications,
+        )
+
+        original_fetch = controller._fetch_local_state
+
+        def _spy_fetch():
+            order.append("startup:fetch_local_state")
+            return original_fetch()
+
+        controller._fetch_local_state = _spy_fetch  # type: ignore[method-assign]
+        original_recover = controller._recover_from_crash
+
+        def _spy_recover(*a, **k):
+            order.append("startup:recover_from_crash")
+            return original_recover(*a, **k)
+
+        controller._recover_from_crash = _spy_recover  # type: ignore[method-assign]
+
+        # Now exercise a stop signal during startup for real: deliver SIGTERM
+        # right after the handlers are installed (proven by order) and confirm
+        # the process is NOT killed by the default handler and drains cleanly.
+        delivered = threading.Event()
+
+        def _send_after_install():
+            while not handlers and not delivered.is_set():
+                time.sleep(0.01)
+            if not delivered.is_set():
+                os.kill(os.getpid(), signal.SIGTERM)
+                delivered.set()
+
+        sender = threading.Thread(target=_send_after_install, daemon=True)
+        sender.start()
+        try:
+            controller.run_forever(interval_seconds=0.02, shutdown_timeout=10)
+        finally:
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+            signal.signal(signal.SIGTERM, signal.default_int_handler)
+            dc_module.signal.signal = original_signal
+            controller._fetch_local_state = original_fetch  # type: ignore[method-assign]
+            controller._recover_from_crash = original_recover  # type: ignore[method-assign]
+        sender.join(timeout=2)
+
+        # Handler registration precedes any startup work.
+        install_idx = order.index("install:15")  # SIGTERM
+        fetch_idx = order.index("startup:fetch_local_state")
+        recover_idx = order.index("startup:recover_from_crash")
+        assert install_idx < recover_idx, f"handler installed after recover: {order}"
+        assert install_idx < fetch_idx, f"handler installed after fetch: {order}"
+        # The process survived the signal (did not hit the default handler).
+        assert delivered.is_set()
+        assert not controller.running
+        assert any(
+            "Received stop signal" in str(call) for call in notifications.warning.call_args_list
+        )

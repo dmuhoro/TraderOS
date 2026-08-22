@@ -115,6 +115,29 @@ class TestCircuitBreaker:
             breaker.call(lambda: (_ for _ in ()).throw(ValueError("ignored")))
         assert breaker.failure_count == 0
 
+    def test_non_failure_exception_does_not_count_towards_trip(self) -> None:
+        breaker = CircuitBreaker(
+            CircuitBreakerConfig(
+                name="t",
+                failure_threshold=2,
+                expected_exception=(Exception,),
+                non_failure_exception=(ValueError,),
+            )
+        )
+
+        def shed() -> None:
+            raise ValueError("rate limited")
+
+        for _ in range(breaker.threshold + 3):
+            with pytest.raises(ValueError):
+                breaker.call(shed)
+        # Load-shedding rejections must NOT open the circuit: the dependency is
+        # healthy, only the caller is asking too fast.
+        assert breaker.state == "closed"
+        assert breaker.failure_count == 0
+        # Legitimate traffic still flows through after the burst.
+        assert breaker.call(lambda: 7) == 7
+
 
 class TestWithCircuitBreaker:
     def test_wraps_and_succeeds(self) -> None:
@@ -341,6 +364,31 @@ class TestCircuitBreakeredBroker:
         assert broker.get_account_balance() == 10000.0
         assert broker.get_positions() == []
         assert broker.get_open_orders() == []
+
+    def test_rate_limit_burst_does_not_trip_shared_breaker(self, broker) -> None:
+        """A real rate-limit burst must shed load without opening BROKER_CB."""
+        import uuid
+
+        from traderos.infrastructure.broker_rate_limiter import RateLimitedBroker
+        from traderos.infrastructure.broker_rate_limiter import RateLimitExceededError
+        from traderos.infrastructure.resilience import BROKER_CB
+
+        limited = RateLimitedBroker(broker, max_requests=2, window_seconds=60.0)
+        mid = uuid.uuid4()
+        shed = 0
+        for _ in range(BROKER_CB.threshold + 3):
+            try:
+                limited.place_market_order(mid, "buy", 1.0)
+            except RateLimitExceededError:
+                shed += 1
+        # Far more rejections than the breaker threshold, yet the breaker stays
+        # closed: load-shedding is not a broker infrastructure failure.
+        assert shed >= BROKER_CB.threshold + 1
+        assert BROKER_CB.state == "closed"
+        assert BROKER_CB.failure_count == 0
+        # Legitimate traffic resumes cleanly through the same shared breaker.
+        res = limited.place_limit_order(mid, "buy", 1.0, 100.0)
+        assert res.status == "pending"
 
 
 class TestVaultCircuitWiring:
