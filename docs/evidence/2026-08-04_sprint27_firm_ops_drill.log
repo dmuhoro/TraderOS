@@ -1,5 +1,5 @@
 FIRM-OPS DRILL — G-04 HA failover + alert transport + secret audit
-started 2026-08-21T04:49:28.679637+00:00
+started 2026-08-22T05:13:49.303211+00:00
 [PASS] ha_standby_fail_closed_and_takeover: standby fail-closed while primary leads; stale lease -> takeover with WARNING alert on the real notification service
 [PASS] alert_transport_reaches_notifier: NotificationService WARNING alert delivered to webhook notifier seam
 [PASS] secret_access_audit_redacted: 2 accesses + 1 rotation recorded, values redacted, audit chain intact

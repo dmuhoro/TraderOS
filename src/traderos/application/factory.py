@@ -332,7 +332,17 @@ def build_orchestrator(
             collector_registry.register(_streaming_collector)
             streaming_feed = StreamingFeedRunner(_stream, crypto)
             streaming_enabled = True
-        except Exception:  # noqa: BLE001 — streaming is best-effort, never fatal
+        except Exception as exc:  # noqa: BLE001 — streaming is best-effort, never fatal
+            # No silent drops: an explicitly-enabled stream that fails to wire
+            # must be visible to the operator, not just absent from the wiring.
+            _LOGGER.warning(
+                "BINANCE_STREAMING is enabled but the live feed could not be "
+                "wired (%s: %s). The instance will run WITHOUT a live "
+                "market-data stream — install the 'streaming' extra "
+                "(websockets) if this is unintended.",
+                type(exc).__name__,
+                exc,
+            )
             streaming_enabled = False
 
     symbol_map: dict[uuid.UUID, str] = {}
@@ -670,7 +680,17 @@ def build_async_daemon(
                 AsyncBinanceStreamTransport(),
                 symbols=list(crypto),
             )
-        except Exception:  # noqa: BLE001 — streaming is best-effort, never fatal
+        except Exception as exc:  # noqa: BLE001 — streaming is best-effort, never fatal
+            # No silent drops: an explicitly-enabled ingestor that fails to
+            # wire must be visible to the operator.
+            _LOGGER.warning(
+                "BINANCE_STREAMING is enabled but the async ingestor could not "
+                "be wired (%s: %s). The daemon will run WITHOUT a live "
+                "market-data stream — install the 'streaming' extra "
+                "(websockets) if this is unintended.",
+                type(exc).__name__,
+                exc,
+            )
             ingestor = None
 
     return AsyncDaemonController(

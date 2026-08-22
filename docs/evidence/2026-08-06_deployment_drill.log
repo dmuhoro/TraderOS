@@ -1,5 +1,5 @@
 DEPLOYMENT DRILL — A4
-started 2026-08-21T04:49:18.612034+00:00
+started 2026-08-22T05:13:45.513570+00:00
   migrations-on-boot: schema_version=9
   healthz: alive
   supervisor manifest: PASS
