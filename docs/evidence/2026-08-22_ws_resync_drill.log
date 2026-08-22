@@ -1,0 +1,14 @@
+WS-RESYNC RECONCILIATION DRILL (real Binance WS + REST klines)
+started 2026-08-22T11:17:00.829633+00:00 symbol=BTCUSDT interval=60s
+plan: 130s live capture, 3 forced outages, 95s settle, then convergence check
+phase A: 1 closed candle(s) before first outage
+forced outage 1/3: closing underlying websocket
+forced outage 2/3: closing underlying websocket
+forced outage 3/3: closing underlying websocket
+meters: resyncs=2, gaps_filled=0, divergences=1, failures=0
+convergence: cached_closed_candles=1 rest_klines_in_window=59
+missing_minutes=0
+field_mismatches=0
+checks: resync_fired=True reconcile_clean=True gapless=True matches_klines=True
+finished 2026-08-22T11:18:49.611461+00:00
+VERDICT: PASS
