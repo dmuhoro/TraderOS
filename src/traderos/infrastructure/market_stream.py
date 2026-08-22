@@ -414,6 +414,7 @@ class StreamingMarketDataService(MarketDataPort):
         max_future_seconds: float = 60.0,
         clock: ClockMonitor | None = None,
         recorder: ReplayRecorder | None = None,
+        on_reconnect: Callable[[], None] | None = None,
     ) -> None:
         self.transport, self.max_queue, self.reconnect_limit, self.heartbeat_timeout = (
             transport,
@@ -432,6 +433,11 @@ class StreamingMarketDataService(MarketDataPort):
         self._dropped = 0
         self._malformed = 0
         self._latencies: list[float] = []
+        # Called after a successful reconnection that followed at least one
+        # failed attempt (a real "resync" event). Callbacks must never kill
+        # the run loop: exceptions are swallowed after being counted.
+        self.on_reconnect = on_reconnect
+        self.resync_count = 0
 
     def subscribe(self, symbols: list[str], handler: Callable[[Tick], None]) -> None:
         self._symbols, self._handler = symbols, handler
@@ -491,20 +497,42 @@ class StreamingMarketDataService(MarketDataPort):
         received = 0
         attempts = 0
         while self._running and (max_messages is None or received < max_messages):
+            frames_this_connection = 0
             try:
                 for raw in self.transport.connect(self._symbols):
                     if not self._running:
                         break
+                    resync_pending = attempts > 0
                     try:
                         self.ingest(raw)
                     except InvalidTickError:
                         # Malformed frames are skipped, never treated as a
                         # transport outage (OT-004).
                         continue
+                    if resync_pending:
+                        # First frame ingested after >=1 failed attempt: the
+                        # connection is provably back AND the interrupted
+                        # pre-outage candle has just been closed by this very
+                        # tick, so reconciliation sees the full damage. Fired
+                        # after ingest, metered, never fatal.
+                        if self.on_reconnect is not None:
+                            try:
+                                self.on_reconnect()
+                            except Exception:  # noqa: S110 — metered, never fatal
+                                pass
+                        self.resync_count += 1
+                        attempts = 0
+                    frames_this_connection += 1
                     self.drain()
                     received += 1
                     if max_messages is not None and received >= max_messages:
                         break
+                if frames_this_connection == 0:
+                    # A generator that exhausts WITHOUT yielding (clean server
+                    # close, empty iterator) must be treated as an outage, not
+                    # as success — otherwise the loop re-connects with zero
+                    # backoff and busy-spins against a dead endpoint.
+                    raise ConnectionError("transport ended without delivering frames")
                 attempts = 0
             except Exception:
                 attempts += 1
