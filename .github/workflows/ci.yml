@@ -278,4 +278,5 @@ jobs:
             exit 0
           fi
           curl -fsSL https://railway.app/install.sh | sh
+          export PATH="$HOME/.railway/bin:$PATH"
           railway up --project 9e1a21f7-011f-471b-896f-5cc624ba77d6 --environment production --service TraderOS --ci
