@@ -60,7 +60,7 @@ class TestServerCors:
 
 
 class TestServerRateLimit:
-    def test_exceeding_limit_returns_429(self, auth_client: TestClient) -> None:
+    def test_exceeding_limit_returns_429_with_retry_after(self, auth_client: TestClient) -> None:
         original = server._rate_limiter
         try:
             server._rate_limiter = RateLimiter(max_requests=1, window_seconds=60.0)
@@ -68,6 +68,12 @@ class TestServerRateLimit:
             denied = auth_client.get("/v1/healthz")
             assert denied.status_code == 429
             assert denied.json()["error"]["message"] == "Rate limit exceeded"
+            # RFC 6585/9110: a 429 must advertise when the caller may retry.
+            assert denied.headers["Retry-After"] == "60"
+            assert denied.headers["X-RateLimit-Limit"] == "1"
+            assert denied.headers["X-RateLimit-Remaining"] == "0"
+            # Still over budget within the window -> still 429 (no silent pass).
+            assert auth_client.get("/v1/healthz").status_code == 429
         finally:
             server._rate_limiter = original
 
