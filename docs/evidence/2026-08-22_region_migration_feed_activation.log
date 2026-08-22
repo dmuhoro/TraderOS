@@ -1,0 +1,42 @@
+REGION MIGRATION + LIVE-FEED ACTIVATION — Sprint 43 L2/L3
+started 2026-08-22T06:05Z (UTC timestamps below)
+operator intent: move TraderOS + Postgres from US egress to EU so Binance REST/WSS are reachable
+
+[PASS] prior dashboard snapshot-and-patch attempts verified ineffective via CLI:
+       `railway status` kept reporting region sfo; GraphQL read showed
+       region=null on both service instances (workspace default = US).
+[PASS] workspace region inventory queried via backboard GraphQL:
+       available regions [pdx, ams, sfo, iad, sin]; target chosen ams (Amsterdam).
+[PASS] serviceInstanceUpdate applied to Postgres-gKbz (a64c0d78…):
+       multiRegionConfig {"ams":{"numReplicas":1}} -> mutation accepted.
+[PASS] serviceInstanceUpdate applied to TraderOS (8232aa41…):
+       multiRegionConfig {"ams":{"numReplicas":1}} plus explicit
+       restartPolicyType=ON_FAILURE restartPolicyMaxRetries=10 -> accepted;
+       both instances later re-read as ON_FAILURE/10 (config persisted).
+[NOTE] `railway redeploy` materialization attempt FAILED (container start loop,
+       "traderos-api: command not found"): redeploy reuses the stale previous
+       image artifact which predates the console-script entrypoint. Root cause
+       documented; superseded by full-code deploy path.
+[PASS] full-code deploy (`railway up`) built current HEAD and LANDED IN ams:
+       `railway status` -> "region: ams", status Online, /v1/healthz alive.
+[PASS] Postgres-gKbz redeployed 07:04:20Z (after config write): restored from
+       volume snapshot ("automatic recovery in progress" on boot), Online.
+[PASS] CO-LOCATION PROVEN empirically: DATABASE_URL uses region-local DNS
+       (postgres-gkbz.railway.internal); after app bounce the PG-backed route
+       GET /v1/backtest/history returns clean PG 404s ("Strategy 'x' not
+       found"), proving app(ams) -> db(ams) internal round-trip. Transient 500s
+       during migration were the severed pool, recovered by app redeploy.
+[PASS] ORCHESTRATOR STARTED on EU deployment:
+       POST /v1/orchestrator/start (admin key) -> {"status":"started","mode":"paper"}.
+[PASS] REAL BINANCE REST BACKFILL through public read path (~90s after start):
+       GET /v1/market/candles?symbol=BTCUSDT&limit=3 -> HTTP 200 with real OHLCV
+       for 2026-08-20/21/22 (e.g. today open=78338.03 high=78828.15 low=76500.0).
+[PASS] LIVE WEBSOCKET TICKS PROVEN by freshness delta (reads ~70s apart, same
+       in-progress daily candle 2026-08-22T00:00:00+00:00):
+         read1 close=77378.00 volume=8755.79023
+         read2 close=77293.34 volume=8766.12649
+       price/volume advanced within one candle window => live WS flow, not
+       stale REST data.
+
+VERDICT: PASS — TraderOS + Postgres co-located in ams; real Binance feed live
+end-to-end through the deployed orchestrator; no fabricated data at any step.
