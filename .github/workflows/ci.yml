@@ -248,3 +248,34 @@ jobs:
           set -e
           test "$rc" -ne 0 || { echo "LIVE GATE: unexpectedly passed with no GO declaration"; exit 1; }
           echo "LIVE GATE: correctly blocked a live posture with no GO conditions"
+
+  # Sprint 43 L1b: gated production deploys. Runs ONLY after every quality
+  # gate above passes, and only for pushes to main. Deploys with the Railway
+  # CLI using a RAILWAY_TOKEN repo secret. If the secret is not yet
+  # provisioned the job exits GREEN with an explicit notice — it never
+  # pretends a deployment happened that did not.
+  deploy:
+    runs-on: ubuntu-latest
+    needs:
+      - version-check
+      - lint
+      - typecheck
+      - test
+      - evidence-drills
+      - security
+      - docker
+      - deploy-check
+      - governance
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Railway (gated on all quality checks)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::notice::RAILWAY_TOKEN secret is not configured on this repository — deploy SKIPPED (nothing was deployed). Add it under Settings → Secrets → Actions to enable gated auto-deploys."
+            exit 0
+          fi
+          curl -fsSL https://railway.app/install.sh | sh
+          railway up --service TraderOS --ci
