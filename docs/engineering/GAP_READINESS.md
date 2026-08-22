@@ -209,3 +209,11 @@ real capital** an auditable decision rather than a vibe.
   full-window paper soak, G-01's real-edge proof, or the operator-run gates
   (managed Vault rotation, live on-call delivery). The execution/order path was
   not touched — real order execution is tested last per directive.
+- **Slice 4 (real feed on deploy): code-complete, activation blocked by
+  infrastructure.** The deployed instance was silently feedless because the
+  `websockets` package shipped in no dependency group; that is fixed and both
+  streaming seams now warn loudly instead of dropping silently. The Railway
+  instance still cannot reach Binance (REST + WSS) from its egress region —
+  local drills prove the full path works on unrestricted egress. Activation is
+  an operator dashboard action (region move to EU); no fabricated data is
+  served meanwhile (`/v1/market/candles` fails closed with 404).

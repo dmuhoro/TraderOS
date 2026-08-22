@@ -68,7 +68,31 @@ results**, so a strategy's backtest history was empty even after runs.
 - Added **`GET /v1/backtest/history?strategy=&limit=`** endpoint (404 for
   unknown strategy).
 
-## 4. Verification
+## 4. Slice 4 — real Binance feed on the deployed instance (honest outcome)
+
+**What was done:** `BINANCE_ENABLED=true` and `BINANCE_STREAMING=true` set on
+the Railway production instance; three deploys shipped. The first feedless
+deploy exposed a real bug: the A2 transports lazily import `websockets`, which
+no dependency group shipped — so an explicitly-enabled stream **silently**
+failed to wire while healthz stayed green. Fixed properly:
+
+- New `streaming` extra (`websockets==17.0.1`) in pyproject + Dockerfile install.
+- Both streaming seams in the factory now log a loud warning when an
+  explicitly-enabled feed fails to wire (no silent drops); two new tests pin it.
+- Deployed orchestrator started (`POST /v1/orchestrator/start`) — running, paper mode.
+
+**What did NOT close:** the deployed instance still serves no BTCUSDT candles.
+Evidence chain: local drill 8/8 PASS against live Binance; deployed REST
+backfill returns empty (404 fail-closed, not 503) AND the WS stream stays
+silent → outbound Binance (REST + WSS) is unreachable from Railway's egress
+region (geo-restriction is the consistent explanation; Kenya egress works).
+Fixing it is a **dashboard operator action** (move the service region to an
+EU zone, e.g. eu-west/eu-central, then redeploy + start the orchestrator) —
+not automatable via the Railway CLI, so it is recorded here rather than
+faked. G-03-style honesty: no fabricated market data is served in the
+meantime; the endpoint fails closed with 404.
+
+## 5. Verification
 
 | Check | Result |
 |---|---|

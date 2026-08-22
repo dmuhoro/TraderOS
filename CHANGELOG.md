@@ -43,6 +43,15 @@
   `POST /v1/research/backtest` now record results via the strategy catalog;
   new `GET /v1/backtest/history?strategy=&limit=` surfaces them (404 on unknown
   strategy). Results were previously computed on the fly and never retained.
+- **Real-feed deploy fix:** the `websockets` package shipped in no dependency
+  group, so an explicitly-enabled Binance stream silently failed to wire in
+  production images while healthz stayed green. New `streaming` extra +
+  Dockerfile install; both factory streaming seams now log a loud warning on
+  wire failure (no silent drops, tests pin both).
+- **Honest deployment note:** the Railway production instance still serves no
+  BTCUSDT candles — outbound Binance (REST + WSS) is unreachable from its
+  egress region (local drill: 8/8 PASS on live feed). Activation needs a
+  dashboard region move to an EU zone; see `docs/sprints/SPRINT_42.md`.
 - Verification: 2268 passed / 7 skipped / 100% coverage, ruff/black/pyright/
   pre-commit clean.
 
