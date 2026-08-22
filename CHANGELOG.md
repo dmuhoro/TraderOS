@@ -102,6 +102,39 @@
 - Evidence: `docs/evidence/2026-08-22_operator_gates_soak_launch.log`
   (13/13 PASS); sprint record: `docs/sprints/SPRINT_44.md`.
 
+### Sprint 45 (2026-08-22) — WS-resync reconciliation proven live vs Binance API
+
+- **Reconnect hook:** `StreamingMarketDataService` now accepts an optional
+  `on_reconnect` callback + `resync_count` counter. The hook fires after the
+  first successfully ingested frame following ≥1 failed connection attempt (so
+  the interrupted pre-outage candle is closed first), is swallowed + counted
+  (never fatal), and is wired by the collector as its resync trigger.
+- **Silent-exhaust outage fix:** the reconnect loop previously busy-spun
+  forever when a connection produced zero frames (e.g. a proxy black-hole).
+  A dead connection is now detected via `frames_this_connection == 0` and
+  raises `ConnectionError` → bounded exponential backoff instead of an
+  infinite respin.
+- **Resync reconciliation:** `StreamingMarketDataCollector.handle_reconnect()`
+  reconciles the live cache against Binance REST klines — fills interior gaps
+  and replaces cached candles that diverge beyond `reconcile_tolerance_bps`
+  (default 5 bps), excluding still-forming klines. Fully metered
+  (`reconcile_gaps_filled` / `reconcile_divergences` / `reconcile_failures`),
+  failures never silent.
+- **Mop-up pass:** a one-shot reconcile at reconnect instant is insufficient —
+  the damaged candle's official kline is not yet mature at the exchange. A
+  rate-limited mop-up (2× interval window, once per interval) re-reconciles on
+  the next candle-close event once truth has matured.
+- **Live proof:** `scripts/evidence/run_ws_resync_drill.py` forced 3 real
+  websocket outages on the live Binance wire — 2 resyncs fired, the incomplete
+  post-outage candle was detected (631 bps volume divergence) and healed by the
+  mop-up pass, and final convergence was gapless with every cached candle
+  matching its official kline within tolerance. **VERDICT PASS**
+  (`docs/evidence/2026-08-22_ws_resync_drill.log`). This closes the last G-02
+  residual ("WS resync vs live API untested"); the 72h soak window continues to
+  ~2026-08-25T07:56Z.
+- Verification: 2293 passed / 7 skipped / 100% coverage, ruff/black/pyright
+  clean; sprint record: `docs/sprints/SPRINT_45.md`.
+
 ## [1.2.0] - 2026-08-17
 
 Ship-sprint release: the Railway deploy path is consolidated and elite-grade.
