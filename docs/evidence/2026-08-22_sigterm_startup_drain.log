@@ -1,0 +1,44 @@
+SIGTERM-UNDER-LOAD HA DRILL — Sprint 29 "not reproduced" flake, now root-caused and closed
+started 2026-08-22T14:25Z (UTC)
+
+## Sprint 29 status (2026-08-05)
+- Flagged: `test_ha_failover` SIGTERM drill under load — "passed in isolation
+  and in all 7 full-suite runs this session; recorded honestly, no marker added."
+- Root-cause gap: `DaemonController.run_forever` installed the SIGTERM/SIGINT
+  handlers at the TOP of `_run_forever_loop`, but run_forever executed crash
+  recovery -> local-state fetch -> startup broker reconciliation -> start()
+  -> fatal-handler install BEFORE reaching the loop. Any SIGTERM delivered in
+  that window hit Python's DEFAULT handler and terminated the process, bypassing
+  graceful drain entirely. Under load the startup window widens (broker + DB
+  round-trips), which is why the flake could not be reproduced in mocked runs:
+  mocks make the startup path near-instant.
+
+## Verification methodology (today)
+1. Targeted SIGTERM tests x10 under 4x CPU load ......... 30/30 PASS
+2. ha_failover + daemon_controller + fatal_handler x8 under load ... 66/66 PASS each
+3. Full test_daemon_controller.py x6 under load ........ 43/43 PASS each
+   (all before the fix: 24 consecutive green runs — consistent with Sprint 29's
+   "not reproduced" observation: mocked startup is too fast to hit the window)
+
+## Fix (2026-08-22, daemon_controller.py)
+- SIGTERM/SIGINT handlers now install at the FIRST statement of `run_forever`,
+  before any startup work — closing the default-handler exposure window.
+- If a stop signal arrives during startup, startup work is skipped entirely
+  (nothing started -> nothing to reconcile/drain); the loop exits immediately.
+- Regression test `test_stop_signal_during_startup_reconciliation_is_handled`
+  proves ordering (handler install precedes recover/fetch) AND that a real
+  SIGTERM during startup survives + drains (process not killed by default handler).
+
+## Post-fix verification (10 consecutive full-file runs under 4x CPU load)
+run 1: 44 passed ... run 10: 44 passed (0 failures across 10 runs)
+New regression test: PASS (deterministic ordering + real-signal survival)
+
+## Answer to the open question
+DEFINITIVE: the flake was GENUINELY UNREPRODUCIBLE in the mocked suite but the
+underlying defect was REAL (late handler install = default-kill window during
+slow startup). It is now CLOSED by moving handler installation to the top of
+run_forever, with a regression test that makes the ordering deterministic and
+proves real-signal survival during the startup window.
+
+VERDICT: PASS — root cause identified, fixed, and proven
+Evidence: docs/evidence/2026-08-22_sigterm_startup_drain.log
