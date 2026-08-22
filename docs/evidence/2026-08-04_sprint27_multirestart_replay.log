@@ -1,19 +1,19 @@
 MULTI-RESTART REPLAY — G-05 causal accountability across restarts
-started 2026-08-22T05:14:36.400242+00:00
-DB: /tmp/tmp068pt2in.db
+started 2026-08-22T06:00:18.255643+00:00
+DB: /tmp/tmp87x7ouuc.db
 
 RESTART #1 simulated at 10:15 (fresh process, same DB)
 RESTART #2 simulated at 11:00 (fresh process, same DB)
 
-[2026-08-22T05:14:36.420201+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=16.0 @ 100.0 pnl=open
-[2026-08-22T05:14:36.427055+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=15.68627451 @ 102.0 pnl=open
-[2026-08-22T05:14:36.432067+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=15.38461538 @ 104.0 pnl=open
-[2026-08-22T05:14:36.438889+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=15.09433962 @ 106.0 pnl=open
-[2026-08-22T05:14:36.444948+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill sell qty=15.38461538 @ 104.0 pnl=61.5385
-[2026-08-22T05:14:36.449632+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=14.81481481 @ 108.0 pnl=open
-[2026-08-22T05:14:36.456339+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill sell qty=15.09433962 @ 106.0 pnl=61.6081
-[2026-08-22T05:14:36.461235+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=14.54545455 @ 110.0 pnl=open
-[2026-08-22T05:14:36.466348+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=14.28571429 @ 112.0 pnl=open
+[2026-08-22T06:00:18.274146+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=16.0 @ 100.0 pnl=open
+[2026-08-22T06:00:18.278820+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=15.68627451 @ 102.0 pnl=open
+[2026-08-22T06:00:18.282675+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=15.38461538 @ 104.0 pnl=open
+[2026-08-22T06:00:18.288084+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=15.09433962 @ 106.0 pnl=open
+[2026-08-22T06:00:18.292721+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill sell qty=15.38461538 @ 104.0 pnl=61.5385
+[2026-08-22T06:00:18.296771+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=14.81481481 @ 108.0 pnl=open
+[2026-08-22T06:00:18.302514+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill sell qty=15.09433962 @ 106.0 pnl=61.6081
+[2026-08-22T06:00:18.306888+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=14.54545455 @ 110.0 pnl=open
+[2026-08-22T06:00:18.311184+00:00] signal=evidence long conf=0.8 -> decision=allowed order=filled fill buy qty=14.28571429 @ 112.0 pnl=open
 
 SUMMARY: cycles=9 restarts=2 chains_recorded=9 fills_replayed=9 blocked=0 unfilled=0 total_realized_pnl=123.15
   audit chain valid after restarts: True
