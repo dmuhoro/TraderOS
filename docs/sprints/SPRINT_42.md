@@ -96,7 +96,7 @@ meantime; the endpoint fails closed with 404.
 
 | Check | Result |
 |---|---|
-| `pytest` (full suite) | **2268 passed, 7 skipped, 100.00%** coverage (gate 100) |
+| `pytest` (full suite) | **2270 passed, 7 skipped, 100.00%** coverage (gate 100) |
 | `ruff check .` | All checks passed |
 | `black --check .` | 370 files left unchanged |
 | `pyright` (strict, `src/traderos`) | 0 errors, 0 warnings |
@@ -104,13 +104,15 @@ meantime; the endpoint fails closed with 404.
 | Postgres knowledge repo tests | 4 new tests (51 total in the PG repo file), pass against PG 16 |
 | Migration v009 | applies on fresh Postgres to schema version 9; all 4 tables present |
 | Backtest history tests | endpoint + catalog unit tests pass |
+| No-silent-drop streaming tests | 2 new tests prove both factory seams warn loudly on wire failure |
 
-## 5. Governance / honesty notes
+## 6. Governance / honesty notes
 
 - The execution/order path was **not touched** — real order execution remains
   tested last per directive.
-- The real Binance feed run on the deployed instance is a separate operator
-  step (Slice 4) — this sprint provides the durable store and history, not the
-  feed run itself.
+- Slice 4's code path (streaming extra + loud wire-failure warnings) is
+  complete and locally proven (8/8 live-feed drill); activating the deployed
+  instance remains an operator dashboard step — move the service to an EU
+  region so Binance egress works, then redeploy and start the orchestrator.
 - GO for real capital remains **NO-GO** until the exit tests in
   `GAP_READINESS.md` are met (G-02 paper soak, G-01 edge proof, operator gates).
