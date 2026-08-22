@@ -1,0 +1,20 @@
+RATE-LIMITER BURST / LOAD-SHEDDING DRILL — real wiring
+started 2026-08-22T15:02:18.272237+00:00
+phase1 burst: budget=3 burst=20 admitted=3 rejected=17 duration=0.01s
+phase2 http burst: codes=[200, 200, 200, 429, 429, 429, 429, 429, 429, 429, 429, 429] 429s=9 200s=3
+-------
+  [PASS] phase1_clear_rejections: admitted=3 (== budget 3), rejected=17 (== burst-budget 17)
+  [PASS] phase1_explicit_reason: first rejection: Rate limit exceeded for broker method 'place_market_order' (max 3/1.0s)
+  [PASS] phase1_inner_untouched_beyond_budget: inner submissions=3 (== budget 3)
+  [PASS] phase1_breaker_not_tripped: state=closed failures=0
+  [PASS] phase1_other_method_admitted: place_limit_order admitted while market bucket exhausted
+  [PASS] phase1_traffic_resumes: place_market_order admitted again after window
+  [PASS] phase2_http_429: 9 requests returned HTTP 429
+  [PASS] phase2_no_crash_healthz: 3 requests still served 200 while over budget
+  [PASS] phase2_retry_after_header: Retry-After=1
+  [PASS] phase2_limit_headers: X-RateLimit-Limit=3 X-RateLimit-Remaining=0
+  [PASS] phase2_resumes_after_window: healthz served 200 after window
+  [PASS] phase3_breaker_ignores_shedding: shed=9 state=closed failures=0
+  [PASS] phase3_real_failure_still_trips: state=open after 5 real failures
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-22_rate_limiter_burst_drill.log

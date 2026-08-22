@@ -18,6 +18,9 @@ real command run — never simulated, never narrated.
 
 | File | Programme step | Status |
 |---|---|---|
+| `2026-08-22_sigterm_startup_drain.log` | SIGTERM-under-load HA flake root-cause + close | **DONE** (VERDICT PASS: late-handler-install window found + fixed + regression test; 44/44 x10 under load) |
+| `2026-08-22_rate_limiter_burst_drill.log` | Rate-limiter burst / load-shedding drill | **DONE** (13/13 PASS: broker-path + HTTP 429s + headers, breaker stays closed, traffic resumes) |
+| `2026-08-22_postgres_backup_restore_drill.log` | Live Postgres backup→restore drill (post-migration) | **DONE** (VERDICT PASS, schema v9 round-trip intact; orphaned volume surfaced) |
 | `2026-08-02_dry_run_paper_rehearsal.log` | Pilot dry-run rehearsal | **DONE** (real Alpaca paper account, workflow READY / exit 0) |
 | `2026-08-02_backup_restore_drill.log` | Backup → restore drill | **DONE** (SHA-256 round-trip equal) |
 | `2026-08-02_rollback_drill.log` | Deployment rollback drill | **DONE** (6→3→6, integrity ok) |

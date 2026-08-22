@@ -1,0 +1,98 @@
+POSTGRES BACKUP->RESTORE DRILL — live production instance, post-migration
+started 2026-08-22T13:46:07.432550+00:00
+target: 127.0.0.1:15432/railway scratch_db=traderos_restore_drill
+live fingerprint: schema_version=9 tables=35
+  _schema_version: 9 rows
+  audit_log: 7 rows
+  backtest_results: 0 rows
+  correlations: 0 rows
+  experiment_results: 0 rows
+  experiments: 0 rows
+  features: 0 rows
+  health_history: 6 rows
+  historical_candles: 0 rows
+  hypotheses: 0 rows
+  journal_entries: 0 rows
+  knowledge_edges: 0 rows
+  knowledge_nodes: 0 rows
+  lessons: 0 rows
+  liquidity_zones: 0 rows
+  market_data: 0 rows
+  market_structure_events: 0 rows
+  metrics_history: 833 rows
+  observations: 0 rows
+  operator_workflow: 1 rows
+  order_events: 0 rows
+  positions: 0 rows
+  research_results: 0 rows
+  research_tests: 0 rows
+  risk_limits: 0 rows
+  run_manifest: 6 rows
+  session_statistics: 0 rows
+  signals: 0 rows
+  strategies: 3 rows
+  strategy_registry: 3 rows
+  trades: 0 rows
+  user_api_keys: 0 rows
+  user_sessions: 0 rows
+  users: 0 rows
+  workflow_transitions: 0 rows
+backup: postgres_20260822_134621596456.dump size=77298 sha256=f6a39ff45918e10cf7eff8cc9c0348fcb5095aff24c15bc22cd42761b38861a2 duration=31.76s
+restore: postgres_20260822_134621596456.dump -> traderos_restore_drill in 77.08s
+  restored _schema_version: 9 rows (live 9) ok
+  restored audit_log: 7 rows (live 7) ok
+  restored backtest_results: 0 rows (live 0) ok
+  restored correlations: 0 rows (live 0) ok
+  restored experiment_results: 0 rows (live 0) ok
+  restored experiments: 0 rows (live 0) ok
+  restored features: 0 rows (live 0) ok
+  restored health_history: 6 rows (live 6) ok
+  restored historical_candles: 0 rows (live 0) ok
+  restored hypotheses: 0 rows (live 0) ok
+  restored journal_entries: 0 rows (live 0) ok
+  restored knowledge_edges: 0 rows (live 0) ok
+  restored knowledge_nodes: 0 rows (live 0) ok
+  restored lessons: 0 rows (live 0) ok
+  restored liquidity_zones: 0 rows (live 0) ok
+  restored market_data: 0 rows (live 0) ok
+  restored market_structure_events: 0 rows (live 0) ok
+  restored metrics_history: 833 rows (live 833) ok
+  restored observations: 0 rows (live 0) ok
+  restored operator_workflow: 1 rows (live 1) ok
+  restored order_events: 0 rows (live 0) ok
+  restored positions: 0 rows (live 0) ok
+  restored research_results: 0 rows (live 0) ok
+  restored research_tests: 0 rows (live 0) ok
+  restored risk_limits: 0 rows (live 0) ok
+  restored run_manifest: 6 rows (live 6) ok
+  restored session_statistics: 0 rows (live 0) ok
+  restored signals: 0 rows (live 0) ok
+  restored strategies: 3 rows (live 3) ok
+  restored strategy_registry: 3 rows (live 3) ok
+  restored trades: 0 rows (live 0) ok
+  restored user_api_keys: 0 rows (live 0) ok
+  restored user_sessions: 0 rows (live 0) ok
+  restored users: 0 rows (live 0) ok
+  restored workflow_transitions: 0 rows (live 0) ok
+restored fingerprint: schema_version=9 tables=35
+railway volume state (Sprint 43 'postgres-volume: detached' check):
+  Volume: postgres-volume-tZfp
+  Attached to: Postgres-gKbz
+  Mount path: /var/lib/postgresql/data
+  Storage used: 120MB/500MB
+  Status: Ready
+  Volume: postgres-volume
+  Attached to: N/A
+  Mount path: /var/lib/postgresql/data
+  Storage used: 84MB/500MB
+  Status: Ready
+scratch DB dropped: traderos_restore_drill
+-------
+  [PASS] live_fingerprint: schema_version=9 (expected 9), 35 tables
+  [PASS] timed_backup: 77298 bytes in 31.76s sha256=f6a39ff45918e10c...
+  [PASS] timed_restore: pg_restore into scratch DB in 77.08s
+  [PASS] restored_matches_backup: version=9 tables=True shrunk=[] grown_after_fingerprint=[]
+  [PASS] volume_state_surfaced: orphaned 'postgres-volume' reported detached (see log)
+  [PASS] scratch_drop: traderos_restore_drill dropped
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-22_postgres_backup_restore_drill.log

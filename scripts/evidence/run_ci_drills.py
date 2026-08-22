@@ -56,6 +56,7 @@ DRILLS: tuple[tuple[str, str], ...] = (
     # (docs/evidence/frozen/) with no external call; --refresh is the only
     # network path and is never invoked by the deterministic CI job.
     ("real_market_walk_forward", "run_real_market_walk_forward.py"),
+    ("rate_limiter_burst", "run_rate_limiter_burst_drill.py"),
     ("risk_rails", "run_risk_rails_drill.py"),
     ("runbook_cli", "run_runbook_cli_drill.py"),
     ("secret_lifecycle", "run_secret_lifecycle_drill.py"),
@@ -74,6 +75,7 @@ DRILLS: tuple[tuple[str, str], ...] = (
 KEY_GATED: tuple[str, ...] = (
     "run_cost_adjusted_backtest.py",
     "run_deployment_drill.py",
+    "run_postgres_backup_restore_drill.py",
     "run_postgres_parity_drill.py",
     "run_real_binance_stream_drill.py",
     "run_real_paper_soak.py",
