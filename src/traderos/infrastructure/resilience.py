@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from typing import Any
 from typing import TypeVar
 
+from traderos.infrastructure.broker_rate_limiter import RateLimitExceededError
+
 T = TypeVar("T")
 
 
@@ -50,6 +52,11 @@ class CircuitBreakerConfig:
     failure_threshold: int = 5
     recovery_timeout: int = 30
     expected_exception: tuple[type[Exception], ...] = (Exception,)
+    # Exceptions that must pass through WITHOUT counting as failures. A
+    # deliberate load-shedding rejection (e.g. the broker rate limiter) is not
+    # an infrastructure failure of the dependency the breaker protects, so it
+    # must not open the circuit and block legitimate traffic afterwards.
+    non_failure_exception: tuple[type[Exception], ...] = ()
 
 
 class CircuitBreaker:
@@ -108,6 +115,10 @@ class CircuitBreaker:
             result = fn()
             self._on_success()
             return result
+        except self._config.non_failure_exception:
+            # Expected/business rejection — the dependency is healthy; do not
+            # count this toward the breaker (load-shedding must not open it).
+            raise
         except self._config.expected_exception:
             self._on_failure()
             raise
@@ -147,6 +158,7 @@ BROKER_CB = CircuitBreaker(
         failure_threshold=5,
         recovery_timeout=30,
         expected_exception=(Exception,),
+        non_failure_exception=(RateLimitExceededError,),
     )
 )
 

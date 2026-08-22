@@ -42,11 +42,19 @@ from traderos.domain.services.data_ingestion_service import DataIngestionService
 from traderos.domain.services.market_brain_service import MarketBrainService
 from traderos.domain.services.notification_service import NotificationService
 from traderos.infrastructure.async_streaming import ParetoWebSocketIngestor
+from traderos.infrastructure.broker_rate_limiter import RateLimitExceededError
 from traderos.infrastructure.market_stream import Tick
 
 # Exceptions a single cycle may surface and that the async daemon must swallow
 # so a transient subsystem failure cannot take down the whole trading loop.
-_CYCLE_EXCEPTIONS = (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError)
+_CYCLE_EXCEPTIONS = (
+    ValueError,
+    RuntimeError,
+    OSError,
+    ServiceError,
+    InfrastructureError,
+    RateLimitExceededError,
+)
 
 
 class AsyncDaemonController:
