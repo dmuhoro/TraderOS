@@ -26,13 +26,21 @@ from traderos.domain.services.market_hours_engine import MarketHoursEngine
 from traderos.domain.services.notification_service import NotificationService
 from traderos.domain.services.reconciliation_service import OrderReconciliationService
 from traderos.domain.services.reconciliation_service import ReconciliationResult
+from traderos.infrastructure.broker_rate_limiter import RateLimitExceededError
 from traderos.infrastructure.fatal_handler import FatalExceptionHandler
 from traderos.infrastructure.ha_failover import FailoverManager
 from traderos.infrastructure.supervision import SupervisionService
 
 # Exceptions a single cycle may surface and that the daemon must swallow so a
 # transient subsystem failure cannot take down the whole trading loop.
-_CYCLE_EXCEPTIONS = (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError)
+_CYCLE_EXCEPTIONS = (
+    ValueError,
+    RuntimeError,
+    OSError,
+    ServiceError,
+    InfrastructureError,
+    RateLimitExceededError,
+)
 
 
 class DaemonController:
@@ -351,29 +359,17 @@ class DaemonController:
         return self.recover_from_crash(local_trades, broker_orders_state)
 
     def run_forever(self, interval_seconds: int = 60, shutdown_timeout: int = 30) -> None:
-        self._recover_from_crash()
-        local_positions, local_orders = self._fetch_local_state()
-        if not self._run_startup_reconciliation(local_positions, local_orders):
-            self._notifications.critical(
-                "Startup Reconciliation Failed",
-                "Broker state reconciliation failed at startup. Trading blocked.",
-            )
-        self.start()
-        if self._fatal_handler is not None:
-            self._fatal_handler.install()
-        try:
-            self._run_forever_loop(interval_seconds, shutdown_timeout)
-        finally:
-            if self._fatal_handler is not None:
-                self._fatal_handler.uninstall()
-
-    def _run_forever_loop(self, interval_seconds: int, shutdown_timeout: int) -> None:
-        shutdown_at: float | None = None
-        shutdown_graceful_done = False
+        # Install the stop-signal handlers FIRST, before any slow startup work
+        # (crash recovery, local-state fetch, broker reconciliation, manifest
+        # recording). The default SIGTERM/SIGINT handler terminates the process
+        # outright, so a stop signal that arrives in the startup window would
+        # otherwise bypass graceful drain entirely — a real, load-dependent
+        # flake window (Sprint 29 "SIGTERM under load, not reproduced").
+        self._shutdown_at: float | None = None
+        self._shutdown_graceful_done = False
 
         def handle_stop(signum: int, frame: object | None = None) -> None:
-            nonlocal shutdown_at, shutdown_graceful_done
-            if shutdown_graceful_done:
+            if self._shutdown_graceful_done:
                 return
             self._notifications.warning(
                 "Shutdown", "Received stop signal, shutting down gracefully"
@@ -382,14 +378,36 @@ class DaemonController:
             # draining the in-flight iteration until shutdown_at, so a cycle
             # that started before the signal is allowed to finish.
             self.stop()
-            shutdown_at = time.monotonic() + shutdown_timeout
-            shutdown_graceful_done = True
+            self._shutdown_at = time.monotonic() + shutdown_timeout
+            self._shutdown_graceful_done = True
 
         signal.signal(signal.SIGINT, handle_stop)
         signal.signal(signal.SIGTERM, handle_stop)
 
-        while self._running or shutdown_graceful_done:
-            if shutdown_at is not None and time.monotonic() > shutdown_at:
+        # If a stop signal already arrived during the window above, do not
+        # begin startup work at all — nothing was started, so there is nothing
+        # to reconcile or drain; the loop exits immediately.
+        if not self._shutdown_graceful_done:
+            self._recover_from_crash()
+            local_positions, local_orders = self._fetch_local_state()
+            if not self._run_startup_reconciliation(local_positions, local_orders):
+                self._notifications.critical(
+                    "Startup Reconciliation Failed",
+                    "Broker state reconciliation failed at startup. Trading blocked.",
+                )
+            self.start()
+            if self._fatal_handler is not None:
+                self._fatal_handler.install()
+        try:
+            self._run_forever_loop(interval_seconds, shutdown_timeout)
+        finally:
+            if self._fatal_handler is not None:
+                self._fatal_handler.uninstall()
+
+    def _run_forever_loop(self, interval_seconds: int, shutdown_timeout: int) -> None:
+
+        while self._running or self._shutdown_graceful_done:
+            if self._shutdown_at is not None and time.monotonic() > self._shutdown_at:
                 self._notifications.critical("Shutdown", "Forced shutdown after timeout")
                 break
             if not self._running:
