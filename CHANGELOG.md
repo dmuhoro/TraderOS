@@ -94,11 +94,13 @@
   env (never echoed/committed); project-scoped `RAILWAY_TOKEN` stored as a
   GitHub Actions secret and the deploy job hardened with explicit
   `--project/--environment` flags for scoped tokens.
-- **Auto-deploy activated:** this sprint's own push exercises the gated
-  pipeline end-to-end — all nine quality gates must pass before production
-  deploys.
+- **Auto-deploy activated and proven:** with the token set, the gated pipeline
+  was exercised end-to-end — the first run caught a real-path defect (Railway
+  binary not on runner PATH) which was fixed in the workflow; the second run
+  went green **including the deploy job**, deploying `main` to production
+  from CI, with post-deploy orchestrator restart + live-feed freshness proof.
 - Evidence: `docs/evidence/2026-08-22_operator_gates_soak_launch.log`
-  (11/11 PASS); sprint record: `docs/sprints/SPRINT_44.md`.
+  (13/13 PASS); sprint record: `docs/sprints/SPRINT_44.md`.
 
 ## [1.2.0] - 2026-08-17
 

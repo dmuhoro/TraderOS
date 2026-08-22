@@ -39,5 +39,15 @@
     POST /v1/orchestrator/start -> {"status":"started","mode":"paper"}
     candles close 77313.98 -> 77323.71, volume 9155.15 -> 9173.45 between reads (live delta)
 
-VERDICT: 11/11 checks PASS — G-02 cloud soak RUNNING (72h window,
-ends ~2026-08-25T07:56Z); gated auto-deploy ACTIVE pending this push's CI.
+[12] First token-authenticated CI deploy: real-path finding caught .................... PASS
+    run on 14e1fcd: all nine gates green, deploy step failed "railway: command not found"
+    (install.sh drops binary in $HOME/.railway/bin, not on runner PATH)
+    -> fixed in workflow (export PATH="$HOME/.railway/bin:$PATH"), commit 502b335
+
+[13] Gated auto-deploy exercised end-to-end ........................................... PASS
+    run on 502b335: CI success INCLUDING deploy job (2m46s) — production deployed
+    from main by CI; post-deploy healthz alive, orchestrator restarted,
+    feed freshness delta close 77314.01 -> 77316.69 (FEED_LIVE_AFTER_CI_DEPLOY)
+
+VERDICT: 13/13 checks PASS — G-02 cloud soak RUNNING (72h window,
+ends ~2026-08-25T07:56Z); gated auto-deploy ACTIVE and PROVEN on the real path.

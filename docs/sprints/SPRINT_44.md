@@ -62,18 +62,25 @@ reconcile clean vs real paper broker:    True
 - Monitoring cadence during the window: check `batch=NNN PASS` rows in the
   service logs; any FAIL row or missing hour is investigated immediately.
 
-## L4 — Auto-deploy activation
+## L4 — Auto-deploy activation (exercised for real)
 
 - Sprint 43's deploy job previously skipped loudly because the token secret
-  did not exist. With `RAILWAY_TOKEN` now set, this sprint's own push
-  exercises the real path: all nine quality gates must pass before
-  `railway up` deploys `main` to production (explicit
-  `--project/--environment` flags added to the workflow because a
-  project-scoped token has no linked local config in CI).
+  did not exist. With `RAILWAY_TOKEN` set, this sprint's pushes exercised the
+  real path end-to-end — twice:
+  1. First run (`14e1fcd`): all nine quality gates passed, then the deploy
+     step failed with `railway: command not found` — the Railway install
+     script drops the binary in `$HOME/.railway/bin`, which is not on the
+     runner's PATH. **Real-path finding fixed in the workflow**
+     (`export PATH="$HOME/.railway/bin:$PATH"`, commit `502b335`).
+  2. Second run: **CI success including the deploy job** — production was
+     actually deployed from `main` by CI (job duration 2m46s).
+- Post-CI-deploy health re-proven on the deployed instance: orchestrator
+  restarted (`{"status":"started","mode":"paper"}`), live-feed freshness
+  delta (close 77314.01 → 77316.69, volume advancing between reads) —
+  `FEED_LIVE_AFTER_CI_DEPLOY`.
 - Main service also picked up its Alpaca vars via an automatic redeploy
-  triggered by the variable set (deployment SUCCESS 07:55Z); orchestrator
-  re-started afterwards and live-feed health re-proven (in-candle close moved
-  77313.98 -> 77323.71 with volume advancing between reads).
+  triggered by the variable set (deployment SUCCESS 07:55Z); feed health was
+  re-proven at that boundary as well.
 
 ---
 
@@ -89,6 +96,9 @@ reconcile clean vs real paper broker:    True
 | Soak window exactly 72 h, self-supervised | PASS |
 | Main service redeployed with keys (SUCCESS) | PASS |
 | Orchestrator restarted; feed live post-redeploy | PASS |
+| CI deploy job: real-path finding found + fixed | PASS (`502b335`) |
+| CI success **including deploy** — production deployed from `main` | PASS |
+| Post-CI-deploy: orchestrator restarted; feed live re-proven | PASS |
 
 ## Honest residuals
 
@@ -97,3 +107,6 @@ reconcile clean vs real paper broker:    True
   reopens it honestly.
 - Paper-key rotation into a managed vault remains a later upgrade (keys sit
   in Railway env vars today).
+- The account-level admin token used for one-off GraphQL ops (service
+  creation) lives only in the local operator config (`~/.railway/config.json`);
+  CI uses only the least-privilege project-scoped deploy token.
