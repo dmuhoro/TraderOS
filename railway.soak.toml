@@ -1,0 +1,21 @@
+# Config-as-code for the dedicated `traderos-soak` Railway service (Sprint 44).
+# This file is bound to the soak service via its `railwayConfigFile` instance
+# setting, so it never collides with the production `railway.toml`.
+#
+# Runs the G-02 unattended real Alpaca paper-broker soak: bounded batches of
+# the verified real-path harness (CycleExecutor -> JournaledBroker ->
+# AlpacaBrokerAdapter -> real paper endpoint) with clean reconcile required
+# per batch. Evidence is written to the mounted volume AND printed to stdout
+# (visible via `railway logs --service traderos-soak`).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python3 scripts/evidence/run_unattended_paper_soak.py --hours 72 --batch-cycles 10 --interval-minutes 60"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[[deploy.volumes]]
+mountPath = "/app/docs/evidence"

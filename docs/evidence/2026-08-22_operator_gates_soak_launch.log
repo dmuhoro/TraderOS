@@ -1,0 +1,43 @@
+# Sprint 44 evidence — operator gates: cloud G-02 soak live, auto-deploy token activated
+# Date: 2026-08-22 | Operator inputs: Alpaca paper keys + Railway project-scoped deploy token
+
+[1] RAILWAY_TOKEN is project-scoped and authenticates against TraderOS production .... PASS
+    railway status --project 9e1a21f7… --environment production
+    -> Workspace: dmuhoro's Projects / Project: TraderOS / Environment: production
+
+[2] GitHub Actions secret RAILWAY_TOKEN set .......................................... PASS
+    gh secret list -> RAILWAY_TOKEN 2026-08-22T07:52:26Z
+
+[3] Deploy job hardened for scoped tokens (explicit --project/--environment) ......... PASS
+    .github/workflows/ci.yml: railway up --project 9e1a21f7… --environment production --service TraderOS --ci
+
+[4] Dedicated soak service created via Railway GraphQL API ........................... PASS
+    serviceCreate -> traderos-soak (fae77f14-22bf-4612-b91e-48ee9b04ee0a)
+
+[5] Soak config-as-code bound (railwayConfigFile=railway.soak.toml) .................. PASS
+    startCommand=run_unattended_paper_soak.py --hours 72 --batch-cycles 10
+    --interval-minutes 60; restartPolicyType=ON_FAILURE (max 3); volume at
+    /app/docs/evidence — verified via serviceInstanceUpdate response=true
+
+[6] ALPACA paper keys present on traderos-soak AND TraderOS .......................... PASS
+    railway variables --json key-presence check on both services (values never printed)
+
+[7] Soak service deployed (railway up) ............................................... PASS
+    "Deploy complete"
+
+[8] Soak runner started with exact window ............................................ PASS
+    started 2026-08-22T07:56:44Z  window=259200s (=72h) batch_cycles=10 interval=60m
+
+[9] Soak batch 001 PASS through real production chain ................................ PASS
+    WP6 latency (submit->ack ms): n=10 min=73.5 median=75.0 max=75.6
+    VERDICT: PASS / closed out at baseline=True / reconcile clean=True
+
+[10] Main service auto-redeployed after variable set (keys live in-process) .......... PASS
+    latestDeployment SUCCESS @ 2026-08-22T07:55:33Z (traderos-production.up.railway.app)
+
+[11] Orchestrator restarted post-redeploy; feed live re-proven ........................ PASS
+    POST /v1/orchestrator/start -> {"status":"started","mode":"paper"}
+    candles close 77313.98 -> 77323.71, volume 9155.15 -> 9173.45 between reads (live delta)
+
+VERDICT: 11/11 checks PASS — G-02 cloud soak RUNNING (72h window,
+ends ~2026-08-25T07:56Z); gated auto-deploy ACTIVE pending this push's CI.
