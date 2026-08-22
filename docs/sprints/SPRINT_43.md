@@ -87,8 +87,68 @@ Honest ledger of what code cannot do by itself:
 | --- | --- | --- |
 | Alpaca paper keys (G-02 soak prerequisite) | Operator | pending — account-bound secrets; set via `railway variables --set` once issued |
 | RAILWAY_TOKEN GitHub secret | Operator | pending — enables the L1b deploy job |
-| G-02 24–72h paper soak | Autonomous | ready to start once L4 lands |
+| G-02 24–72h paper soak | Autonomous | unblocked as of L3 — feed live, harness ready; starts the moment keys land |
 | G-01 real-edge proof | Autonomous | sequenced after G-02 |
 
 ---
 *Sprint 43 continues below as slices complete.*
+
+---
+
+## Completion record (2026-08-22)
+
+### L2 — Region migration: DONE, co-located in `ams`
+
+The GraphQL writes were accepted but only **materialized on the next full
+deploy** of each service. Sequence that actually worked:
+
+1. `serviceInstanceUpdate` (multiRegionConfig `{"ams": {"numReplicas": 1}}`)
+   on both services + restart policy on TraderOS — accepted, persisted.
+2. `railway redeploy` of TraderOS **failed** ("traderos-api: command not
+   found"): redeploy reuses the stale previous image artifact which predates
+   the console-script entrypoint. Documented, then superseded by a full-code
+   deploy.
+3. `railway up` (full upload + build) → deployment landed with
+   `region: ams`, `/v1/healthz` alive.
+4. Postgres redeployed 07:04:20Z from its volume snapshot
+   ("automatic recovery in progress" on boot), Online.
+5. **Co-location proven empirically:** `DATABASE_URL` uses region-local DNS
+   (`postgres-gkbz.railway.internal`) and the PG-backed route returns clean
+   404s after the app bounce — an internal round-trip is only possible
+   within one region.
+
+Evidence: `docs/evidence/2026-08-22_region_migration_feed_activation.log`
+(11 checks PASS).
+
+### L3 — Live-feed activation: DONE, live ticks proven
+
+- Orchestrator started: `{"status":"started","mode":"paper"}`.
+- REST backfill through the public read path: real BTCUSDT OHLCV for three
+  daily candles (today open 78338.03 / high 78828.15 / low 76500.0).
+- **Live WS proof by freshness delta:** same in-progress daily candle read
+  twice ~70 s apart — close moved 77378.00 → 77293.34 and volume grew
+  8755.79 → 8766.13. Price advanced inside one candle window; that cannot be
+  stale backfill.
+
+### Verification
+
+| Gate | Result |
+| --- | --- |
+| `railway status` | TraderOS Online, `region: ams`; Postgres-gKbz Online |
+| Restart policies (both services) | ON_FAILURE / 10 retries (read back via API) |
+| `/v1/healthz` | alive after migration + bounce |
+| PG-backed route | clean 404s over `.internal` DNS (co-location) |
+| Candles endpoint | HTTP 200, real OHLCV, tick-freshness delta proven |
+
+Commits: charter `e890d7b`, restart-policy codification `2fc0ae7`, gated
+deploy job `852b2a0`, evidence `d0eef45`.
+
+### Honest residual notes
+
+1. The failed `railway redeploy` left one FAILED deployment row in Railway's
+   history; harmless (superseded), recorded here for audit honesty.
+2. The CLI still prints `postgres-volume: detached` in its volume listing
+   even though the volume is attached to the running Postgres service
+   (snapshot restore succeeded, data survived). Watched item, cosmetic.
+3. G-02 soak start remains gated on Alpaca paper keys (operator account) and
+   RAILWAY_TOKEN remains gated on GitHub secret provisioning.
