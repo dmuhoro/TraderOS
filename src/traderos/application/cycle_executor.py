@@ -38,10 +38,18 @@ from traderos.domain.services.risk_service import RiskService
 from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import MarketState
 from traderos.domain.services.strategy_framework import registry as strategy_registry
+from traderos.infrastructure.broker_rate_limiter import RateLimitExceededError
 
 # Exceptions that a single subsystem may surface and that the executor must
 # swallow to keep one market's failure from cascading into the cycle loop.
-_CYCLE_EXCEPTIONS = (ValueError, RuntimeError, OSError, ServiceError, InfrastructureError)
+_CYCLE_EXCEPTIONS = (
+    ValueError,
+    RuntimeError,
+    OSError,
+    ServiceError,
+    InfrastructureError,
+    RateLimitExceededError,
+)
 
 
 class CycleExecutor:

@@ -238,8 +238,16 @@ def build_app() -> Any:
             return await call_next(request)
         client_ip = request.client.host if request.client else "unknown"
         if not _rate_limiter.check(client_ip):
-            return _error_response(429, "Rate limit exceeded")
+            # 429 must carry the standard headers so callers can back off:
+            # Retry-After (seconds until the window resets) plus the current
+            # budget so a caller can see how much headroom it has left.
+            resp = _error_response(429, "Rate limit exceeded")
+            resp.headers["Retry-After"] = str(int(_rate_limiter.window_seconds))
+            resp.headers["X-RateLimit-Limit"] = str(_rate_limiter.max_requests)
+            resp.headers["X-RateLimit-Remaining"] = "0"
+            return resp
         response = await call_next(request)
+        response.headers["X-RateLimit-Limit"] = str(_rate_limiter.max_requests)
         response.headers["X-RateLimit-Remaining"] = str(_rate_limiter.remaining(client_ip))
         return response
 
