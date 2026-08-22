@@ -3,7 +3,7 @@ FROM python:3.14-slim AS builder
 WORKDIR /app
 COPY pyproject.toml .
 COPY src/ src/
-RUN pip install --user --no-cache-dir -e ".[api,alpaca,postgres,monitoring]"
+RUN pip install --user --no-cache-dir -e ".[api,alpaca,postgres,monitoring,streaming]"
 
 FROM python:3.14-slim AS runtime
 

@@ -33,8 +33,12 @@ alpaca = [
 ]
 postgres = ["psycopg2-binary==2.9.12"]
 monitoring = ["prometheus-client==0.21.1"]
+# A2 live market-data stream: the async Binance transport lazily imports
+# `websockets`; without it the factory silently runs feedless (best-effort
+# import), so production images MUST install this extra when streaming.
+streaming = ["websockets==17.0.1"]
 dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.0", "pyright==1.1.411", "black==26.5.1", "isort==8.0.1"]
-all = ["traderos[api]", "traderos[alpaca]", "traderos[postgres]", "traderos[monitoring]"]
+all = ["traderos[api]", "traderos[alpaca]", "traderos[postgres]", "traderos[monitoring]", "traderos[streaming]"]
 
 [tool.black]
 line-length = 100

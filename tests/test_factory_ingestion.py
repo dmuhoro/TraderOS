@@ -158,6 +158,54 @@ def test_build_async_daemon_fails_closed_when_streaming_constructor_fails(
         asyncio.run(daemon.run_forever())
 
 
+def test_streaming_wire_failure_is_logged_not_silent(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """No silent drops: an explicitly-enabled stream that cannot be wired (e.g.
+    the 'websockets' extra is missing from the image) must log a loud warning
+    so the operator never mistakes a feedless instance for a streaming one."""
+    import logging
+
+    import traderos.application.factory as factory_module
+    from traderos.infrastructure import market_stream
+
+    class _BoomTransport:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise ModuleNotFoundError("No module named 'websockets'")
+
+    monkeypatch.setattr(market_stream, "BinanceStreamTransport", _BoomTransport)
+    with caplog.at_level(logging.WARNING, logger=factory_module._LOGGER.name):
+        orch = build_orchestrator(config=_streaming_config())
+    assert orch.streaming_feed is None
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(
+        "WITHOUT a live market-data stream" in r.getMessage() for r in warnings
+    ), f"expected a loud no-silent-drop warning, got: {[r.getMessage() for r in warnings]}"
+
+
+def test_async_ingestor_wire_failure_is_logged_not_silent(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Same no-silent-drop guarantee for the async daemon ingestor seam."""
+    import logging
+
+    from traderos.infrastructure import async_streaming
+
+    class _BoomTransport:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise ModuleNotFoundError("No module named 'websockets'")
+
+    monkeypatch.setattr(async_streaming, "AsyncBinanceStreamTransport", _BoomTransport)
+    with caplog.at_level(logging.WARNING):
+        daemon = build_async_daemon(config=_streaming_config())
+    assert daemon._ingestor is None
+    assert any(
+        "async ingestor could not be wired" in r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+    )
+
+
 def test_build_async_daemon_reuses_the_real_cycle_executor() -> None:
     """The async daemon must drive a REAL CycleExecutor — the same broker chain
     and risk gate the sync loop uses, never a mock."""
