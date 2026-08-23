@@ -1,5 +1,50 @@
 # Operations Runbook — TraderOS
 
+## Orphaned Postgres Volume — cleanup (surfaced Sprint 46)
+
+The Amsterdam region migration left TWO volumes: the active
+`postgres-volume-tZfp` (attached to Postgres-gKbz, holds all live data) and an
+orphaned `postgres-volume` (detached, ~84 MB, mount path
+`/var/lib/postgresql/data`). The orphan is unused but is a hazard: a future
+operator action could accidentally mount the wrong volume. **Delete it once
+the active volume is confirmed healthy.**
+
+### Verify the active volume holds the data (do FIRST)
+
+```bash
+# 1. Confirm the active volume is attached and the orphan is detached.
+RAILWAY_TOKEN=<project token> railway volume list \
+    --project 9e1a21f7-011f-471b-896f-5cc624ba77d6 --environment production
+# Expect: postgres-volume-tZfp "Attached to: Postgres-gKbz", postgres-volume "Attached to: N/A"
+
+# 2. Prove the live DB round-trips (the Sprint 46 drill) — schema v9, 35 tables.
+DATABASE_URL=postgresql://postgres:***@127.0.0.1:15432/railway \
+    PYTHONPATH=src python3 scripts/evidence/run_postgres_backup_restore_drill.py
+# VERDICT: PASS required before any deletion.
+
+# 3. Confirm a fresh backup of the active DB exists.
+DATABASE_URL=postgresql://postgres:***@127.0.0.1:15432/railway \
+    traderos db backup
+ls -la backups/postgres_*.dump
+```
+
+### Delete the orphan (ONLY after the above)
+
+```bash
+railway volume delete postgres-volume \
+    --project 9e1a21f7-011f-471b-896f-5cc624ba77d6 --environment production
+# Railway prompts for confirmation. The volume name is the one reported as
+# "Attached to: N/A" — NEVER the active postgres-volume-tZfp.
+```
+
+### Verify after deletion
+
+```bash
+railway volume list --project 9e1a21f7-011f-471b-896f-5cc624ba77d6 --environment production
+# Expect: only postgres-volume-tZfp listed, "Attached to: Postgres-gKbz", Status: Ready.
+# The app + soak continue green; Postgres data intact (healthz + a candle read).
+```
+
 ## Backup & Restore
 
 ### Automated Backup

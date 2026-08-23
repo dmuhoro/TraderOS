@@ -93,16 +93,47 @@ Every artifact proposed for live must be **signed and verified**:
 
 ## 6. Pilot terms (the only permitted real-capital footprint)
 
-- **Bounded:** a single symbol set on the allowlist; per-order notional cap;
-  gross exposure cap; 2%-of-equity daily-loss cap.
-- **Supervised:** human operator actively reviewing readiness + dry-run before
-  any live order; first hour monitored at 5-minute cadence.
-- **Purpose:** data-validation only — verifying broker connectivity, latency,
-  and execution fidelity. **No PnL claim** unless G-01 shows a cost-adjusted,
-  out-of-sample edge (none has been shown to date; verdict remains
-  DATA-VALIDATION ONLY).
-- **Hard stop defined before launch:** a documented dollar-loss stop and the
-  kill-zero policy, both immutable for the pilot window.
+**Pilot posture: DATA-VALIDATION ONLY.** The G-01 verdict is fixed before
+launch: after full costs (fee 10 bps + slippage 5 bps + latency 10 bps) on the
+withheld 35% out-of-sample window, **no strategy shows positive expectancy**.
+The pilot therefore makes **no PnL claim** and is not an edge-seeking launch;
+it exists solely to validate, against a real broker with real capital, that
+the order path, latency, fills, reconciliation, and kill rails behave as the
+drills say they do.
+
+- **Bounded footprint:**
+  - **Symbol set (allowlist):** exactly the pilot markets that the deployed
+    feed ingests and that are named in the LIVE risk config — `BTCUSDT` and
+    `ETHUSDT` (the crypto pair streamed live on the EU instance). Forex pairs
+    (`EURUSD`, `GBPUSD`) are **excluded**: they are not fed live and would trip
+    the data-gap breaker. The allowlist may be **narrowed** at arming, never
+    widened.
+  - **Per-order notional cap:** `max_position_size` = 0.25 × equity, on a
+    pilot account sized so a single order is a small fraction of the pilot
+    envelope.
+  - **Gross exposure cap:** `max_gross_exposure` = 1.0 × equity (never net
+    long/short beyond the kill-zero default).
+  - **Daily-loss cap:** 2% of equity realized, fail-closed at the submission
+    seam.
+  - **Max positions:** ≤ 10 concurrent (`max_positions_total`).
+- **Hard stop defined before launch (immutable for the pilot window):**
+  - A **dollar-loss hard stop** recorded at arming (operator-set, in the
+    deployment notes, not in code) — when realized pilot loss reaches it, the
+    operator engages the kill switch and the pilot ends.
+  - **Kill-zero:** any red-line (§1) flattens to zero net open exposure and
+    holds until a human operator re-arms after documented reconciliation. No
+    auto-re-arm.
+  - **Time-bounded window:** the pilot runs for a defined calendar window
+    (operator-set, e.g. 1 week); it does not run indefinitely.
+- **Supervised:** a human operator reviews `pilot readiness --mode live` and a
+  fresh dry-run immediately before the first live order; the first hour is
+  monitored at 5-minute cadence; on-call is live (§ ONCALL_LIVE_DELIVERY).
+- **No edge claim:** absent a future G-01 edge proof, the pilot's sole output
+  is the validation evidence (fills, latency, reconciliation, kill rails) —
+  recorded in `docs/evidence/` like every other drill.
+- **Escalation to an edge-seeking pilot** requires a NEW G-01 edge proof on
+  out-of-sample real data AND a written GO review amending this §6; it is not
+  implied by a successful data-validation pilot.
 
 ## 7. Auditability
 
