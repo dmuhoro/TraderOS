@@ -304,6 +304,38 @@ class TestBrokerStateReconciliationService:
         assert result.errors[0].startswith("Failed to fetch broker state")
         assert not svc.can_accept_orders
 
+    def test_reconciliation_fails_closed_on_service_error(self) -> None:
+        """The Alpaca adapter now converts a transient broker 503/429 into a
+        ServiceError (batch-005 soak finding). The reconcile boundary must catch
+        it and fail closed — never crash the cycle — exactly like RuntimeError."""
+        from traderos.domain.exceptions import ServiceError
+
+        class _ServiceErrorBroker:
+            def get_positions(self):
+                raise ServiceError("Failed to fetch positions: 503 service temporary unavailable")
+
+            def get_open_orders(self):
+                return []
+
+            def get_account_balance(self):
+                return 0.0
+
+            def place_market_order(self, *a, **kw):
+                return None
+
+            def place_limit_order(self, *a, **kw):
+                return None
+
+            def cancel_order(self, order_id):
+                return None
+
+        svc = BrokerStateReconciliationService(broker=_ServiceErrorBroker())
+        result = svc.reconcile()
+        assert result.failed
+        assert result.errors[0].startswith("Failed to fetch broker state")
+        assert any(m.mismatch_type == MismatchType.BROKER_FAILURE for m in result.mismatches)
+        assert not svc.can_accept_orders
+
     def test_reconcile_with_all_10_mismatches_integration(self) -> None:
         class _MultiIssueBroker:
             def get_positions(self):
