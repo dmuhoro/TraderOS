@@ -292,6 +292,8 @@ Postgres — not lost on restart.
 | `WEBHOOK_URL` / `SLACK_WEBHOOK_URL` / `PAGERDUTY_ROUTING_KEY` | — | On-call transport wiring |
 | `RISK_*` | — | Override risk rails; LIVE refuses to arm without them |
 | `CORS_ORIGINS` | — | Allowed browser origins for the dashboard API |
+| `DB_BACKUP_INTERVAL_SECONDS` | `3600` | Hourly automatic DB backups (arm on the deployed service; leave unset on local/CI) |
+| `DB_BACKUP_DIR` / `DB_MAX_BACKUPS` | `backups` / `30` | Backup destination and retention for the automatic scheduler |
 
 Secrets live in env or the secret manager — **never in `settings.yaml`, never
 committed**. Paper keys exist only in-process for drills and should be rotated.
