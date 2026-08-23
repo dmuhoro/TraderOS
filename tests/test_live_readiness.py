@@ -139,3 +139,47 @@ class TestLiveReadiness:
     def test_operator_session_not_configured_defaults_ok(self) -> None:
         verdict = _service(operator_session=None).check()
         assert verdict.checks["operator_session"] is True
+
+    def test_allowlist_required_but_empty_fails(self) -> None:
+        verdict = _service(allowed_markets=frozenset(), require_allowlist=True).check()
+        assert not verdict.ready
+        assert verdict.checks["allowlist_configured"] is False
+        assert any("allowed_markets is empty" in r for r in verdict.reasons)
+
+    def test_allowlist_populated_passes_when_required(self) -> None:
+        verdict = _service(
+            allowed_markets=frozenset({uuid.uuid4()}), require_allowlist=True
+        ).check()
+        assert verdict.checks["allowlist_configured"] is True
+
+    def test_allowlist_not_required_defaults_ok(self) -> None:
+        verdict = _service(allowed_markets=frozenset(), require_allowlist=False).check()
+        assert verdict.checks["allowlist_configured"] is True
+
+    def test_reconcile_not_clean_blocks_readiness(self) -> None:
+        rec = Mock()
+        rec.can_accept_orders = False
+        verdict = _service(broker_reconciliation=rec).check()
+        assert not verdict.ready
+        assert verdict.checks["broker_reconcile_clean"] is False
+        assert any("not clean" in r for r in verdict.reasons)
+
+    def test_reconcile_clean_passes(self) -> None:
+        rec = Mock()
+        rec.can_accept_orders = True
+        verdict = _service(broker_reconciliation=rec).check()
+        assert verdict.checks["broker_reconcile_clean"] is True
+
+    def test_reconcile_query_failure_fails_closed(self) -> None:
+        class _FlakyReconcile:
+            @property
+            def can_accept_orders(self):
+                raise RuntimeError("reconcile db down")
+
+        verdict = _service(broker_reconciliation=_FlakyReconcile()).check()
+        assert not verdict.ready
+        assert verdict.checks["broker_reconcile_clean"] is False
+
+    def test_reconcile_not_configured_defaults_ok(self) -> None:
+        verdict = _service(broker_reconciliation=None).check()
+        assert verdict.checks["broker_reconcile_clean"] is True
