@@ -147,8 +147,8 @@ class LiveReadinessService:
                         "broker-state reconciliation not clean; order acceptance blocked"
                     )
             except (
-                Exception
-            ) as exc:  # noqa: BLE001 — a reconcile query failure is a readiness signal
+                Exception  # noqa: BLE001 — a reconcile query failure is a readiness signal
+            ) as exc:
                 checks["broker_reconcile_clean"] = False
                 reasons.append(f"reconciliation state unavailable: {exc}")
 
