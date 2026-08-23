@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
+from traderos.domain.exceptions import InfrastructureError
+from traderos.domain.exceptions import ServiceError
 from traderos.infrastructure import alpaca_broker
 from traderos.infrastructure.alpaca_broker import AlpacaBrokerAdapter
 
@@ -38,6 +40,17 @@ def _build_mock_alpaca():
     enums = ModuleType("alpaca.trading.enums")
     requests = ModuleType("alpaca.trading.requests")
     client = ModuleType("alpaca.trading.client")
+    common = ModuleType("alpaca.common")
+    exceptions = ModuleType("alpaca.common.exceptions")
+
+    class FakeAPIError(Exception):
+        def __init__(self, message="broker error", status_code=503):
+            super().__init__(message)
+            self.status_code = status_code
+
+    exceptions.APIError = FakeAPIError
+    common.exceptions = exceptions
+    alpaca.common = common
 
     class FakeOrderSide:
         BUY = "buy"
@@ -94,12 +107,12 @@ def _build_mock_alpaca():
     trading.client = client
     alpaca.trading = trading
 
-    return alpaca, trading, client
+    return alpaca, trading, client, common, exceptions
 
 
 @pytest.fixture(autouse=True)
 def _patch_alpaca():
-    alpaca, trading, client_mod = _build_mock_alpaca()
+    alpaca, trading, client_mod, common, exceptions = _build_mock_alpaca()
     real_client = client_mod.TradingClient.return_value
     real_client.get_account.return_value = FakeAccount()
 
@@ -107,6 +120,8 @@ def _patch_alpaca():
         "sys.modules",
         {
             "alpaca": alpaca,
+            "alpaca.common": common,
+            "alpaca.common.exceptions": exceptions,
             "alpaca.trading": trading,
             "alpaca.trading.enums": trading.enums,
             "alpaca.trading.requests": trading.requests,
@@ -291,6 +306,17 @@ class TestAlpacaBrokerAdapter:
             assert alpaca_broker._OrderSide is None
             assert alpaca_broker._OrderType is None
             assert alpaca_broker._TimeInForce is None
+            # Without alpaca, nothing is ever classified as a transient API
+            # error and the broker-error tuple omits APIError entirely.
+            assert alpaca_broker._is_transient_api_error(RuntimeError("x")) is False
+            err_types = alpaca_broker._broker_error_types()
+            assert err_types == (
+                ValueError,
+                RuntimeError,
+                OSError,
+                InfrastructureError,
+                ServiceError,
+            )
         importlib.reload(alpaca_broker)
 
     def test_side_raises_when_enum_missing(self, _patch_alpaca):
@@ -424,3 +450,76 @@ class TestAlpacaBrokerAdapter:
         assert orders[0]["side"] == "buy"
         called = _patch_alpaca.get_orders.call_args[0][0]
         assert called.status == "open"
+
+
+class TestAlpacaAPIErrorHandling:
+    """Alpaca's ``APIError`` is a bare ``Exception`` subclass: it must never
+    escape the adapter (crashes the reconcile/cycle path — the batch-005 soak
+    finding). Transient status codes (429/5xx) retry; permanent 4xx rejections
+    become a clean rejected ``FillResult`` on submit paths and a ``ServiceError``
+    on read paths."""
+
+    def _make(self, client):
+        return AlpacaBrokerAdapter(api_key="test", secret_key="test", paper=True)
+
+    def test_transient_503_on_submit_retries_then_rejects_cleanly(self, _patch_alpaca):
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.submit_order.side_effect = [
+            api_error_cls("service temporary unavailable", status_code=503),
+            api_error_cls("service temporary unavailable", status_code=503),
+            FakeOrder(id="ord", filled_qty="1.0", qty="1.0", filled_avg_price="50000.0"),
+        ]
+        adapter = self._make(_patch_alpaca)
+        result = adapter.place_market_order(uuid.uuid4(), "buy", 1.0)
+        assert result.filled is True
+        assert _patch_alpaca.submit_order.call_count == 3
+
+    def test_transient_503_exhausts_then_clean_reject(self, _patch_alpaca):
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.submit_order.side_effect = api_error_cls(
+            "service temporary unavailable", status_code=503
+        )
+        adapter = self._make(_patch_alpaca)
+        result = adapter.place_market_order(uuid.uuid4(), "buy", 1.0)
+        assert result.filled is False
+        assert result.status == "rejected"
+        assert "failed after" in result.order_id  # the reason rides in order_id
+
+    def test_permanent_400_on_submit_is_clean_reject_not_crash(self, _patch_alpaca):
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.submit_order.side_effect = api_error_cls(
+            "order rejected by broker", status_code=400
+        )
+        adapter = self._make(_patch_alpaca)
+        result = adapter.place_market_order(uuid.uuid4(), "buy", 1.0)
+        assert result.filled is False
+        assert result.status == "rejected"
+        # Permanent 4xx must NOT burn retries behind a backoff.
+        assert _patch_alpaca.submit_order.call_count == 1
+
+    def test_transient_503_on_get_open_orders_raises_service_error(self, _patch_alpaca):
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.get_orders.side_effect = api_error_cls(
+            "service temporary unavailable", status_code=503
+        )
+        adapter = self._make(_patch_alpaca)
+        with pytest.raises(ServiceError, match="Failed to fetch open orders"):
+            adapter.get_open_orders()
+
+    def test_transient_503_on_get_positions_raises_service_error(self, _patch_alpaca):
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.get_all_positions.side_effect = api_error_cls(
+            "service temporary unavailable", status_code=503
+        )
+        adapter = self._make(_patch_alpaca)
+        with pytest.raises(ServiceError, match="Failed to fetch positions"):
+            adapter.get_positions()
+
+    def test_transient_503_on_get_account_raises_service_error(self, _patch_alpaca):
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.get_account.side_effect = api_error_cls(
+            "service temporary unavailable", status_code=503
+        )
+        adapter = self._make(_patch_alpaca)
+        with pytest.raises(ServiceError, match="Failed to fetch account balance"):
+            adapter.get_account_balance()
