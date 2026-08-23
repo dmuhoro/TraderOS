@@ -1,0 +1,16 @@
+TRANSIENT-BROKER-ERROR (503/429) RECONCILE-SURVIVAL DRILL — real wiring
+started 2026-08-23T06:27:37.398661+00:00
+check1: 503 storm on get_orders -> reconcile failed=True can_accept_orders=False broker_failure_mismatch=True read_attempts=1 elapsed=0.00s
+  reconcile error[0]: Failed to fetch broker state: Failed to fetch open orders: service temporary unavailable
+check2: 429 storm on submit -> call_count=3 status=filled
+check3: sustained 429 on submit -> call_count=3 status=rejected reason=Operation failed after 3 attempts
+check4: permanent 400 on submit -> call_count=1 status=rejected
+check5: reconcile after storm lifted -> first_failed=True second_failed=False can_accept_orders=True
+-------
+  [PASS] 503_storm_fails_closed_not_crash: failed=True blocked=True broker_failure=True attempts=1 (no escape; next cycle recovers — check 5)
+  [PASS] 429_storm_retries_then_succeeds: submit_calls=3 (2 retries then success)
+  [PASS] sustained_429_clean_reject: submit_calls=3 (retries exhausted -> rejected)
+  [PASS] permanent_400_fail_fast_clean_reject: submit_calls=1 (no retry) status=rejected
+  [PASS] reconcile_recovers_after_storm: first_failed=True recovered=True orders_accepted=True
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-23_transient_broker_error_drill.log

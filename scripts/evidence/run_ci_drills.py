@@ -61,6 +61,7 @@ DRILLS: tuple[tuple[str, str], ...] = (
     ("runbook_cli", "run_runbook_cli_drill.py"),
     ("secret_lifecycle", "run_secret_lifecycle_drill.py"),
     ("trigger_alerting", "run_trigger_alerting_drill.py"),
+    ("transient_broker_error", "run_transient_broker_error_drill.py"),
     ("walk_forward_evidence", "run_walk_forward_evidence.py"),
 )
 
@@ -80,6 +81,7 @@ KEY_GATED: tuple[str, ...] = (
     "run_real_binance_stream_drill.py",
     "run_real_paper_soak.py",
     "run_unattended_paper_soak.py",
+    "run_vault_rotation_drill.py",
     "run_vault_secret_manager_drill.py",
 )
 
