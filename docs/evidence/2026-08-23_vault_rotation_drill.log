@@ -1,0 +1,15 @@
+SECRET ROTATION CADENCE DRILL — real HashiCorp Vault (G-04)
+started 2026-08-23T06:30:24.603187+00:00 addr=http://127.0.0.1:8200
+check1: rotator resolved ALPACA_API_KEY from Vault -> matched
+check2: rotate after Vault write -> ok=True new_value_matched=True version=2
+check3: audit -> accesses=2 rotations=1 redaction_violations=0
+check4: rotate_all -> count=1
+check5: missing key -> resolved=False
+-------
+  [PASS] read_from_vault_not_env: resolved=True (expected ALPACA_V3K_VAL)
+  [PASS] rotation_picks_up_changed_secret: new=True version=2
+  [PASS] value_redacted_audit: accesses=2 rotations=1 redaction_violations=0
+  [PASS] rotate_all_counts: rotated 1 tracked secret(s)
+  [PASS] missing_key_fail_closed: absent key resolves to None (data outcome, not an outage)
+VERDICT: PASS
+Evidence: /home/daniel-muhoro/workspace/projects/TraderOS/docs/evidence/2026-08-23_vault_rotation_drill.log
