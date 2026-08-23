@@ -61,6 +61,9 @@ class LiveReadinessService:
         kill_switch: KillSwitch | None = None,
         operator_session: OperatorSessionService | None = None,
         live_execution_enabled: bool = False,
+        allowed_markets: frozenset | None = None,
+        require_allowlist: bool = False,
+        broker_reconciliation: Any | None = None,
     ) -> None:
         self._broker = broker
         self._data_ingestion = data_ingestion
@@ -68,6 +71,9 @@ class LiveReadinessService:
         self._kill_switch = kill_switch
         self._operator_session = operator_session
         self._live_execution_enabled = live_execution_enabled
+        self._allowed_markets = allowed_markets
+        self._require_allowlist = require_allowlist
+        self._broker_reconciliation = broker_reconciliation
 
     def check(self) -> LiveReadinessVerdict:
         checks: dict[str, bool] = {}
@@ -115,6 +121,36 @@ class LiveReadinessService:
             checks["operator_session"] = self._operator_session.workflow.session_id is not None
             if not checks["operator_session"]:
                 reasons.append("no operator session started (begin the workflow at 'start')")
+
+        # G-03: a LIVE pilot must have a non-empty allowlist that names the
+        # markets the loop may touch. Without it, order acceptance is refused
+        # at the submission seam — so readiness must surface it, not pass a
+        # loop that can never trade.
+        if self._require_allowlist:
+            checks["allowlist_configured"] = bool(self._allowed_markets)
+            if not checks["allowlist_configured"]:
+                reasons.append("require_allowlist is set but allowed_markets is empty")
+        else:
+            checks["allowlist_configured"] = True
+
+        # G-02: order acceptance is blocked until broker-state reconciliation
+        # completes cleanly. A readiness verdict must reflect that gate so an
+        # operator does not start a live pilot against an unreconciled broker.
+        if self._broker_reconciliation is None:
+            checks["broker_reconcile_clean"] = True
+        else:
+            try:
+                can_accept = self._broker_reconciliation.can_accept_orders
+                checks["broker_reconcile_clean"] = bool(can_accept)
+                if not checks["broker_reconcile_clean"]:
+                    reasons.append(
+                        "broker-state reconciliation not clean; order acceptance blocked"
+                    )
+            except (
+                Exception
+            ) as exc:  # noqa: BLE001 — a reconcile query failure is a readiness signal
+                checks["broker_reconcile_clean"] = False
+                reasons.append(f"reconciliation state unavailable: {exc}")
 
         ready = len(reasons) == 0
         return LiveReadinessVerdict(
