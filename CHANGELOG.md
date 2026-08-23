@@ -199,6 +199,59 @@
 - Verification: full suite green at 100% coverage, ruff/black/isort/pyright
   clean; sprint record: `docs/sprints/SPRINT_47.md`.
 
+### Sprint 48 (2026-08-23) — launch-readiness: automatic backups, GO-gated readiness, release candidate
+
+- **Automatic backup scheduler:** `BackupScheduler` runs the real
+  `create_backup()` hourly (env `DB_BACKUP_INTERVAL_SECONDS`), fail-closed —
+  every failure recorded, delivered to CRITICAL on-call, counted in metrics,
+  never silent. Wired into the orchestrator start/stop/run_forever, surfaced
+  in `/v1/orchestrator/status` and `traderos db backup-scheduler`. Local/CI
+  stays unarmed by default.
+- **`pilot readiness` now gates the GO conditions:** `allowlist_configured`
+  (G-03 — non-empty allowlist when required) and `broker_reconcile_clean`
+  (G-02 — order acceptance blocked until reconcile is clean) are part of the
+  verdict, so `pilot readiness --mode live` is a real pre-launch gate.
+- **v1.3.0 launch-candidate release:** version pinned to 1.3.0 across
+  `pyproject.toml`/`configs/settings.yaml`/`configs/settings.production.example.yaml`;
+  release notes `docs/releases/RELEASE_1.3.0_NOTES.md`; signed release manifest
+  in `docs/evidence/releases/` (paper key committed; operator re-signs with
+  `RELEASE_SIGNING_KEY` for GO).
+- Verification: **2337 passed / 1 skipped / 100.00% coverage**, 20/20 CI
+  drills, ruff/black/isort/pyright clean; sprint record:
+  `docs/sprints/SPRINT_48.md`.
+
+## [1.3.0] - 2026-08-23
+
+Launch-candidate release: every software gap on the road to the controlled
+pilot is closed; the remaining GO conditions are operator-run (documented in
+`GAP_READINESS.md` and the runbooks).
+
+### Highlights
+- **Real market data end-to-end (Sprints 43–45):** EU/Amsterdam deployment,
+  live Binance REST + WebSocket feed, WS-resync reconciliation proven on the
+  wire, G-02 cloud soak running on a dedicated Railway service (EU West).
+- **Order-path hardening (Sprints 44–47):** gated auto-deploy from CI;
+  rate-limiter load-shedding is explicit (never a crash, never a circuit
+  trip); transient broker 503/429 now fail closed instead of crashing
+  (batch-005 soak finding); SIGTERM-under-load startup drain root-caused and
+  fixed.
+- **Backup/restore made real (Sprints 46–48):** live Postgres backup→restore
+  proven post-migration; production image ships `postgresql-client-18`; new
+  **automatic backup scheduler** (hourly by default, fail-closed, surfaced in
+  orchestrator status).
+- **Pilot charter (Sprint 47):** `LIVE_RUN_POLICY.md` §6 is a definitive
+  DATA-VALIDATION-ONLY charter (fixed symbol set, hard stops, supervision);
+  production config allowlist names the fed markets.
+- **Operational gates prepared (Sprint 47–48):** rotation cadence proven
+  against a real Vault; on-call transport proven on the real wire; operator
+  runbooks for managed Vault/KMS rotation, live PagerDuty/Slack delivery,
+  and the orphaned Postgres volume cleanup.
+- **Verification:** 2312+ tests at 100% coverage, ruff/black/isort/pyright
+  green, 20 credential-free CI drills green, `deploy-check` green.
+- **Release provenance:** this release cut as `v1.3.0` aligned to
+  `pyproject.toml`/`configs/settings.yaml`/`configs/settings.production.example.yaml`;
+  signed release artifact in `docs/evidence/releases/`.
+
 ## [1.2.0] - 2026-08-17
 
 Ship-sprint release: the Railway deploy path is consolidated and elite-grade.

@@ -215,6 +215,23 @@ real capital** an auditable decision rather than a vibe.
   (`configs/settings.production.example.yaml`). The orphaned Postgres volume
   cleanup is documented in `docs/runbooks/OPERATIONS.md`. G-02's 72h soak
   window and G-01's edge proof remain open on their own timeline.
+- **Sprint 48 — launch-readiness: automatic backups, GO-gated readiness,
+  v1.3.0 release candidate.** While the G-02 soak window finishes
+  (~2026-08-25T16:48Z), the last software gaps are closed: (1) a new
+  **automatic `BackupScheduler`** runs the real `create_backup()` hourly
+  (`DB_BACKUP_INTERVAL_SECONDS`, default 3600), fail-closed with every failure
+  recorded, delivered to CRITICAL on-call, and counted in metrics — wired into
+  the orchestrator and surfaced in `get_status()["backups"]` + `traderos db
+  backup-scheduler`; (2) **`pilot readiness` now gates the GO conditions** —
+  `allowlist_configured` (G-03: non-empty allowlist when required) and
+  `broker_reconcile_clean` (G-02: order acceptance blocked until reconcile is
+  clean); (3) **v1.3.0 launch-candidate release** — version pinned across
+  pyproject/settings, release notes
+  (`docs/releases/RELEASE_1.3.0_NOTES.md`) and a signed release manifest
+  (`docs/evidence/releases/`; paper key for the commit, operator re-signs with
+  `RELEASE_SIGNING_KEY` for GO). Full suite 2337/1/100%, 20/20 CI drills.
+  Remaining GO items stay operator-run (soak window, managed Vault/KMS, live
+  on-call delivery, orphaned-volume deletion, written GO review).
 - **Sprint 36 — execution-safety hardening (fail closed on the real path).**
   Three Pareto order-path gaps closed, each proven through the *real*
   submission/reconciliation path, not a shared helper: (Gap 3) a
