@@ -96,6 +96,7 @@ class TradingOrchestrator:
     streaming_feed: Any | None = None
     standby_poll_seconds: float = 5.0
     probe_scheduler: ProbeScheduler | None = None
+    backup_scheduler: Any | None = None
     brain: MarketBrainService | None = None
     brain_history_bars: int = 300
 
@@ -213,6 +214,8 @@ class TradingOrchestrator:
             self.streaming_feed.start()
         if self.probe_scheduler is not None:
             self.probe_scheduler.start()
+        if self.backup_scheduler is not None:
+            self.backup_scheduler.start()
 
     def stop(self) -> None:
         if self.streaming_feed is not None:
@@ -221,6 +224,8 @@ class TradingOrchestrator:
             self.secret_rotator.stop()
         if self.probe_scheduler is not None:
             self.probe_scheduler.stop()
+        if self.backup_scheduler is not None:
+            self.backup_scheduler.stop()
         self._daemon_controller.stop()
 
     def run_cycle(
@@ -252,11 +257,15 @@ class TradingOrchestrator:
     def run_forever(self, interval_seconds: int = 60, shutdown_timeout: int = 30) -> None:
         if self.probe_scheduler is not None:
             self.probe_scheduler.start()
+        if self.backup_scheduler is not None:
+            self.backup_scheduler.start()
         try:
             self._daemon_controller.run_forever(interval_seconds, shutdown_timeout)
         finally:
             if self.probe_scheduler is not None:
                 self.probe_scheduler.stop()
+            if self.backup_scheduler is not None:
+                self.backup_scheduler.stop()
 
     def get_status(self) -> dict[str, Any]:
         status = self._daemon_controller.get_status()
@@ -267,6 +276,8 @@ class TradingOrchestrator:
                 name: {"ok": r.ok, "latency_ms": r.latency_ms, "detail": r.detail}
                 for name, r in self.probe_scheduler.latest.items()
             }
+        if self.backup_scheduler is not None:
+            status["backups"] = self.backup_scheduler.stats()
         status["operational"] = self._operational_status()
         return status
 

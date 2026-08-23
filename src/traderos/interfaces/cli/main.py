@@ -184,6 +184,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_db_sub.add_parser("list-backups", help="List available backups")
 
+    p_db_sub.add_parser(
+        "backup-scheduler",
+        help="Show automatic backup scheduler status (needs a running orchestrator)",
+    )
+
     return parser
 
 
@@ -769,6 +774,19 @@ def cmd_db(args: argparse.Namespace) -> None:
                 return
             for b in backups:
                 print(f"  {b['path']}  ({b['size_bytes']} bytes, {b['modified']})")
+        elif args.db_cmd == "backup-scheduler":
+            try:
+                from traderos.application.factory import build_orchestrator
+
+                orch = build_orchestrator(mode=getattr(args, "mode", "paper"))
+                if orch.backup_scheduler is None:
+                    print("Automatic backup scheduler is not configured.")
+                    sys.exit(1)
+                for k, v in sorted(orch.backup_scheduler.stats().items()):
+                    print(f"  {k}: {v}")
+            except Exception as exc:
+                print(f"backup scheduler status unavailable: {exc}")
+                sys.exit(1)
     finally:
         if conn is not None:
             conn.close()
