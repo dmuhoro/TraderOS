@@ -48,6 +48,7 @@ from traderos.domain.services.signal_service import SignalService
 from traderos.domain.services.strategy_framework import registry as strategy_registry
 from traderos.domain.services.strategy_management import StrategyCatalogService
 from traderos.infrastructure.audit import AuditService as InMemoryAuditService
+from traderos.infrastructure.backup_scheduler import BackupScheduler
 from traderos.infrastructure.collectors.mock_collector import MockDataCollector
 from traderos.infrastructure.config.config_loader import Config
 from traderos.infrastructure.database.connection import get_connection
@@ -538,6 +539,9 @@ def build_orchestrator(
         kill_switch=risk_service.kill_switch,
         operator_session=operator_session,
         live_execution_enabled=trading_mode == TradingMode.LIVE,
+        allowed_markets=risk_service.allowed_markets,
+        require_allowlist=risk_rails.require_allowlist,
+        broker_reconciliation=broker_reconciliation,
     )
 
     if market_ids is not None:
@@ -630,6 +634,20 @@ def build_orchestrator(
         audit=audit,
         metrics=metrics,
         interval_seconds=int(os.getenv("PROBE_SCHEDULER_INTERVAL", "30")),
+    )
+
+    # Automatic database backups (Sprint 48): pg_dump is now in the production
+    # image and the backup→restore round-trip is proven against live Postgres.
+    # A launch-ready deployment must back up on a timer, not on operator recall.
+    # Off by default for local/CI (DB_BACKUP_INTERVAL_SECONDS unset -> scheduler
+    # built but only starts when orchestrator.start()/run_forever() run, and
+    # tests keep it stopped); set the env knob on the deployed service to arm.
+    orch.backup_scheduler = BackupScheduler(
+        on_failure=lambda exc: notifications.critical(
+            "Backup Failed", f"automatic DB backup failed: {exc}"
+        )
+        and None,
+        metrics=metrics,
     )
     return orch
 
