@@ -169,6 +169,36 @@
 - Verification: full suite green at 100% coverage, ruff/black/isort/pyright
   clean; sprint record: `docs/sprints/SPRINT_46.md`.
 
+### Sprint 47 (2026-08-23) — launch-prep: transient-broker-error hardening, rotation cadence, pilot charter
+
+- **Soak batch-005 defect fixed (the product reason the soak exists).** Alpaca
+  returned `APIError: service temporary unavailable` (503) during the
+  open-orders reconcile; `APIError` is a bare `Exception`, so it escaped every
+  boundary and **crashed the cycle/daemon** instead of failing closed.
+  `retry_with_backoff` gains a `should_retry` predicate; the adapter retries
+  transient status codes (429/5xx) with backoff on submissions, fails fast on
+  permanent 4xx, converts persistent read-path failures to `ServiceError`, and
+  the reconcile boundary now catches `ServiceError`/`InfrastructureError` →
+  BROKER_FAILURE, orders blocked, never a crash. Proven by the new
+  **transient-broker-error drill (5/5 PASS)** in the CI set.
+- **Rotation cadence proven against a real Vault** — the rotator picks up a
+  changed KV-v2 secret on `rotate()` (version bump), `rotate_all` counts,
+  reads/rotations are value-redacted, missing keys fail closed
+  (`run_vault_rotation_drill.py` 5/5 PASS); operator steps for a managed
+  instance in `docs/runbooks/SECRET_ROTATION.md`.
+- **On-call live delivery runbook** — `docs/runbooks/ONCALL_LIVE_DELIVERY.md`
+  (PagerDuty/Slack mechanism already proven on the real wire; managed-account
+  delivery is the remaining operator step).
+- **Pilot charter tightened for launch** — `LIVE_RUN_POLICY.md` §6 is now a
+  definitive DATA-VALIDATION-ONLY charter (fixed symbol set, hard stops,
+  supervision); the production config template's allowlist names the fed
+  markets (`BTCUSDT`/`ETHUSDT`); orphaned-Postgres-volume cleanup documented in
+  `docs/runbooks/OPERATIONS.md`.
+- **Soak moved to EU West** (operator action, confirmed) — fresh 72h window
+  restarted 2026-08-22T16:48Z.
+- Verification: full suite green at 100% coverage, ruff/black/isort/pyright
+  clean; sprint record: `docs/sprints/SPRINT_47.md`.
+
 ## [1.2.0] - 2026-08-17
 
 Ship-sprint release: the Railway deploy path is consolidated and elite-grade.
