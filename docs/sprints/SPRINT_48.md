@@ -28,8 +28,9 @@ is a formality — the product is launch-ready.
   - Factory constructs it with the real `create_backup` + notification/metrics
     wiring; env-gated so local/CI does not back up unintentionally.
 - CLI: `traderos db backup-scheduler` reports the scheduler stats.
-- `.env.example` documents `DB_BACKUP_INTERVAL_SECONDS` / `DB_BACKUP_DIR` /
-  `DB_MAX_BACKUPS`.
+- README "Key environment variables" documents `DB_BACKUP_INTERVAL_SECONDS` /
+  `DB_BACKUP_DIR` / `DB_MAX_BACKUPS` (`.env.example` is gitignored and would
+  trip the A4 no-secrets gate, so the reference lives in README).
 - Tests: 15 (scheduler behaviors, metrics, real-path, wiring, CLI).
 
 ## L3 — GO-gated pilot readiness (DONE)
@@ -60,7 +61,7 @@ is a formality — the product is launch-ready.
 
 - README: release row → v1.3.0; Backups row → automatic scheduler; risk-rails
   section → transient-broker fail-closed + GO-gated readiness.
-- `.env.example` → backup knobs.
+- `.env.example` → backup knobs → README "Key environment variables".
 - `GAP_READINESS.md` G-04 row → rotation mechanism proven (Sprint 47 already
   did this); Sprint 48 honesty note added.
 
