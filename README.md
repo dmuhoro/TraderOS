@@ -19,11 +19,11 @@ capital may move. It is updated as part of every sprint.
 | Test suite | **2293 passed / 7 skipped / 100% line coverage** (gate `fail_under = 100`) | CI `test` job, `pytest --cov` |
 | Static checks | ruff, black, isort, pyright (strict, 0 errors), pre-commit (10 hooks) | CI `lint` + `typecheck` jobs |
 | CI pipeline | **Green end-to-end** (lint, typecheck, test, security, governance, version-check, evidence-drills, deploy-check, docker, **deploy**) | `gh run list` (Sprint 44) |
-| Release | `v1.2.0` published: wheel + sdist + GitHub Release + GHCR image `ghcr.io/dmuhoro/traderos:1.2.0` | Sprint 40 |
+| Release | `v1.3.0` launch candidate (Sprints 41–47): wheel + sdist + GitHub Release + GHCR image `ghcr.io/dmuhoro/traderos:1.3.0`; signed release artifact + release notes | Sprint 47/48 |
 | Live deployment | **EU region (`ams`)**, `https://traderos-production.up.railway.app` — auth boundary armed (fail-closed), paper mode, **real Binance feed live** (REST + WS), orchestrator + soak service online | Sprints 43–44, `railway status` |
 | Real market data | **LIVE Binance REST + WebSocket feed proven end-to-end on the deployed instance** — daily-candle freshness delta + WS ticks; WS-resync reconciliation closes outage gaps against REST truth (VERDICT PASS) | `docs/evidence/2026-08-22_region_migration_feed_activation.log`, `2026-08-22_ws_resync_drill.log` |
 | G-02 cloud soak | **Running**: dedicated `traderos-soak` Railway service, self-supervised hourly batches ×10 through the real Alpaca paper endpoint; batches 001–004 PASS (window ends ~2026-08-25T07:56Z) | `2026-08-22_operator_gates_soak_launch.log`, `railway logs --service traderos-soak` |
-| Backups | `traderos db backup/restore` (SQLite + **Postgres** via `pg_dump`/`pg_restore`); **live Postgres backup→restore drill PASS** (schema v9, 35 tables round-trip intact) | `2026-08-22_postgres_backup_restore_drill.log` |
+| Backups | `traderos db backup/restore` (SQLite + **Postgres** via `pg_dump`/`pg_restore`); **live Postgres backup→restore drill PASS** (schema v9, 35 tables round-trip intact); **automatic backup scheduler** (hourly, fail-closed, surfaced in `/v1/orchestrator/status`) | `2026-08-22_postgres_backup_restore_drill.log`, `BackupScheduler` |
 | Rate limiting | Broker rate limiter on by default; **burst/load-shedding drill 13/13 PASS** — broker + HTTP 429s with `Retry-After`/`X-RateLimit-*`, circuit breaker stays closed under load, traffic resumes | `2026-08-22_rate_limiter_burst_drill.log` |
 | Evidence drills | 18 credential-free drills run as a CI gate; 8 key/network-gated drills operator-run | `docs/evidence/` (72 logs) |
 | Governance | Constitution, ADRs, release constitution, live-run policy, operator acknowledgment, fail-closed live gate | Sprint 40 |
@@ -64,6 +64,14 @@ only posture), and remaining operator gates in
   running), and do **not** trip the broker circuit breaker — the HTTP layer
   returns 429 with `Retry-After` + `X-RateLimit-*`, and legitimate traffic
   resumes once the window closes (proven by the burst drill).
+- **Transient broker outages fail closed, never crash**: a broker 503/429 is
+  retried with backoff on submissions, fails fast on permanent 4xx, and the
+  reconcile boundary converts a persistent read failure into a BROKER_FAILURE
+  (orders blocked) instead of an uncaught crash — proven by the transient-
+  broker-error drill.
+- **`pilot readiness --mode live` gates the GO conditions**: broker connected,
+  data feeds, kill switch, live preflight, operator session, **allowlist
+  populated (G-03)** and **broker reconcile clean (G-02)**.
 
 ### Data
 - **Mock collector** (deterministic, default) for offline CI/tests.
