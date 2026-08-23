@@ -195,16 +195,22 @@ class TestTradingOrchestrator:
         orch = self._make()
         probes = Mock()
         orch.probe_scheduler = probes
+        backups = Mock()
+        orch.backup_scheduler = backups
         orch._daemon_controller.run_forever = Mock()
         orch.run_forever(interval_seconds=1, shutdown_timeout=1)
         probes.start.assert_called_once()
         probes.stop.assert_called_once()
+        backups.start.assert_called_once()
+        backups.stop.assert_called_once()
         orch._daemon_controller.run_forever.assert_called_once_with(1, 1)
 
     def test_run_forever_stops_probes_on_daemon_exit(self) -> None:
         orch = self._make()
         probes = Mock()
         orch.probe_scheduler = probes
+        backups = Mock()
+        orch.backup_scheduler = backups
 
         def _die(*_args, **_kwargs):
             raise RuntimeError("daemon crashed")
@@ -214,6 +220,8 @@ class TestTradingOrchestrator:
             orch.run_forever(interval_seconds=1, shutdown_timeout=1)
         probes.start.assert_called_once()
         probes.stop.assert_called_once()  # finally always releases the probes
+        backups.start.assert_called_once()
+        backups.stop.assert_called_once()  # finally always releases the backups
 
     def test_operational_status_reports_configured_failover(self) -> None:
         orch = self._make()

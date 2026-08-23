@@ -624,6 +624,66 @@ class TestCliDb:
         output = self._cmd_db(monkeypatch, db_cmd="restore", latest=True)
         assert "No backups found." in output
 
+    def test_db_backup_scheduler_reports_stats(self, monkeypatch):
+        orch = MagicMock()
+        orch.backup_scheduler.stats.return_value = {
+            "interval_seconds": 3600,
+            "backup_count": 2,
+            "last_success": "2026-08-23T00:00:00+00:00",
+            "last_error": None,
+            "running": True,
+        }
+
+        def _build_orchestrator(mode="paper", **_k):
+            return orch
+
+        monkeypatch.setattr("traderos.application.factory.build_orchestrator", _build_orchestrator)
+        output = self._cmd_db(monkeypatch, db_cmd="backup-scheduler")
+        assert "interval_seconds: 3600" in output
+        assert "backup_count: 2" in output
+        assert "running: True" in output
+
+    def test_db_backup_scheduler_not_configured(self, monkeypatch):
+        orch = MagicMock()
+        orch.backup_scheduler = None
+
+        def _build_orchestrator(mode="paper", **_k):
+            return orch
+
+        monkeypatch.setattr("traderos.application.factory.build_orchestrator", _build_orchestrator)
+        cfg = self._cfg()
+        conn = self._conn()
+        self._db_patches(monkeypatch, cfg, conn)
+        ns = argparse.Namespace(
+            db_cmd="backup-scheduler", target=0, backup=None, backup_flag=None, latest=False
+        )
+        out = StringIO()
+        with patch("sys.stdout", out):
+            try:
+                cli_main.cmd_db(ns)
+            except SystemExit as exc:
+                assert exc.code == 1
+        assert "Automatic backup scheduler is not configured." in out.getvalue()
+
+    def test_db_backup_scheduler_unavailable(self, monkeypatch):
+        def _build_orchestrator(mode="paper", **_k):
+            raise RuntimeError("db down")
+
+        monkeypatch.setattr("traderos.application.factory.build_orchestrator", _build_orchestrator)
+        cfg = self._cfg()
+        conn = self._conn()
+        self._db_patches(monkeypatch, cfg, conn)
+        ns = argparse.Namespace(
+            db_cmd="backup-scheduler", target=0, backup=None, backup_flag=None, latest=False
+        )
+        out = StringIO()
+        with patch("sys.stdout", out):
+            try:
+                cli_main.cmd_db(ns)
+            except SystemExit as exc:
+                assert exc.code == 1
+        assert "backup scheduler status unavailable: db down" in out.getvalue()
+
     def test_db_restore_no_path(self, monkeypatch):
         cfg = self._cfg()
         conn = self._conn()
