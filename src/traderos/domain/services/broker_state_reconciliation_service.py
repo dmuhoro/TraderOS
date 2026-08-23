@@ -7,6 +7,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from traderos.domain.exceptions import InfrastructureError
+from traderos.domain.exceptions import ServiceError
+
 
 class MismatchType(Enum):
     BROKER_ONLY_POSITION = "broker_only_position"
@@ -121,7 +124,7 @@ class BrokerStateReconciliationService:
         try:
             broker_positions = self._broker.get_positions()
             broker_orders = self._broker.get_open_orders()
-        except (RuntimeError, ValueError, OSError) as e:
+        except (RuntimeError, ValueError, OSError, ServiceError, InfrastructureError) as e:
             errors.append(f"Failed to fetch broker state: {e}")
             mismatches.append(MismatchDetail(MismatchType.BROKER_FAILURE, str(e), severity=3))
             self._consecutive_failures += 1

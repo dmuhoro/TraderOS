@@ -23,6 +23,7 @@ def _new_client_order_id() -> str:
 
 _has_alpaca: bool
 try:
+    from alpaca.common.exceptions import APIError as _AlpacaAPIError
     from alpaca.trading.client import TradingClient as _TradingClient
     from alpaca.trading.enums import OrderSide as _OrderSide
     from alpaca.trading.enums import OrderType as _OrderType
@@ -37,6 +38,7 @@ try:
     _has_alpaca = True
 except ImportError:
     _has_alpaca = False
+    _AlpacaAPIError = None  # type: ignore[assignment]
     _TradingClient = None  # type: ignore[assignment]
     _MarketOrderRequest = None  # type: ignore[assignment]
     _ReplaceOrderRequest = None  # type: ignore[assignment]
@@ -47,6 +49,48 @@ except ImportError:
     _TimeInForce = None  # type: ignore[assignment]
     _GetOrdersRequest = None  # type: ignore[assignment]
     _QueryOrderStatus = None  # type: ignore[assignment]
+
+
+# HTTP status codes that are transient broker unavailability (retryable), not
+# permanent rejections. Alpaca's ``APIError`` carries ``status_code``; a 503
+# ("service temporary unavailable") is exactly what the soak hit on batch 005.
+_TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+
+
+def _is_transient_api_error(exc: Exception) -> bool:
+    """True when the exception is a retryable Alpaca HTTP error.
+
+    ``APIError`` is a bare ``Exception`` subclass (not caught by any
+    ``except`` tuple in this adapter nor by the default ``retry_with_backoff``
+    set), so it previously escaped all boundaries and crashed the reconcile /
+    cycle path on a transient broker outage. Permanent 4xx rejections (400,
+    403, 404, ...) must NOT be retried — they are the broker telling us the
+    request is wrong, not unavailable.
+    """
+    if _AlpacaAPIError is None:
+        return False
+    if not isinstance(exc, _AlpacaAPIError):
+        return False
+    status = getattr(exc, "status_code", None)
+    return status in _TRANSIENT_STATUS_CODES
+
+
+# Every boundary in this adapter that converts a broker failure into a clean
+# rejected ``FillResult`` must also swallow ``APIError`` — otherwise a 503
+# ("service temporary unavailable") escapes and crashes the reconcile/cycle
+# path (the batch-005 soak finding). The tuple is dynamic because alpaca-py is
+# an optional dependency.
+def _broker_error_types() -> tuple[type[Exception], ...]:
+    base: tuple[type[Exception], ...] = (
+        ValueError,
+        RuntimeError,
+        OSError,
+        InfrastructureError,
+        ServiceError,
+    )
+    if _AlpacaAPIError is not None:
+        return base + (_AlpacaAPIError,)
+    return base
 
 
 class AlpacaBrokerAdapter(BrokerAdapter):
@@ -116,7 +160,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                     )
                 )
 
-            order = retry_with_backoff(_submit, max_retries=2)
+            order = retry_with_backoff(_submit, max_retries=2, should_retry=_is_transient_api_error)
             filled_qty = self._qty(order.filled_qty)
             total_qty = self._qty(order.qty)
             filled = float(filled_qty) > 0
@@ -132,7 +176,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 ),
                 order_id=order.id,
             )
-        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
+        except _broker_error_types() as e:
             return FillResult(False, 0.0, 0.0, quantity, "rejected", str(e))
 
     def place_limit_order(
@@ -165,7 +209,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                     )
                 )
 
-            order = retry_with_backoff(_submit, max_retries=2)
+            order = retry_with_backoff(_submit, max_retries=2, should_retry=_is_transient_api_error)
             filled_qty = self._qty(order.filled_qty)
             total_qty = self._qty(order.qty)
             filled = float(filled_qty) > 0
@@ -181,7 +225,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 ),
                 order_id=order.id,
             )
-        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
+        except _broker_error_types() as e:
             return FillResult(False, 0.0, 0.0, quantity, "rejected", str(e))
 
     def place_stop_order(
@@ -216,7 +260,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                     )
                 )
 
-            order = retry_with_backoff(_submit, max_retries=2)
+            order = retry_with_backoff(_submit, max_retries=2, should_retry=_is_transient_api_error)
             filled_qty = self._qty(order.filled_qty)
             total_qty = self._qty(order.qty)
             filled = float(filled_qty) > 0
@@ -228,7 +272,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 status="filled" if order.filled_qty == order.qty else "pending",
                 order_id=order.id,
             )
-        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
+        except _broker_error_types() as e:
             return FillResult(False, 0.0, 0.0, quantity, "rejected", str(e))
 
     def place_trailing_stop_order(
@@ -263,7 +307,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                     )
                 )
 
-            order = retry_with_backoff(_submit, max_retries=2)
+            order = retry_with_backoff(_submit, max_retries=2, should_retry=_is_transient_api_error)
             filled_qty = self._qty(order.filled_qty)
             total_qty = self._qty(order.qty)
             filled = float(filled_qty) > 0
@@ -275,7 +319,7 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 status="filled" if order.filled_qty == order.qty else "pending",
                 order_id=order.id,
             )
-        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
+        except _broker_error_types() as e:
             return FillResult(False, 0.0, 0.0, quantity, "rejected", str(e))
 
     def modify_order(
@@ -308,41 +352,54 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                     raise InfrastructureError("no fields provided to modify order")
                 return client.replace_order_by_id(order_id, order_data=req_cls(**kwargs))
 
-            retry_with_backoff(_submit, max_retries=2)
+            retry_with_backoff(_submit, max_retries=2, should_retry=_is_transient_api_error)
             return FillResult(True, 0.0, 0.0, 0.0, "modified", order_id)
-        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
+        except _broker_error_types() as e:
             return FillResult(False, 0.0, 0.0, 0.0, "rejected", str(e))
 
     def cancel_order(self, order_id: str) -> FillResult:
         try:
             self._client.cancel_order_by_id(order_id)
             return FillResult(True, 0.0, 0.0, 0.0, "cancelled", order_id)
-        except (ValueError, RuntimeError, OSError, InfrastructureError, ServiceError) as e:
+        except _broker_error_types() as e:
             return FillResult(False, 0.0, 0.0, 0.0, "rejected", str(e))
 
     def get_account_balance(self) -> float:
-        account = self._client.get_account()
-        return float(account.equity)
+        try:
+            account = self._client.get_account()
+            return float(account.equity)
+        except _broker_error_types() as e:
+            raise ServiceError(f"Failed to fetch account balance: {e}") from e
 
     def get_positions(self) -> list[dict]:
-        positions = self._client.get_all_positions()
-        return [
-            {"symbol": p.symbol, "qty": float(p.qty), "market_value": float(p.market_value)}
-            for p in positions
-        ]
+        try:
+            positions = self._client.get_all_positions()
+            return [
+                {
+                    "symbol": p.symbol,
+                    "qty": float(p.qty),
+                    "market_value": float(p.market_value),
+                }
+                for p in positions
+            ]
+        except _broker_error_types() as e:
+            raise ServiceError(f"Failed to fetch positions: {e}") from e
 
     def get_open_orders(self) -> list[dict]:
         if _GetOrdersRequest is None or _QueryOrderStatus is None:
             raise ImportError("alpaca-py is required. Install with: pip install alpaca-py")
-        orders = self._client.get_orders(_GetOrdersRequest(status=_QueryOrderStatus.OPEN))
-        return [
-            {
-                "id": str(o.id),
-                "symbol": o.symbol,
-                "qty": float(o.qty),
-                "side": o.side,
-                "type": o.type,
-                "client_order_id": str(getattr(o, "client_order_id", "") or ""),
-            }
-            for o in orders
-        ]
+        try:
+            orders = self._client.get_orders(_GetOrdersRequest(status=_QueryOrderStatus.OPEN))
+            return [
+                {
+                    "id": str(o.id),
+                    "symbol": o.symbol,
+                    "qty": float(o.qty),
+                    "side": o.side,
+                    "type": o.type,
+                    "client_order_id": str(getattr(o, "client_order_id", "") or ""),
+                }
+                for o in orders
+            ]
+        except _broker_error_types() as e:
+            raise ServiceError(f"Failed to fetch open orders: {e}") from e
