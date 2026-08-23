@@ -67,6 +67,16 @@ liquidity:
 # RISK_MAX_POSITION_SIZE, RISK_MAX_POSITIONS_TOTAL,
 # RISK_MAX_DATA_STALENESS_SECONDS, RISK_ALLOWED_MARKETS (comma-separated),
 # RISK_REQUIRE_ALLOWLIST, RISK_OPERATOR_USER_ID.
+#
+# PILOT ALLOWLIST (G-03 operator deployment step): must name EXACTLY the
+# markets the pilot loop may touch, and must match the markets the deployed
+# feed actually ingests (see settings.yaml crypto_symbols — the live Binance
+# feed is wired to BTCUSDT/ETHUSDT). EURUSD/GBPUSD are NOT fed live and would
+# trip the data-gap breaker; keep them OUT of the live allowlist. The two
+# crypto symbols below are the pilot set: bounded, liquid, and already
+# streamed on the deployed EU instance. Review/trim before launch — this file
+# is the committed template; the running LIVE config is the operator's arming
+# action and may narrow, never widen, this set.
 risk:
   daily_loss_pct: 0.02          # realized daily loss budget, share of equity
   max_gross_exposure: 1.0       # gross exposure cap, multiple of equity
@@ -75,8 +85,8 @@ risk:
   max_data_staleness_seconds: 300.0
   require_allowlist: true       # LIVE requires non-empty allowed_markets below
   allowed_markets:
-    - "EURUSD"
-    - "GBPUSD"
+    - "BTCUSDT"
+    - "ETHUSDT"
 
 logging:
   level: "INFO"
