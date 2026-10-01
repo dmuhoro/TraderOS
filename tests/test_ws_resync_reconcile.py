@@ -152,7 +152,13 @@ class TestReconnectHookFiresOnRealPath:
 
         service = StreamingMarketDataService(_Transport(), reconnect_limit=3)
         service.on_reconnect = _explode
-        base = _aligned_minute(minutes_ago=0)
+        # Anchored to the PREVIOUS minute, not this one. With ``minutes_ago=0``
+        # the pair's second tick lands up to ~60s in the future and pushes past
+        # validate_tick's max_future_seconds=60 during the first second of a
+        # minute — a wall-clock race that failed this test roughly 1 run in 60
+        # for reasons unrelated to what it asserts (a raising reconnect hook
+        # never killing the loop). Both ticks stay fresh and strictly past here.
+        base = _aligned_minute(minutes_ago=1)
         raws = [_raw("BTCUSDT", base), _raw("BTCUSDT", base + timedelta(seconds=61))]
         attempts = 1  # one failed connect already recorded
         received = 0
