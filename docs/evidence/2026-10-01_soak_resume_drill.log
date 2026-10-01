@@ -1,0 +1,24 @@
+SOAK RESUME DRILL — window clock survival across a supervisor restart
+date 2026-10-01T04:14:39Z  layer 8 / G-02  scripts/evidence/run_unattended_paper_soak.py
+
+DEFECT: the window was measured from time.monotonic() at process start, so every
+restart the supervisor performed on failure began a FRESH window and silently
+discarded elapsed time. The soak could never reach its target: the service burned
+ON_FAILURE retries and went CRASHED with no verdict.
+
+MEASUREMENT (30s window, killed after 10s, then restarted):
+target window          = 30s
+pre-fix  consumed      = 40.2s  (overshoot +10.2s, resumed=False)
+post-fix consumed      = 30.4s  (overshoot +0.4s, resumed=True)
+
+PROOF OK: pre-fix discards the elapsed window on restart (consumes ~2x);
+          post-fix accumulates it, so total consumed tracks the window.
+
+Negative result: with the fix reverted, the restart consumed a second full window
+(40.2s total for a 30s window, 84 aggregate rows). With the fix, elapsed accumulates
+and total consumed tracks the window (30.4s, 67 rows).
+
+TEST: tests/test_soak_resume_drill.py — 4 tests, kill/restart drill, completed-window
+no-rerun, geometry-mismatch superseded, corrupt-checkpoint recovery.
+VERDICT: PASS
+Evidence: docs/evidence/2026-10-01_soak_resume_drill.log
