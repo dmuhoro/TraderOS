@@ -1,5 +1,90 @@
 # Changelog - TraderOS
 
+## [1.3.2] - 2026-10-01
+
+Patch on v1.3.1. v1.3.1 made the G-02 unattended soak *finishable*; redeploying
+it proved it was still unfinnable and actively damaging the paper account. The
+harness closed out its **orders** and never its **positions**. No new capability.
+
+### Fixed
+- **The soak now closes the POSITION it opened, not just its orders.** Every
+  batch places market BUYs and cancelled its resting orders at close-out, but
+  never the fills — so share count compounded. On the real paper account this
+  reached **712.50489538 AAPL** (~$234,000), cash **-122,422.75** and buying
+  power **0**, after which every buy was rejected: batch 001 returned
+  `orders_filled=0`, `n=0` latency probes, `mismatches=1`
+  (`broker_only_position`), `VERDICT: FAIL`. Each batch now captures a pre-run
+  baseline and closes its own **net delta** back to it — in the normal close-out
+  **and** in the crash path's `finally`. Ownership matches the existing
+  `_own_residue` rule, so a holding that predates the run is never touched.
+- **Reconcile compares broker truth against the baseline it inherited.** It
+  compared against the batch's throwaway in-memory book, so any position the run
+  had not created looked like a phantom broker-only mismatch. The assertion is
+  now "broker truth ends where this run found it" — while a position the run
+  cannot explain is still surfaced rather than absorbed.
+- **Close-out scored the ORDER RESPONSE instead of the outcome.** An order that
+  fills between the snapshot and the cancel cannot be cancelled — the refusal
+  *means* it already filled — and a fractional market close acks `pending` and
+  settles moments later. Both were recorded as leaked residue, failing batches
+  that had in fact left the account exactly as found. `_cancel_residue` now
+  asserts *demonstrably not resting*; `_flatten_own_delta` asserts
+  *demonstrably back at baseline*. Retries are bounded and only against a broker
+  that **definitively refuses**, so a settling close is never mistaken for a
+  leaking one and a refusing broker is never spammed. Every attempt is recorded
+  as a note.
+- **The position book must be AT REST before it declares anything.** A
+  second-order defect, found only by redeploying the fix above and re-measuring:
+  **Alpaca's position book lags fill settlement**, so the single read that
+  decided the verdict proved nothing. A batch reported `after_qty=0.000000` and
+  `VERDICT: PASS` while **132.05154639 shares of its own buying were still in
+  flight**; the next run read `baseline_qty=132.051546` and — correctly, under
+  strict ownership — declined to touch it, so **own residue was promoted to an
+  "operator position"** and the leak became permanent and self-legitimising.
+  `_await_position_quiescence` now polls until two consecutive reads agree, and
+  both the flatten decision and the reported final position go through it. Once
+  no order of the run is still open, no further fill can originate from it, so
+  *all orders terminal* + *book at rest* makes the delta final. A book that
+  never settles, or cannot be read, fails closed.
+
+### Fixed (test infrastructure)
+- **A coin-flip in the resync gate.** `test_raising_callback_never_kills_the_run_loop`
+  anchored its tick pair at `minutes_ago=0` and added 61s, placing the second tick
+  up to ~60s in the **future** against `validate_tick`'s `max_future_seconds=60`.
+  For ~1 second of every minute the ingest was refused and the test failed, for a
+  reason unrelated to what it asserts. Re-anchored to the previous minute: worst
+  case 1s against a 300s staleness bound, proven across all 60 minute positions.
+  No threshold raised, no assertion loosened, nothing skipped.
+
+### Verified
+- **2363 tests pass (7 skipped)**; ruff, black, isort, pyright (strict) clean.
+- 17 new tests in `tests/test_soak_position_flat.py`; the end-to-end one
+  reproduces the production symptom against the pre-fix harness (`mismatches=1`,
+  `VERDICT: FAIL`), a negative control proves a refused close-out fails closed,
+  and the two quiescence tests are shown to fail against the pre-quiescence
+  harness and pass after.
+- **Live paper broker `VERDICT: PASS`**: 10 cycles, 0 lost intents,
+  `still_resting=0`, `positions_back_at_baseline=True`, `mismatches=0`,
+  submit->ack median 306.9 ms
+  (`2026-10-01_soak_position_flatten_live.log`).
+- **The harness's verdict is not accepted as its own proof** — that gate had
+  already lied once, so the account is read directly after each batch at t+0,
+  t+60 and t+120s: `positions=[] open_orders=[]` at every checkpoint
+  (`2026-10-01_soak_position_flatten_independent_check.log`). Two further
+  consecutive batches each reported `baseline_qty=0.000000`, which is what
+  distinguishes a fixed leak from a hidden one.
+- Account reclaimed twice: 712.5 AAPL (buying power 0 -> 447,486.44) and the
+  132.05 leaked by the interim fix (`2026-10-01_soak_account_reset.log`).
+
+### Honest residuals
+- The **72h window is still operator-run and still wall-clock**. What changed is
+  that it is now *safe to leave unattended*, and every batch is confirmed flat by
+  a check the harness does not control. Nothing here observes 72h of accumulated
+  drift — that remains what the window is for. The window whose batch 001 failed
+  carries a failed batch in its aggregate: start a fresh checkpoint before
+  treating a final verdict as meaningful.
+- **G-01** (a genuine cost-adjusted edge on out-of-sample data) remains open.
+  The pilot is **DATA-VALIDATION ONLY**; no PnL claim.
+
 ## [1.3.1] - 2026-10-01
 
 Patch on the v1.3.0 launch candidate: the G-02 unattended paper soak — the
