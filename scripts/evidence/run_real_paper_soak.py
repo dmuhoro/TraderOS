@@ -87,6 +87,25 @@ def _evidence_path() -> Path:
 OUT = _evidence_path()
 
 
+def _emit(lines: list[str]) -> None:
+    """Write the evidence file and echo it to stdout, in that order.
+
+    The file is written FIRST so a stdout failure (a closed/broken pipe when
+    Railway's log drain goes away) can never cost us the evidence row. Both
+    steps are flushed so a SIGKILL mid-write cannot truncate the log.
+    """
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    body = "\n".join(lines) + "\n"
+    with OUT.open("w", encoding="utf-8") as fh:
+        fh.write(body)
+        fh.flush()
+        os.fsync(fh.fileno())
+    try:
+        print(body, flush=True)
+    except (BrokenPipeError, OSError):  # pragma: no cover — log drain died
+        pass
+
+
 class _Strat(StrategyBase):
     name = "evidence_real_paper_strat"
 
@@ -110,26 +129,103 @@ def _prov(mid: uuid.UUID, direction: SignalDirection):
     )
 
 
+def _snapshot_open_orders(adapter: AlpacaBrokerAdapter) -> list[dict] | None:
+    """Broker open orders, or ``None`` when the read itself failed.
+
+    An unattended soak must distinguish "the broker says there are no open
+    orders" from "we could not ask the broker". Collapsing the second into the
+    first (``[] on error``) would let a transient outage masquerade as a clean
+    account and would skip the close-out of orders that are actually resting —
+    the exact silent-drop the AGENTS rules forbid.
+    """
+    try:
+        return adapter.get_open_orders()
+    # Any broker read failure is a NO-GO, never an empty order book.
+    except Exception as exc:  # noqa: BLE001
+        print(f"broker open-orders read failed: {exc}", flush=True)
+        return None
+
+
+def _cancel_residue(
+    adapter: AlpacaBrokerAdapter, orders: list[dict], settle_waits: int
+) -> tuple[list[str], bool]:
+    """Cancel this run's own residue and wait for the broker to settle.
+
+    Returns ``(cancel_failures, resettled)``. Never raises: an unattended soak
+    must always finish its own close-out and record the outcome honestly, even
+    when the broker is unreachable — a leaked order is evidence, not something
+    to crash on and lose the record of.
+    """
+    failures: list[str] = []
+    for order in orders:
+        try:
+            if not adapter.cancel_order(order["id"]).filled:
+                failures.append(str(order.get("id", "?")))
+        except Exception as exc:  # noqa: BLE001 — record, never crash the close-out
+            print(f"cancel failed for {order.get('id', '?')}: {exc}", flush=True)
+            failures.append(str(order.get("id", "?")))
+
+    deadline = time.monotonic() + settle_waits
+    resettled = not orders
+    while not resettled and time.monotonic() < deadline:
+        time.sleep(2)
+        remaining = _snapshot_open_orders(adapter)
+        if remaining is None:
+            continue
+        if not [o for o in remaining if o["id"] in {c["id"] for c in orders}]:
+            resettled = True
+    return failures, resettled
+
+
+def _own_residue(
+    adapter: AlpacaBrokerAdapter, baseline_open_ids: set[str] | None
+) -> list[dict] | None:
+    """This run's own resting orders, or ``None`` if the read failed.
+
+    Only orders the soak created are ever touched: anything present in the
+    pre-run baseline predates this run (it may be a user's order and is left
+    strictly alone). ``latprobe-`` orphans from an earlier crashed run are also
+    reclaimed — they are unambiguously ours and must not accumulate.
+    """
+    orders = _snapshot_open_orders(adapter)
+    if orders is None:
+        return None
+    if baseline_open_ids is None:
+        # We never established a baseline, so we cannot prove ownership. Do NOT
+        # guess and cancel: the fail-closed choice is to claim nothing and let
+        # the batch FAIL on residue rather than risk touching a user's order.
+        print("no open-orders baseline — refusing to claim residue", flush=True)
+        return []
+    return [
+        o
+        for o in orders
+        if str(o.get("client_order_id", "")).startswith("latprobe-")
+        or (o["symbol"] == SOAK_SYMBOL and o["id"] not in baseline_open_ids)
+    ]
+
+
 def main(argv: list[str]) -> int:
     cycles = int(argv[0]) if argv else 50
     lines: list[str] = []
     started = datetime.now(UTC)
+    settle_waits = int(os.getenv("SOAK_SETTLE_SECONDS", "30"))
 
     api_key = os.getenv("ALPACA_API_KEY", "")
     secret_key = os.getenv("ALPACA_SECRET_KEY", "")
     if not api_key or not secret_key:
-        lines.append("REAL-PAPER SOAK HARNESS — G-02 unattended paper-broker soak")
-        lines.append(f"started {started.isoformat()}")
-        lines.append("FATAL: no ALPACA_API_KEY / ALPACA_SECRET_KEY (paper keys) in env.")
-        lines.append(
-            "NO-GO: the soak requires real Alpaca paper credentials; the drill "
-            "refuses to fabricate broker truth without them."
+        _emit(
+            [
+                "REAL-PAPER SOAK HARNESS — G-02 unattended paper-broker soak",
+                f"started {started.isoformat()}",
+                "FATAL: no ALPACA_API_KEY / ALPACA_SECRET_KEY (paper keys) in env.",
+                (
+                    "NO-GO: the soak requires real Alpaca paper credentials; the drill "
+                    "refuses to fabricate broker truth without them."
+                ),
+                "VERDICT: NO-GO (credentials absent) — harness ready, soak not run",
+                f"Evidence: {OUT}",
+            ]
         )
-        lines.append("VERDICT: NO-GO (credentials absent) — harness ready, soak not run")
-        lines.append(f"Evidence: {OUT}")
-        OUT.parent.mkdir(parents=True, exist_ok=True)
-        OUT.write_text("\n".join(lines) + "\n")
-        print("\n".join(lines))
         return 2
 
     conn = sqlite3.connect(":memory:")
@@ -188,11 +284,22 @@ def main(argv: list[str]) -> int:
         )
 
     strategy_registry.register(_Strat)
+    baseline_open_ids: set[str] | None = None
+    runner_open_orders: list[dict] = []
+    cancel_failures: list[str] = []
+    resettled = False
+    crash: str | None = None
     try:
         executor = build_executor()
         # Baseline of pre-existing broker state so the harness only ever claims
         # (and only ever closes out) residue *it* created, never a user's.
-        baseline_open_ids = {str(o["id"]) for o in adapter.get_open_orders()}
+        # ``None`` means "could not read" — never silently treated as "empty",
+        # because an empty baseline would make every resting order look like a
+        # user's and every order would be left resting forever.
+        baseline = _snapshot_open_orders(adapter)
+        if baseline is not None:
+            baseline_open_ids = {str(o["id"]) for o in baseline}
+
         results: list[tuple[bool, str]] = []
         for i in range(cycles):
             r = executor.run(mid, 100.0 + (i % 20))
@@ -205,49 +312,51 @@ def main(argv: list[str]) -> int:
         ack_latencies_ms: list[float] = []
         probe_len = int(os.getenv("SOAK_LATENCY_PROBES", "10"))
         for _ in range(probe_len):
+            # `place_market_order` returns only after the broker ack, so the
+            # elapsed time around the call IS the full submit->ack round trip.
             t0 = datetime.now(UTC)
-            adapter.place_market_order(
+            res = adapter.place_market_order(
                 mid, "buy", 0.01, client_order_id=f"latprobe-{uuid.uuid4().hex[:12]}"
             )
             ack_ms = (datetime.now(UTC) - t0).total_seconds() * 1000.0
+            if res.status == "rejected":
+                # The broker is refusing orders: stop probing (further probes
+                # only add load and extend the outage) but still record the
+                # rejection so the evidence shows exactly why the batch stopped.
+                lines.append(
+                    f"latency probe rejected after {len(ack_latencies_ms)} probe(s): {res.order_id}"
+                )
+                break
             ack_latencies_ms.append(ack_ms)
 
         # Close out this run's own residue so the reconcile is against a
         # settled state — a pending order left resting is not a reconcilation
         # error, and an unattended soak must not leak live orders behind it.
-        runner_open_orders = [
-            # THIS runner's residue: any order it created this run (not in the
-            # pre-run baseline, for the soak symbol) plus any `latprobe-`
-            # orphans left by a previous crashed run. A user's own orders are
-            # never touched because they predate the baseline.
-            o
-            for o in adapter.get_open_orders()
-            if str(o.get("client_order_id", "")).startswith("latprobe-")
-            or (o["symbol"] == SOAK_SYMBOL and o["id"] not in baseline_open_ids)
-        ]
-        cancel_failures = [
-            o for o in runner_open_orders if not adapter.cancel_order(o["id"]).filled
-        ]
-        # Alpaca cancel settles asynchronously; poll until the count returns to
-        # the pre-run baseline (bounded), so the final snapshot and reconcile
-        # are against settled broker truth, not an in-flight cancel.
-        settle_waits = int(os.getenv("SOAK_SETTLE_SECONDS", "30"))
-        deadline = time.monotonic() + settle_waits
-        resettled = False
-        while time.monotonic() < deadline:
-            open_orders = adapter.get_open_orders()
-            if not [o for o in open_orders if o["id"] in {c["id"] for c in runner_open_orders}]:
-                resettled = True
-                break
-            time.sleep(2)
+        claimed = _own_residue(adapter, baseline_open_ids)
+        if claimed is None:
+            runner_open_orders = []
+            resettled = False
+            lines.append("close-out: broker open-orders read failed; residue unverified")
+        else:
+            runner_open_orders = claimed
+            cancel_failures, resettled = _cancel_residue(adapter, claimed, settle_waits)
+
         filled = sum(1 for ok, _ in results if ok)
         not_filled = [e for _, e in results if e]
 
-        broker_orders = len(adapter.get_open_orders())  # open orders snapshot
+        snapshot = _snapshot_open_orders(adapter)
+        broker_orders = len(snapshot) if snapshot is not None else -1
         journal_confirmed = journal.count()
         pending = len(journal.pending_events())
         local_positions = [
             {
+                # Keyed by the BROKER symbol, not the internal market UUID: the
+                # reconcile service matches on `symbol`, and the real broker
+                # reports "AAPL". Keying this by market_id made every held
+                # position look like a phantom local-only position next to a
+                # phantom broker-only one — a guaranteed false reconcile failure
+                # on any batch where the soak actually held a position.
+                "symbol": SOAK_SYMBOL,
                 "market_id": str(p.market_id),
                 "qty": p.quantity,
                 "current_price": p.current_price,
@@ -266,9 +375,17 @@ def main(argv: list[str]) -> int:
         # paper broker. Real paper fills can be partial or pending (market
         # hours), so we assert the *ordering + hygiene guarantees*:
         # 0 lost intents, clean reconcile, 0 leaked open orders, journal
-        # confirmed == submit attempts.
+        # confirmed == submit attempts. An unverifiable broker read is NOT a
+        # clean account — it fails closed.
+        baseline_count = len(baseline_open_ids) if baseline_open_ids is not None else -1
         no_lost = pending == 0
-        no_residue = cancel_failures == [] and resettled and broker_orders == len(baseline_open_ids)
+        no_residue = (
+            cancel_failures == []
+            and resettled
+            and snapshot is not None
+            and baseline_open_ids is not None
+            and broker_orders == baseline_count
+        )
         reconcile_clean = recon.errors == [] and not recon.has_mismatches
         submit_attempts = len(results)
         verdict = "PASS" if (no_lost and no_residue and reconcile_clean) else "FAIL"
@@ -283,11 +400,10 @@ def main(argv: list[str]) -> int:
         lines.append(f"journal_confirmed={journal_confirmed} journal_pending={pending}")
         lines.append(
             f"runner_open_orders={len(runner_open_orders)} "
-            f"cancel_failures={len(cancel_failures)}"
+            f"cancel_failures={len(cancel_failures)} resettled={resettled}"
         )
         lines.append(
-            f"broker_open_orders_after={broker_orders} "
-            f"baseline_open_orders={len(baseline_open_ids)}"
+            f"broker_open_orders_after={broker_orders} " f"baseline_open_orders={baseline_count}"
         )
         lines.append(f"local_positions={len(local_positions)}")
         lines.append(f"reconcile_errors={len(recon.errors)} mismatches={len(recon.mismatches)}")
@@ -306,12 +422,41 @@ def main(argv: list[str]) -> int:
         lines.append(f"VERDICT: {verdict}")
         lines.append(f"Evidence: {OUT}")
 
-        OUT.parent.mkdir(parents=True, exist_ok=True)
-        OUT.write_text("\n".join(lines) + "\n")
-        print("\n".join(lines))
+        _emit(lines)
         return 0 if verdict == "PASS" else 1
+    except BaseException as exc:
+        # A crash is evidence, not a lost run: record it in `finally` and re-raise
+        # so the exit code still tells the supervisor the batch did not complete.
+        crash = f"{type(exc).__name__}: {exc}"
+        raise
     finally:
+        # Close-out runs in `finally` so a crash anywhere above can never leak
+        # resting orders on the paper account, and the crash is always recorded
+        # to the evidence file — an unattended soak must never vanish silently
+        # (AGENTS: no silent drops).
+        if baseline_open_ids is not None:
+            claimed = _own_residue(adapter, baseline_open_ids)
+            if claimed:
+                cancel_failures, resettled = _cancel_residue(adapter, claimed, settle_waits)
         strategy_registry.unregister("evidence_real_paper_strat")
+        if crash is not None:
+            _emit(
+                [
+                    "REAL-PAPER SOAK HARNESS — G-02 unattended paper-broker soak",
+                    f"started {started.isoformat()} crashed {datetime.now(UTC).isoformat()}",
+                    f"CRASH: {crash}",
+                    # Everything observed before the abort is carried into the
+                    # crash record: the evidence file is overwritten here, and a
+                    # crash must never cost us the partial run that led to it.
+                    *lines,
+                    (
+                        "crash-closeout: cancelled own residue in finally "
+                        f"cancel_failures={len(cancel_failures)} resettled={resettled}"
+                    ),
+                    "VERDICT: CRASH (harness aborted; residue closed out, run must be re-run)",
+                    f"Evidence: {OUT}",
+                ]
+            )
         conn.close()
 
 
