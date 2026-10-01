@@ -214,6 +214,46 @@ def test_mismatched_geometry_is_superseded_not_spliced(runner) -> None:
     ), "a fresh window must start from zero, not inherit the old elapsed time"
 
 
+def test_changed_harness_supersedes_the_checkpoint_instead_of_splicing_it(runner) -> None:
+    """A checkpoint is not resumable across a change of HARNESS code.
+
+    The geometry guard could not see the case that mattered in production: the
+    fixed soak was redeployed on top of a checkpoint whose batches had been
+    produced by the leaky one. The window would have inherited those FAILED
+    batches and could never return PASS, leaving the operator to either accept a
+    permanently-red window or hand-edit the checkpoint by hand. Neither is
+    honest, so a different harness digest supersedes the checkpoint exactly as a
+    different geometry does.
+    """
+    run, state, tmp = runner
+    assert run().returncode == 0
+    original = state()
+
+    fp_path = tmp / "docs" / "evidence" / f"{LABEL}_soak_state.json"
+    state_data = json.loads(fp_path.read_text(encoding="utf-8"))
+    digest = state_data["harness_digest"]
+    assert digest, "the checkpoint must record which harness produced it"
+
+    # Simulate the operator deploying a different harness revision.
+    state_data["harness_digest"] = "0000000000000000"
+    state_data["batches_failed"] = 2  # the failed batches that must NOT be inherited
+    state_data["batches_passed"] = 0
+    fp_path.write_text(json.dumps(state_data), encoding="utf-8")
+
+    rerun = run()
+    assert rerun.returncode in (0, 1)
+    assert "geometry differs" in rerun.stdout, rerun.stdout[-2000:]
+    assert "'harness_digest'" in rerun.stdout, "the mismatch must name the harness"
+
+    superseded = tmp / "docs" / "evidence" / f"{LABEL}_soak_state.json.superseded"
+    assert superseded.exists(), "the old checkpoint must be preserved, not deleted"
+    assert json.loads(superseded.read_text(encoding="utf-8"))["batches_failed"] == 2
+
+    fresh = state()
+    assert fresh["batches_failed"] == 0, "failed batches from the old harness must not be inherited"
+    assert fresh["elapsed_seconds"] < original["elapsed_seconds"], "a fresh window starts from zero"
+
+
 def test_corrupt_checkpoint_starts_fresh_instead_of_crashing(runner) -> None:
     """A truncated checkpoint (possible if the volume was lost mid-write) must
     not take the soak down: it starts a fresh, clearly-flagged window."""

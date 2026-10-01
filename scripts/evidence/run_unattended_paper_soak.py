@@ -47,6 +47,7 @@ Verify a short window first:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -85,6 +86,30 @@ def _state_path() -> Path:
 _STATE_SCHEMA = 1
 
 
+def _harness_digest() -> str:
+    """SHA-256 over the two scripts that actually produce the verdict.
+
+    A checkpoint must not be resumable across a change of harness either. The
+    geometry guard above exists to stop two different *experiments* being
+    spliced into one verdict, but it could not see the case that actually
+    mattered in production: the fixed harness was redeployed over a checkpoint
+    whose batches had been produced by the buggy one, so the window would have
+    inherited two FAILED batches and could never return PASS — leaving the
+    operator to either accept a permanently-red window or hand-edit the
+    checkpoint by hand. Neither is honest.
+
+    Digests of the files, not the git HEAD: the deployed container may not carry
+    ``.git``, and "which revision is running" must be answerable from the volume
+    alone. Including the supervisor's own source means any edit to the resume
+    logic itself also supersedes.
+    """
+    digest = hashlib.sha256()
+    for path in (Path(__file__), HARNESS):
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()[:16]
+
+
 def _state_fingerprint(
     window_s: float, batch_cycles: int, interval_minutes: float, label: str
 ) -> dict[str, Any]:
@@ -94,6 +119,7 @@ def _state_fingerprint(
         "window_seconds": round(window_s, 3),
         "batch_cycles": batch_cycles,
         "interval_minutes": interval_minutes,
+        "harness_digest": _harness_digest(),
     }
 
 
