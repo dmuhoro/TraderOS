@@ -16,6 +16,15 @@ AlpacaBrokerAdapter) for ``cycles`` market orders against the real Alpaca
 paper endpoint, then reconciles broker truth against the journal + local
 position book.
 
+CLOSE-OUT IS ORDERS *AND* POSITIONS. Each batch closes out what it opened:
+its own resting orders (cancel) and its own net position delta (market close),
+so a multi-day run cannot walk the account into a holding until buying power
+is exhausted and every later order is rejected. Only the delta versus the
+batch's own pre-run baseline is closed — a pre-existing holding is never
+touched — and reconciliation is therefore run against that captured baseline:
+the assertion is "broker truth ends where this run found it", not "the
+account happens to be empty".
+
 Run (env-only paper keys):
     ALPACA_API_KEY=... ALPACA_SECRET_KEY=... \
     PYTHONPATH=. python3 scripts/evidence/run_real_paper_soak.py [cycles]
@@ -151,30 +160,43 @@ def _cancel_residue(
 ) -> tuple[list[str], bool]:
     """Cancel this run's own residue and wait for the broker to settle.
 
-    Returns ``(cancel_failures, resettled)``. Never raises: an unattended soak
+    Returns ``(still_resting, resettled)``. Never raises: an unattended soak
     must always finish its own close-out and record the outcome honestly, even
     when the broker is unreachable — a leaked order is evidence, not something
     to crash on and lose the record of.
+
+    The guarantee checked here is "none of OUR orders is still resting at the
+    broker", NOT "every cancel call returned success". The two differ, and the
+    difference decided a real batch: a market order that filled in the gap
+    between the open-orders snapshot and the cancel cannot be cancelled (the
+    broker refuses to cancel a filled order), so a cancel-response check scored
+    that as leaked residue and failed a batch that had in fact left the account
+    exactly as it found it. The residue of a fill is closed out by the position
+    flatten, which is where a fill actually has to be undone.
     """
-    failures: list[str] = []
+    ours = {str(order.get("id", "?")) for order in orders}
     for order in orders:
         try:
-            if not adapter.cancel_order(order["id"]).filled:
-                failures.append(str(order.get("id", "?")))
+            adapter.cancel_order(order["id"])
         except Exception as exc:  # noqa: BLE001 — record, never crash the close-out
-            print(f"cancel failed for {order.get('id', '?')}: {exc}", flush=True)
-            failures.append(str(order.get("id", "?")))
+            print(f"cancel raised for {order.get('id', '?')}: {exc}", flush=True)
+
+    if not ours:
+        return [], True
 
     deadline = time.monotonic() + settle_waits
-    resettled = not orders
-    while not resettled and time.monotonic() < deadline:
-        time.sleep(2)
+    while True:
         remaining = _snapshot_open_orders(adapter)
-        if remaining is None:
-            continue
-        if not [o for o in remaining if o["id"] in {c["id"] for c in orders}]:
-            resettled = True
-    return failures, resettled
+        if remaining is not None:
+            still = {str(o["id"]) for o in remaining if str(o["id"]) in ours}
+            if not still:
+                return [], True
+        elif time.monotonic() >= deadline:
+            # Never treat an unverifiable read as a clean account.
+            return sorted(ours), False
+        if time.monotonic() >= deadline:
+            return sorted(ours), False
+        time.sleep(2)
 
 
 def _own_residue(
@@ -202,6 +224,108 @@ def _own_residue(
         if str(o.get("client_order_id", "")).startswith("latprobe-")
         or (o["symbol"] == SOAK_SYMBOL and o["id"] not in baseline_open_ids)
     ]
+
+
+# Fractional broker quantities make an exact float equality the wrong test; this
+# is far below any real fill but far above float noise.
+_POSITION_EPSILON = 1e-6
+# A close-out is bounded by BOTH the settle deadline and an attempt cap: a
+# refused market close must not turn into an unbounded submit loop against a
+# broker that is already saying no.
+_FLATTEN_MAX_ATTEMPTS = 3
+
+
+def _positions_by_symbol(adapter: AlpacaBrokerAdapter) -> dict[str, float] | None:
+    """Broker positions keyed by symbol (summed), or ``None`` when unreadable.
+
+    Same fail-closed contract as ``_snapshot_open_orders``: "we could not ask
+    the broker" is never collapsed into "nothing is held". An unattended soak
+    that mistakes an unreadable position book for a flat one would liquidate
+    nothing and call a permanently maxed-out account clean.
+    """
+    try:
+        positions = adapter.get_positions()
+    except Exception as exc:  # noqa: BLE001 — record, never crash the close-out
+        print(f"broker positions read failed: {exc}", flush=True)
+        return None
+    by_symbol: dict[str, float] = {}
+    for pos in positions:
+        symbol = str(pos.get("symbol", ""))
+        by_symbol[symbol] = by_symbol.get(symbol, 0.0) + float(pos.get("qty", 0.0))
+    return by_symbol
+
+
+def _flatten_own_delta(
+    adapter: AlpacaBrokerAdapter,
+    market_id: uuid.UUID,
+    baseline: dict[str, float] | None,
+    settle_waits: int,
+) -> tuple[list[str], bool, list[str]]:
+    """Close this run's NET position delta, returning the account to ``baseline``.
+
+    Why this must exist: a soak that only ever buys accumulates a holding, and
+    a long multi-day run will eventually exhaust the account's buying power —
+    after which *every* subsequent buy is rejected and the soak silently stops
+    exercising the path it exists to prove. (That is exactly what happened to
+    the real paper account: 712.5 AAPL, buying_power=0.)
+
+    Ownership, same rule as ``_own_residue`` applies to resting orders: only
+    the delta this run opened versus its own pre-run baseline is closed. A
+    pre-existing holding — which on a shared account may be an operator's — is
+    left strictly alone.
+
+    The verdict is "the position is demonstrably back at baseline", never "every
+    close returned a filled response". A fractional market close is frequently
+    ``pending`` when the ack arrives and fills a moment later, so scoring the
+    ack would fail every batch whose close-out actually worked. Retries are
+    capped only against a broker that definitively REFUSES: a refusal is
+    counted, a slow fill is waited out, so a close-out can neither spam a
+    refusing broker nor give up on a settling one.
+
+    Returns ``(failures, resettled, notes)``. Never raises: crashing here would
+    leak the position we were trying to close, which is evidence, not something
+    to die on.
+    """
+    if baseline is None:
+        return ["position baseline unreadable — refusing to flatten blind"], False, []
+
+    notes: list[str] = []
+    refused = 0
+    base_qty = baseline.get(SOAK_SYMBOL, 0.0)
+    deadline = time.monotonic() + settle_waits
+    while True:
+        current = _positions_by_symbol(adapter)
+        if current is None:
+            return ["positions unreadable during flatten"], False, notes
+        delta = current.get(SOAK_SYMBOL, 0.0) - base_qty
+        if abs(delta) <= _POSITION_EPSILON:
+            return [], True, notes
+        if time.monotonic() >= deadline or refused >= _FLATTEN_MAX_ATTEMPTS:
+            detail = (
+                f"position did not return to baseline "
+                f"(net {delta:+.6f} {SOAK_SYMBOL}, {refused} refused close(s))"
+            )
+            return [detail], False, notes
+
+        side = "sell" if delta > 0 else "buy"
+        try:
+            fill = adapter.place_market_order(
+                market_id,
+                side,
+                abs(delta),
+                client_order_id=f"soakflat-{uuid.uuid4().hex[:12]}",
+            )
+        except Exception as exc:  # noqa: BLE001 — record, never crash the close-out
+            refused += 1
+            notes.append(f"flatten {side} {abs(delta):.6f} raised: {exc}")
+            print(f"flatten {side} failed: {exc}", flush=True)
+        else:
+            if fill.status == "rejected":
+                refused += 1
+                notes.append(f"flatten {side} {abs(delta):.6f} rejected: {fill.order_id}")
+            else:
+                notes.append(f"flatten {side} {abs(delta):.6f} {fill.status}")
+        time.sleep(2)
 
 
 def main(argv: list[str]) -> int:
@@ -285,9 +409,13 @@ def main(argv: list[str]) -> int:
 
     strategy_registry.register(_Strat)
     baseline_open_ids: set[str] | None = None
+    baseline_positions: dict[str, float] | None = None
     runner_open_orders: list[dict] = []
-    cancel_failures: list[str] = []
+    still_resting: list[str] = []
     resettled = False
+    position_failures: list[str] = []
+    position_notes: list[str] = []
+    positions_resettled = False
     crash: str | None = None
     try:
         executor = build_executor()
@@ -299,6 +427,7 @@ def main(argv: list[str]) -> int:
         baseline = _snapshot_open_orders(adapter)
         if baseline is not None:
             baseline_open_ids = {str(o["id"]) for o in baseline}
+        baseline_positions = _positions_by_symbol(adapter)
 
         results: list[tuple[bool, str]] = []
         for i in range(cycles):
@@ -339,31 +468,38 @@ def main(argv: list[str]) -> int:
             lines.append("close-out: broker open-orders read failed; residue unverified")
         else:
             runner_open_orders = claimed
-            cancel_failures, resettled = _cancel_residue(adapter, claimed, settle_waits)
+            still_resting, resettled = _cancel_residue(adapter, claimed, settle_waits)
+
+        # Close out this run's own NET POSITION as well as its resting orders.
+        # Only orders were ever closed out before, so the soak accumulated AAPL
+        # until buying power hit 0 and every later buy was rejected — the window
+        # then produced no fills and no verdict worth the name.
+        position_failures, positions_resettled, position_notes = _flatten_own_delta(
+            adapter, mid, baseline_positions, settle_waits
+        )
 
         filled = sum(1 for ok, _ in results if ok)
         not_filled = [e for _, e in results if e]
 
         snapshot = _snapshot_open_orders(adapter)
         broker_orders = len(snapshot) if snapshot is not None else -1
+        final_positions = _positions_by_symbol(adapter)
         journal_confirmed = journal.count()
         pending = len(journal.pending_events())
-        local_positions = [
-            {
-                # Keyed by the BROKER symbol, not the internal market UUID: the
-                # reconcile service matches on `symbol`, and the real broker
-                # reports "AAPL". Keying this by market_id made every held
-                # position look like a phantom local-only position next to a
-                # phantom broker-only one — a guaranteed false reconcile failure
-                # on any batch where the soak actually held a position.
-                "symbol": SOAK_SYMBOL,
-                "market_id": str(p.market_id),
-                "qty": p.quantity,
-                "current_price": p.current_price,
-                "entry_price": p.entry_price,
-            }
-            for p in SQLitePositionRepository(conn).list_open()
-        ]
+        # Reconcile against the PRE-RUN BASELINE, not this run's throwaway
+        # in-memory book. The book starts empty every batch while the real
+        # account carries whatever the account started with, so comparing the
+        # two flagged any pre-existing holding as a phantom broker-only position
+        # and the soak could never return PASS. The contract the soak actually
+        # asserts is "broker truth ends where this run found it": our own delta
+        # was flattened (below), the baseline we never touched is acknowledged,
+        # and the journal has no unconfirmed intent. A symbol the run opened and
+        # failed to close is therefore caught as a genuine mismatch.
+        local_positions = (
+            [{"symbol": sym, "qty": qty} for sym, qty in baseline_positions.items()]
+            if baseline_positions is not None
+            else []
+        )
         recon = BrokerStateReconciliationService(broker=adapter).reconcile(
             local_positions=local_positions,
             local_orders=[],
@@ -378,12 +514,17 @@ def main(argv: list[str]) -> int:
         # confirmed == submit attempts. An unverifiable broker read is NOT a
         # clean account — it fails closed.
         baseline_count = len(baseline_open_ids) if baseline_open_ids is not None else -1
+        baseline_qty = baseline_positions.get(SOAK_SYMBOL, 0.0) if baseline_positions else 0.0
         no_lost = pending == 0
         no_residue = (
-            cancel_failures == []
+            still_resting == []
             and resettled
+            and position_failures == []
+            and positions_resettled
             and snapshot is not None
             and baseline_open_ids is not None
+            and baseline_positions is not None
+            and final_positions is not None
             and broker_orders == baseline_count
         )
         reconcile_clean = recon.errors == [] and not recon.has_mismatches
@@ -400,12 +541,23 @@ def main(argv: list[str]) -> int:
         lines.append(f"journal_confirmed={journal_confirmed} journal_pending={pending}")
         lines.append(
             f"runner_open_orders={len(runner_open_orders)} "
-            f"cancel_failures={len(cancel_failures)} resettled={resettled}"
+            f"still_resting={len(still_resting)} resettled={resettled}"
         )
         lines.append(
             f"broker_open_orders_after={broker_orders} " f"baseline_open_orders={baseline_count}"
         )
-        lines.append(f"local_positions={len(local_positions)}")
+        lines.append(
+            f"{SOAK_SYMBOL} baseline_qty={baseline_qty:.6f} "
+            f"after_qty={(final_positions or {}).get(SOAK_SYMBOL, 0.0):.6f}"
+        )
+        lines.append(
+            f"position_closes={len(position_notes)} "
+            f"positions_back_at_baseline={positions_resettled}"
+        )
+        lines.append(
+            f"local_positions={len(local_positions)} "
+            f"(pre-run broker baseline, not the run's throwaway book)"
+        )
         lines.append(f"reconcile_errors={len(recon.errors)} mismatches={len(recon.mismatches)}")
         lines.append("")
         lines.append(f"0 lost orders (no pending intents):       {no_lost}")
@@ -431,13 +583,20 @@ def main(argv: list[str]) -> int:
         raise
     finally:
         # Close-out runs in `finally` so a crash anywhere above can never leak
-        # resting orders on the paper account, and the crash is always recorded
-        # to the evidence file — an unattended soak must never vanish silently
-        # (AGENTS: no silent drops).
+        # resting orders OR an open position on the paper account, and the crash
+        # is always recorded to the evidence file — an unattended soak must never
+        # vanish silently (AGENTS: no silent drops).
         if baseline_open_ids is not None:
             claimed = _own_residue(adapter, baseline_open_ids)
             if claimed:
-                cancel_failures, resettled = _cancel_residue(adapter, claimed, settle_waits)
+                still_resting, resettled = _cancel_residue(adapter, claimed, settle_waits)
+        if baseline_positions is not None:
+            crash_closes, crash_flat, crash_notes = _flatten_own_delta(
+                adapter, mid, baseline_positions, settle_waits
+            )
+            position_failures = list(position_failures) + crash_closes
+            position_notes = list(position_notes) + crash_notes
+            positions_resettled = positions_resettled or crash_flat
         strategy_registry.unregister("evidence_real_paper_strat")
         if crash is not None:
             _emit(
@@ -451,7 +610,12 @@ def main(argv: list[str]) -> int:
                     *lines,
                     (
                         "crash-closeout: cancelled own residue in finally "
-                        f"cancel_failures={len(cancel_failures)} resettled={resettled}"
+                        f"still_resting={len(still_resting)} resettled={resettled}"
+                    ),
+                    (
+                        "crash-closeout: flattened own position in finally "
+                        f"position_closes={len(position_notes)} "
+                        f"positions_back_at_baseline={positions_resettled}"
                     ),
                     "VERDICT: CRASH (harness aborted; residue closed out, run must be re-run)",
                     f"Evidence: {OUT}",
