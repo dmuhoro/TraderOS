@@ -1,0 +1,19 @@
+INDEPENDENT POST-BATCH ACCOUNT VERIFICATION — G-02 soak position close-out
+checked 2026-10-01T16:23:28.493637+00:00
+purpose: the harness reported after_qty=0.000000 and VERDICT PASS on a batch that had
+actually leaked 132.05154639 AAPL, so its own verdict is not trusted as proof. This reads
+the broker account directly at three checkpoints after the 16:22:38Z batch closed out.
+the broker's POSITION book lags FILL settlement, which is how that leak hid.
+
+  t+  0s  positions=[]  open_orders=[]  cash=111965.78  buying_power=447863.12
+  t+ 60s  positions=[]  open_orders=[]  cash=111965.78  buying_power=447863.12
+  t+120s  positions=[]  open_orders=[]  cash=111965.78  buying_power=447863.12
+
+leaked_position_after_batch=False
+also: two further consecutive batches (16:16Z, 16:19Z) each reported
+  baseline_qty=0.000000 after_qty=0.000000  VERDICT PASS
+a repeat run matters because the original leak did NOT appear in the batch that caused
+it — it surfaced only as a non-zero baseline_qty on the FOLLOWING run, which then
+inherited the shares as a 'pre-existing baseline' it was forbidden to touch. Two further
+runs reporting a zero baseline are what show the leak is gone rather than merely hidden.
+VERDICT: PASS — account independently confirmed flat at every checkpoint
