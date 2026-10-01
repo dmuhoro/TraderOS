@@ -1,5 +1,60 @@
 # Changelog - TraderOS
 
+## [1.3.1] - 2026-10-01
+
+Patch on the v1.3.0 launch candidate: the G-02 unattended paper soak — the
+CRITICAL GO gate and the Layer 8 / CAP-14 exit test — had been CRASHED with no
+verdict since ~2026-08-25. This release closes the software defects that made it
+unfinishable and hardens the LIVE reconciliation path. No new capability.
+
+### Fixed
+- **Broker read/cancel paths no longer crash on a transient outage.** The
+  batch-005 defect: `AlpacaBrokerAdapter.get_open_orders` / `get_positions` /
+  `get_account_balance` had no retry, so a single Alpaca 503 raised out of the
+  adapter and aborted the batch. They now retry 429/5xx with backoff and raise
+  `ServiceError` only after retries are exhausted (fail closed, never a bare
+  `APIError`); permanent 4xx fails fast without burning backoff. `cancel_order`
+  retries the same way and returns a clean rejected `FillResult` — a failed
+  cancel during close-out leaks a resting order, so it must not crash the
+  close-out either. (Sprint 47 hardened submissions; this closes the reads.)
+- **The 72h window survives a supervisor restart.** The runner measured its
+  window from `time.monotonic()` at process start, so every restart silently
+  began a fresh 72h window and discarded elapsed time; combined with
+  `restartPolicyMaxRetries=3`, the service exhausted its retries and went
+  CRASHED. The window is now checkpointed atomically to the persistent volume
+  and a restart CONTINUES from accumulated elapsed time (batches, counts,
+  original `started_at`, restart count carry forward). Measured: pre-fix a
+  restart burned a second full window (40.2s of a 30s window); post-fix 30.4s.
+- **Reconcile now speaks the broker's symbol, not the internal market id.** A
+  latent LIVE defect: local reconciliation state was keyed by
+  `str(market_id)` while a real broker reports `"AAPL"`, so every held position
+  appeared as a phantom local-only + broker-only mismatch. In LIVE this fails
+  closed and blocks order acceptance for as long as any position is open. The
+  orchestrator resolves the symbol through the same map the adapter submits
+  with. The existing tests could not see it (their mocks echoed the UUID back).
+
+### Hardened
+- **No silent drops in the soak harness.** Evidence is written and `fsync`'d
+  before stdout so a dead log drain cannot cost the row; a failed open-orders
+  read returns `None` (never `[]`) so "could not ask the broker" cannot
+  masquerade as "the account is clean"; close-out and crash recording run in
+  `finally` and carry the partial run. Unverifiable broker truth fails closed.
+- **`railway.soak.toml`:** `restartPolicyMaxRetries` 3 → 50. With resume,
+  retries are productive; the bound still fails closed against a crash loop.
+
+### Verification
+- 2346 tests pass (7 skipped); ruff / black / isort / pyright clean.
+- 12 new adapter retry tests, **9 proven to fail without the fix**; 3 new
+  orchestrator tests including an in-test negative control; 4 resume-drill
+  tests (`tests/test_soak_resume_drill.py`).
+- Evidence: `docs/evidence/2026-10-01_soak_resume_drill.log`.
+
+### Residuals (operator-run, unchanged)
+- The 72h window itself: redeploy `traderos-soak` and confirm every batch
+  green. This release makes it achievable; it does not run it.
+- G-01 (a genuine cost-adjusted OOS edge) remains open; the pilot is
+  **DATA-VALIDATION ONLY**, no PnL claim.
+
 ## [Unreleased]
 
 ### Sprint 41 (2026-08-20) — product completeness: honest backtest, durable research store, pagination, real-feed wiring
