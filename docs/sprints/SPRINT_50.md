@@ -137,6 +137,42 @@ that caused it — only in the *next* run's baseline. One green batch proves
 nothing; two more reporting a zero baseline is what distinguishes a fixed leak
 from a merely hidden one.
 
+## L6 — A checkpoint is not resumable across a change of HARNESS (DONE)
+
+The resume fingerprint guarded window / batch-size / interval / label, but not
+the **code that produces the verdict**. The consequence was immediate and
+waiting: the fixed soak was about to be redeployed on top of a checkpoint whose
+batch 001 and 002 came from the leaky harness, so the new window would have
+inherited two **FAILED** batches and could never return PASS. The operator's
+only options would be to accept a permanently-red window or hand-edit the
+checkpoint — neither honest, and both exactly the splicing the supersede guard
+exists to prevent. It simply could not see the code dimension.
+
+`_state_fingerprint` now carries a SHA-256 over the supervisor and the batch
+harness, so a change to either supersedes the checkpoint like a geometry change
+does: the old one is preserved as `.superseded`, a fresh window starts. Digests
+of the **files**, not `git HEAD` — the deployed container need not carry `.git`,
+and "which revision is running" has to be answerable from the volume alone.
+
+Observed in production: the redeployed runner printed `fresh window`, not
+`resuming`.
+
+## L7 — The soak service has no source connection; `railway redeploy` runs a stale image (DONE)
+
+`traderos-soak` deployments are reported with `reason=redeploy`, i.e. Railway
+re-runs the **last built image**. Neither `railway redeploy` nor
+`railway redeploy --from-source` picked up the fix: two consecutive
+"redeploys" ran the pre-fix harness and leaked a further **389.29 AAPL** into
+the paper account (cash down to −15,963.64) before it was caught. The
+production `TraderOS` service *is* connected (`reason=deploy` on push), so the
+difference is invisible from the CLI.
+
+`railway up -s traderos-soak --detach --yes` builds from the working tree. The
+runbook now documents the trap, the correct command, and — the part that matters
+— how to tell from the batch output whether the running code is the fixed one
+(`still_resting=` / `positions_back_at_baseline=` versus the old
+`cancel_failures=`).
+
 ## L5 — A pre-existing flake in the resync suite (DONE)
 
 Unrelated to the soak, but it made a green gate a coin flip.
@@ -173,12 +209,13 @@ Evidence: `docs/evidence/2026-10-01_soak_account_reset.log`.
 
 | Check | Result |
 |---|---|
-| Full suite (`pytest`) | **2363 passed / 7 skipped** (484s) |
+| Full suite (`pytest`) | **2364 passed / 7 skipped** (543s) |
 | ruff / black / isort / pyright | clean |
 | New soak position tests | `tests/test_soak_position_flat.py`, **17** (2 proven to fail without the quiescence fix) |
 | Real paper batch (live broker) | **VERDICT: PASS**, `mismatches=0`, median 306.9 ms |
 | Independent account check | **flat at t+0/+60/+120s**, verified outside the harness |
 | Repeat batches | 2 further consecutive batches, `baseline_qty=0.000000` |
+| **Cloud** `traderos-soak` batch 001 | **PASS** on a fresh window, independently confirmed flat at t+0/+60/+120/+180s (`2026-10-01_cloud_soak_batch001_independent_check.log`) |
 | Negative control | pre-fix harness → `mismatches=1`, FAIL |
 | Version gate | pyproject == settings.yaml == settings.production.example.yaml == 1.3.2 |
 
@@ -192,9 +229,14 @@ Evidence: `docs/evidence/2026-10-01_soak_account_reset.log`.
 - **The proof is per-batch, not per-window.** Each batch is now independently
   verified, but nothing here observes 72h of accumulated drift — that remains
   what the window is for.
-- The window that batch 001 failed has a **failed batch in its aggregate**. A
-  fresh checkpoint (or a geometry change that supersedes it) is required before
-  a final verdict can mean anything — an honest window, not a laundered one.
+- The window that batch 001 failed has a **failed batch in its aggregate**. L6
+  now supersedes it automatically on the harness change, so the operator gets an
+  honest fresh window rather than a laundered one — but that only helps if the
+  new harness is actually deployed (L7).
+- **The soak service will not deploy itself from a push.** Until a GitHub source
+  is connected to `traderos-soak`, every deployment is a manual
+  `railway up -s traderos-soak`. A push alone changes nothing on that service,
+  and the failure is silent: the deploy reports success.
 - **G-01** (a genuine cost-adjusted edge on out-of-sample data) is unchanged and
   open. The pilot remains **DATA-VALIDATION ONLY**; no PnL claim.
 - `positions_back_at_baseline` compares against the pre-run snapshot, so a

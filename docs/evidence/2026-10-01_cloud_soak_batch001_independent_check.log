@@ -1,0 +1,13 @@
+INDEPENDENT VERIFICATION OF THE REDEPLOYED CLOUD SOAK — 2026-10-01T17:33:35.671535+00:00
+deployment 855fb1c4 (railway up from the working tree, after the soak service was found
+to have NO GitHub source connection and was re-running a stale image that still leaked).
+batch 001 reported VERDICT PASS at 17:32:14Z on a fresh window. The harness's own verdict
+is not trusted as proof here — that gate has lied before. Reading the broker account directly.
+
+  t+  0s  positions=[]  open_orders=[]  cash=112046.38  buying_power=448185.52
+  t+ 60s  positions=[]  open_orders=[]  cash=112046.38  buying_power=448185.52
+  t+120s  positions=[]  open_orders=[]  cash=112046.38  buying_power=448185.52
+  t+180s  positions=[]  open_orders=[]  cash=112046.38  buying_power=448185.52
+
+leaked_position_after_batch=False
+VERDICT: PASS — cloud soak independently confirmed flat at every checkpoint

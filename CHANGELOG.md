@@ -1,5 +1,64 @@
 # Changelog - TraderOS
 
+## [1.3.3] - 2026-10-01
+
+Patch on v1.3.2, cutting the two defects found while deploying and measuring
+v1.3.2 rather than while writing it. Both would have silently defeated the
+v1.3.2 fix. No new capability.
+
+### Fixed
+- **A soak checkpoint is no longer resumable across a change of HARNESS.** The
+  resume fingerprint guarded window / batch-size / interval / label but not the
+  code that produces the verdict. The fixed soak was about to be redeployed on
+  top of a checkpoint whose batch 001 and 002 were produced by the leaky
+  harness, so the new window would have inherited two **FAILED** batches and
+  could never return PASS — leaving the operator to accept a permanently-red
+  window or hand-edit the checkpoint by hand. Neither is honest, and both are
+  exactly the splicing the supersede guard exists to prevent; it just could not
+  see the code dimension. `_state_fingerprint` now carries a SHA-256 over the
+  supervisor and the batch harness, so a change to either supersedes the
+  checkpoint exactly as a geometry change does. Digests of the FILES rather than
+  git HEAD, because the deployed container need not carry `.git` and "which
+  revision is running" must be answerable from the volume alone. Observed in
+  production: the redeployed runner printed `fresh window`.
+- **`traderos-soak` deployments no longer silently reuse a stale image.** The
+  service has no GitHub source connection — its deployments are reported with
+  `reason=redeploy`, meaning Railway re-runs the last built image. Neither
+  `railway redeploy` nor `railway redeploy --from-source` picked up the v1.3.2
+  fix: two consecutive "redeploys" ran the pre-fix harness and leaked a further
+  **389.29 AAPL** into the paper account (cash to -15,963.64) before it was
+  caught. The production `TraderOS` service IS connected (`reason=deploy` on
+  push), so the difference is invisible from the CLI. `railway up -s
+  traderos-soak --detach --yes` builds from the working tree, and
+  `docs/runbooks/RAILWAY_DEPLOY.md` now documents the trap, the correct command,
+  and how to tell from the batch output whether the running code is the fixed
+  one (`still_resting=` / `positions_back_at_baseline=` versus the old
+  `cancel_failures=`).
+
+### Fixed (test infrastructure)
+- **`test_changed_harness_supersedes_...` no longer depends on a coin flip.** It
+  compared two completed 30s windows' `elapsed_seconds`, so it failed roughly 1
+  run in 2 for reasons unrelated to what it asserts. It now proves the thing
+  directly: a resume carries the old `started_at` forward, so a fresh window
+  must not, and the new window must record the digest of the harness that
+  produced it. Timing-independent.
+
+### Verified
+- **2364 tests pass (7 skipped)**; ruff, black, isort, pyright (strict) clean.
+- **Cloud `traderos-soak` batch 001: `VERDICT: PASS`** on a fresh
+  window with the fixed harness, and the account **independently confirmed flat**
+  at t+0/+60/+120/+180s by reading the broker directly rather than trusting the
+  harness verdict (`2026-10-01_cloud_soak_batch001_independent_check.log`).
+- The paper account was reclaimed twice more (245.86 and 389.29 AAPL leaked by
+  the stale image), ending flat with no open orders.
+
+### Honest residuals
+- The **72h window is still operator-run and wall-clock**. Nothing in this
+  release observes 72h of drift.
+- **`traderos-soak` still has no GitHub source connected.** Until an operator
+  connects one, a push changes nothing on that service and the failure is silent
+  — the deploy reports success. This is now documented, not fixed.
+
 ## [1.3.2] - 2026-10-01
 
 Patch on v1.3.1. v1.3.1 made the G-02 unattended soak *finishable*; redeploying
