@@ -234,6 +234,72 @@ def test_flatten_does_not_loop_forever_against_a_refusing_broker(harness, monkey
     assert adapter.sells == 0.0, "a refusing broker must not be spammed"
 
 
+def test_lagging_position_book_cannot_produce_a_false_pass(harness, monkeypatch) -> None:
+    """The second-order defect: Alpaca's position book LAGS fill settlement.
+
+    A batch read positions once at the end of close-out, saw a stale flat book,
+    and printed ``after_qty=0.000000`` / ``positions_back_at_baseline=True`` /
+    ``VERDICT: PASS`` — while 132.05154639 shares of its own buying were still
+    in flight. The next run inherited them as a "pre-run baseline" it was
+    forbidden to touch, so the leak became permanent and self-legitimising.
+
+    So the book must be shown to be AT REST (two consecutive identical reads)
+    before it may declare anything. Here the fill only becomes visible on the
+    third read: a single-read implementation returns "flat" and passes.
+    """
+    monkeypatch.setattr(harness.time, "sleep", lambda _s: None)
+
+    class _LaggingBook(_FakeAdapter):
+        """Reports flat until the second read, then reveals the in-flight fill."""
+
+        def __init__(self) -> None:
+            super().__init__(baseline_qty=0.0)
+            self.reads = 0
+            self._revealed = False
+
+        def get_positions(self) -> list[dict]:
+            self.reads += 1
+            if self.reads <= 2:
+                return []  # the fill has not propagated yet
+            if not self._revealed:
+                self._revealed = True
+                self.qty = 132.05154639
+            return super().get_positions()
+
+    adapter = _LaggingBook()
+    failures, resettled, _notes = harness._flatten_own_delta(
+        adapter, uuid.uuid4(), {"AAPL": 0.0}, settle_waits=60
+    )
+
+    assert resettled is True, "the disclosed delta is closed"
+    assert failures == []
+    assert adapter.qty == pytest.approx(0.0), "the in-flight fill is not left behind"
+    assert adapter.reads >= 4, "a single read would have declared a false flat"
+
+
+def test_position_book_that_never_settles_fails_closed(harness, monkeypatch) -> None:
+    """A book still moving at the deadline fails closed rather than passing."""
+    monkeypatch.setattr(harness.time, "sleep", lambda _s: None)
+
+    class _AlwaysMoving(_FakeAdapter):
+        def __init__(self) -> None:
+            super().__init__(baseline_qty=0.0)
+            self.reads = 0
+
+        def get_positions(self) -> list[dict]:
+            self.reads += 1
+            self.qty = float(self.reads)  # never the same twice
+            return super().get_positions()
+
+    adapter = _AlwaysMoving()
+    failures, resettled, _notes = harness._flatten_own_delta(
+        adapter, uuid.uuid4(), {"AAPL": 0.0}, settle_waits=0
+    )
+
+    assert resettled is False
+    assert any("never reached rest" in f for f in failures)
+
+
 def test_flatten_waits_out_a_pending_close_instead_of_failing(harness, monkeypatch) -> None:
     """The real close-out shape: a fractional market close acks ``pending``.
 
@@ -411,7 +477,7 @@ def _run_real_harness(tmp_path: Path, *, allow_flatten: bool) -> subprocess.Comp
             ALPACA_API_KEY="stub-key",
             ALPACA_SECRET_KEY="stub-secret",
             SOAK_LATENCY_PROBES="2",
-            SOAK_SETTLE_SECONDS="2",
+            SOAK_SETTLE_SECONDS="30",
             SOAK_LOG_LABEL="soak_flat_drill",
         ),
         timeout=300,

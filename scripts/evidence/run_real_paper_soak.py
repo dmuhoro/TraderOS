@@ -233,6 +233,56 @@ _POSITION_EPSILON = 1e-6
 # refused market close must not turn into an unbounded submit loop against a
 # broker that is already saying no.
 _FLATTEN_MAX_ATTEMPTS = 3
+# The position book must be shown to be AT REST before it is allowed to declare
+# anything, and "at rest" means this many consecutive identical reads.
+_POSITION_QUIESCENCE_READS = 2
+_QUIESCENCE_POLL_SECONDS = 2.0
+
+
+def _await_position_quiescence(
+    adapter: AlpacaBrokerAdapter, settle_waits: float
+) -> dict[str, float] | None:
+    """Poll positions until two consecutive reads agree; ``None`` if never at rest.
+
+    Alpaca's POSITION book lags FILL settlement. An order that has already
+    filled can still read as absent for a second or more, so a single read
+    taken at the end of close-out proves nothing. That is not theoretical: a
+    batch reported ``after_qty=0.000000`` and ``positions_back_at_baseline=True``
+    — and PASS — while 132.05154639 shares of its own buying were still in
+    flight. The NEXT run then inherited those shares as a "pre-run baseline"
+    it was forbidden to touch, so the leak became permanent and self-
+    legitimising.
+
+    The precondition that makes quiescence sufficient: ``_cancel_residue`` has
+    already established that none of this run's orders is still open, so no
+    further fill can originate from them. Once such an order is terminal and
+    the position book has stopped moving, the delta is final and correct.
+
+    Returns ``None`` on an unreadable book or on a book that never settles —
+    both fail closed, because a soak that mistakes a moving book for a flat one
+    is exactly the defect this exists to prevent.
+    """
+    previous = _positions_by_symbol(adapter)
+    if previous is None:
+        return None
+
+    deadline = time.monotonic() + settle_waits
+    stable = 0
+    while True:
+        time.sleep(_QUIESCENCE_POLL_SECONDS)
+        current = _positions_by_symbol(adapter)
+        if current is None:
+            return None
+        if current == previous:
+            stable += 1
+            if stable >= _POSITION_QUIESCENCE_READS:
+                return current
+        else:
+            # Still landing. Restart the count against the new truth.
+            stable = 0
+            previous = current
+        if time.monotonic() >= deadline:
+            return None
 
 
 def _positions_by_symbol(adapter: AlpacaBrokerAdapter) -> dict[str, float] | None:
@@ -294,9 +344,12 @@ def _flatten_own_delta(
     base_qty = baseline.get(SOAK_SYMBOL, 0.0)
     deadline = time.monotonic() + settle_waits
     while True:
-        current = _positions_by_symbol(adapter)
+        # Bound each quiescence wait by what is LEFT of the overall deadline, so
+        # nesting it here cannot quietly multiply the close-out's time budget.
+        remaining = deadline - time.monotonic()
+        current = _await_position_quiescence(adapter, max(remaining, 0.0))
         if current is None:
-            return ["positions unreadable during flatten"], False, notes
+            return ["position book never reached rest during flatten"], False, notes
         delta = current.get(SOAK_SYMBOL, 0.0) - base_qty
         if abs(delta) <= _POSITION_EPSILON:
             return [], True, notes
@@ -483,7 +536,10 @@ def main(argv: list[str]) -> int:
 
         snapshot = _snapshot_open_orders(adapter)
         broker_orders = len(snapshot) if snapshot is not None else -1
-        final_positions = _positions_by_symbol(adapter)
+        # The final read must also be quiescence-gated. An ungated read here is
+        # what let a batch print after_qty=0.000000 and PASS while 132 shares of
+        # its own buying were still landing.
+        final_positions = _await_position_quiescence(adapter, settle_waits)
         journal_confirmed = journal.count()
         pending = len(journal.pending_events())
         # Reconcile against the PRE-RUN BASELINE, not this run's throwaway
