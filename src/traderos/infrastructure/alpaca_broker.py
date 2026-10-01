@@ -359,21 +359,37 @@ class AlpacaBrokerAdapter(BrokerAdapter):
 
     def cancel_order(self, order_id: str) -> FillResult:
         try:
-            self._client.cancel_order_by_id(order_id)
+
+            def _submit() -> Any:
+                return self._client.cancel_order_by_id(order_id)
+
+            retry_with_backoff(_submit, max_retries=2, should_retry=_is_transient_api_error)
             return FillResult(True, 0.0, 0.0, 0.0, "cancelled", order_id)
         except _broker_error_types() as e:
             return FillResult(False, 0.0, 0.0, 0.0, "rejected", str(e))
 
     def get_account_balance(self) -> float:
         try:
-            account = self._client.get_account()
+
+            def _fetch() -> Any:
+                return self._client.get_account()
+
+            account = retry_with_backoff(
+                _fetch, max_retries=2, should_retry=_is_transient_api_error
+            )
             return float(account.equity)
         except _broker_error_types() as e:
             raise ServiceError(f"Failed to fetch account balance: {e}") from e
 
     def get_positions(self) -> list[dict]:
         try:
-            positions = self._client.get_all_positions()
+
+            def _fetch() -> Any:
+                return self._client.get_all_positions()
+
+            positions = retry_with_backoff(
+                _fetch, max_retries=2, should_retry=_is_transient_api_error
+            )
             return [
                 {
                     "symbol": p.symbol,
@@ -386,10 +402,18 @@ class AlpacaBrokerAdapter(BrokerAdapter):
             raise ServiceError(f"Failed to fetch positions: {e}") from e
 
     def get_open_orders(self) -> list[dict]:
-        if _GetOrdersRequest is None or _QueryOrderStatus is None:
+        # Bound to locals: the module-level symbols are Optional (absent without
+        # alpaca-py) and pyright cannot narrow them inside the retry closure.
+        request_cls = _GetOrdersRequest
+        status_cls = _QueryOrderStatus
+        if request_cls is None or status_cls is None:
             raise ImportError("alpaca-py is required. Install with: pip install alpaca-py")
         try:
-            orders = self._client.get_orders(_GetOrdersRequest(status=_QueryOrderStatus.OPEN))
+
+            def _fetch() -> Any:
+                return self._client.get_orders(request_cls(status=status_cls.OPEN))
+
+            orders = retry_with_backoff(_fetch, max_retries=2, should_retry=_is_transient_api_error)
             return [
                 {
                     "id": str(o.id),

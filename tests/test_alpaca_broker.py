@@ -34,6 +34,16 @@ class FakePosition:
         self.market_value = market_value
 
 
+class _FakeOpenOrder:
+    def __init__(self, id="o1", symbol="AAPL", qty="1.0", side="buy", type="market"):
+        self.id = id
+        self.symbol = symbol
+        self.qty = qty
+        self.side = side
+        self.type = type
+        self.client_order_id = ""
+
+
 def _build_mock_alpaca():
     alpaca = ModuleType("alpaca")
     trading = ModuleType("alpaca.trading")
@@ -432,14 +442,6 @@ class TestAlpacaBrokerAdapter:
         assert result.status == "rejected"
 
     def test_get_open_orders(self, _patch_alpaca):
-        class _FakeOpenOrder:
-            def __init__(self, id, symbol, qty, side, type):
-                self.id = id
-                self.symbol = symbol
-                self.qty = qty
-                self.side = side
-                self.type = type
-
         _patch_alpaca.get_orders.return_value = [
             _FakeOpenOrder("o1", "BTCUSD", "1.0", "buy", "market")
         ]
@@ -497,7 +499,24 @@ class TestAlpacaAPIErrorHandling:
         # Permanent 4xx must NOT burn retries behind a backoff.
         assert _patch_alpaca.submit_order.call_count == 1
 
-    def test_transient_503_on_get_open_orders_raises_service_error(self, _patch_alpaca):
+    def test_transient_503_on_get_open_orders_retries_then_succeeds(self, _patch_alpaca):
+        """The read path must retry a transient outage, not fail on the first.
+
+        The G-02 soak died on exactly this: a single 503 during the open-orders
+        sweep raised straight through the adapter and aborted the batch. Alpaca
+        returns 503/429 routinely under load; one blip must not end a 72h run.
+        """
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.get_orders.side_effect = [
+            api_error_cls("service temporary unavailable", status_code=503),
+            [_FakeOpenOrder()],
+        ]
+        adapter = self._make(_patch_alpaca)
+        orders = adapter.get_open_orders()
+        assert [o["id"] for o in orders] == ["o1"]
+        assert _patch_alpaca.get_orders.call_count == 2
+
+    def test_transient_503_on_get_open_orders_exhausts_then_raises(self, _patch_alpaca):
         api_error_cls = alpaca_broker._AlpacaAPIError
         _patch_alpaca.get_orders.side_effect = api_error_cls(
             "service temporary unavailable", status_code=503
@@ -505,8 +524,37 @@ class TestAlpacaAPIErrorHandling:
         adapter = self._make(_patch_alpaca)
         with pytest.raises(ServiceError, match="Failed to fetch open orders"):
             adapter.get_open_orders()
+        # Retried before giving up — and still fails CLOSED (never returns []).
+        assert _patch_alpaca.get_orders.call_count == 3
 
-    def test_transient_503_on_get_positions_raises_service_error(self, _patch_alpaca):
+    def test_transient_429_on_get_open_orders_is_retried(self, _patch_alpaca):
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.get_orders.side_effect = [
+            api_error_cls("rate limit", status_code=429),
+            [],
+        ]
+        adapter = self._make(_patch_alpaca)
+        assert adapter.get_open_orders() == []
+
+    def test_permanent_403_on_get_open_orders_fails_fast_no_retry(self, _patch_alpaca):
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.get_orders.side_effect = api_error_cls("forbidden", status_code=403)
+        adapter = self._make(_patch_alpaca)
+        with pytest.raises(ServiceError, match="Failed to fetch open orders"):
+            adapter.get_open_orders()
+        assert _patch_alpaca.get_orders.call_count == 1
+
+    def test_transient_503_on_get_positions_retries_then_succeeds(self, _patch_alpaca):
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.get_all_positions.side_effect = [
+            api_error_cls("service temporary unavailable", status_code=503),
+            [FakePosition(symbol="AAPL", qty="1.0", market_value="100.0")],
+        ]
+        adapter = self._make(_patch_alpaca)
+        assert adapter.get_positions() == [{"symbol": "AAPL", "qty": 1.0, "market_value": 100.0}]
+        assert _patch_alpaca.get_all_positions.call_count == 2
+
+    def test_transient_503_on_get_positions_exhausts_then_raises(self, _patch_alpaca):
         api_error_cls = alpaca_broker._AlpacaAPIError
         _patch_alpaca.get_all_positions.side_effect = api_error_cls(
             "service temporary unavailable", status_code=503
@@ -514,8 +562,19 @@ class TestAlpacaAPIErrorHandling:
         adapter = self._make(_patch_alpaca)
         with pytest.raises(ServiceError, match="Failed to fetch positions"):
             adapter.get_positions()
+        assert _patch_alpaca.get_all_positions.call_count == 3
 
-    def test_transient_503_on_get_account_raises_service_error(self, _patch_alpaca):
+    def test_transient_503_on_get_account_retries_then_succeeds(self, _patch_alpaca):
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.get_account.side_effect = [
+            api_error_cls("service temporary unavailable", status_code=503),
+            FakeAccount(equity="25000.0"),
+        ]
+        adapter = self._make(_patch_alpaca)
+        assert adapter.get_account_balance() == 25000.0
+        assert _patch_alpaca.get_account.call_count == 2
+
+    def test_transient_503_on_get_account_exhausts_then_raises(self, _patch_alpaca):
         api_error_cls = alpaca_broker._AlpacaAPIError
         _patch_alpaca.get_account.side_effect = api_error_cls(
             "service temporary unavailable", status_code=503
@@ -523,3 +582,40 @@ class TestAlpacaAPIErrorHandling:
         adapter = self._make(_patch_alpaca)
         with pytest.raises(ServiceError, match="Failed to fetch account balance"):
             adapter.get_account_balance()
+        assert _patch_alpaca.get_account.call_count == 3
+
+    def test_transient_503_on_cancel_retries_then_succeeds(self, _patch_alpaca):
+        """Close-out must retry: a failed cancel leaks a resting paper order."""
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.cancel_order_by_id.side_effect = [
+            api_error_cls("service temporary unavailable", status_code=503),
+            True,
+        ]
+        adapter = self._make(_patch_alpaca)
+        result = adapter.cancel_order("ord1")
+        assert result.filled is True
+        assert result.status == "cancelled"
+        assert _patch_alpaca.cancel_order_by_id.call_count == 2
+
+    def test_transient_503_on_cancel_exhausts_then_clean_reject(self, _patch_alpaca):
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.cancel_order_by_id.side_effect = api_error_cls(
+            "service temporary unavailable", status_code=503
+        )
+        adapter = self._make(_patch_alpaca)
+        result = adapter.cancel_order("ord1")
+        assert result.filled is False
+        assert result.status == "rejected"
+        assert _patch_alpaca.cancel_order_by_id.call_count == 3
+
+    def test_permanent_422_on_cancel_is_clean_reject_no_retry(self, _patch_alpaca):
+        """Alpaca 422s a cancel for an order already in a terminal state; that is
+        a permanent answer, so it must not burn retries behind a backoff."""
+        api_error_cls = alpaca_broker._AlpacaAPIError
+        _patch_alpaca.cancel_order_by_id.side_effect = api_error_cls(
+            "order is not open", status_code=422
+        )
+        adapter = self._make(_patch_alpaca)
+        result = adapter.cancel_order("ord1")
+        assert result.filled is False
+        assert _patch_alpaca.cancel_order_by_id.call_count == 1
