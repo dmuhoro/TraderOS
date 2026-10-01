@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import datetime
@@ -74,6 +75,11 @@ class TradingOrchestrator:
     reconciliation: OrderReconciliationService | None = None
     broker_reconciliation: BrokerStateReconciliationService | None = None
     preflight_service: PreflightService | None = None
+    # market_id -> the symbol the BROKER knows it by, so broker reconciliation
+    # compares broker-vocabulary against broker-vocabulary (see
+    # ``_broker_symbol``). None means "no broker mapping", which falls back to
+    # ``str(market_id)`` — correct for the paper broker, fail-closed otherwise.
+    symbol_resolver: Callable[[uuid.UUID], str] | None = None
 
     default_cash: float = float(os.getenv("DEFAULT_CASH", "10000.0"))
     market_ids: list[uuid.UUID] = field(default_factory=list)
@@ -107,16 +113,38 @@ class TradingOrchestrator:
                 for f in verdict.failures:
                     self.notifications.warning("Preflight", f)
 
+    def _broker_symbol(self, market_id: uuid.UUID) -> str:
+        """The symbol the BROKER knows this market by.
+
+        Reconciliation matches local state to broker state on ``symbol``. A real
+        broker (Alpaca) reports its own tickers ("AAPL"); keying local state by
+        ``str(market_id)`` instead made every held position appear twice — once
+        as a phantom ``local_only_position`` and once as a phantom
+        ``broker_only_position``. That is a permanent, self-inflicted reconcile
+        failure: in LIVE it fails closed and blocks order acceptance for as long
+        as any position is open, which is exactly when trading matters most.
+
+        ``symbol_resolver`` is the broker's own market-id -> symbol mapping
+        (the same one the adapter submits with), so both sides of the reconcile
+        speak the broker's language. When no mapping is supplied the internal id
+        is used verbatim, which is correct for the paper broker (it keys its own
+        positions by ``str(market_id)``) and fails closed rather than guessing
+        at a real ticker.
+        """
+        if self.symbol_resolver is None:
+            return str(market_id)
+        return self.symbol_resolver(market_id)
+
     def _local_reconciliation_state(self) -> tuple[list[dict], list[dict]]:
         """Local truth (positions + working orders) for broker reconciliation.
 
         Keys mirror the broker adapter formats so the reconciliation service can
-        match them: positions keyed by ``symbol`` (= ``str(market_id)``), orders
-        keyed by the broker ``id`` recorded on the trade when it was submitted.
+        match them: positions keyed by the broker's ``symbol``, orders keyed by
+        the broker ``id`` recorded on the trade when it was submitted.
         """
         positions = [
             {
-                "symbol": str(p.market_id),
+                "symbol": self._broker_symbol(p.market_id),
                 "qty": p.quantity,
                 "entry_price": p.entry_price,
                 "current_price": p.current_price,
@@ -126,7 +154,7 @@ class TradingOrchestrator:
         orders = [
             {
                 "id": t.external_order_id,
-                "symbol": str(t.market_id),
+                "symbol": self._broker_symbol(t.market_id),
                 "qty": t.quantity,
                 "side": t.side.value,
             }
