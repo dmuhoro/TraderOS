@@ -251,7 +251,13 @@ def test_changed_harness_supersedes_the_checkpoint_instead_of_splicing_it(runner
 
     fresh = state()
     assert fresh["batches_failed"] == 0, "failed batches from the old harness must not be inherited"
-    assert fresh["elapsed_seconds"] < original["elapsed_seconds"], "a fresh window starts from zero"
+    # A resume would have carried the old window's start time forward; a fresh
+    # window must not. Comparing elapsed_seconds instead would be a race: both
+    # runs complete a full 30s window, so either could be the larger.
+    assert fresh["started_at"] != original["started_at"], "a fresh window must start, not resume"
+    assert (
+        fresh["harness_digest"] == digest
+    ), "the fresh window records the harness that produced it"
 
 
 def test_corrupt_checkpoint_starts_fresh_instead_of_crashing(runner) -> None:
