@@ -1,0 +1,18 @@
+SOAK PAPER ACCOUNT RESET (dedicated traderos-soak Alpaca PAPER account) — 2026-10-01
+reason: the G-02 soak placed market BUYs only and closed out ORDERS, never POSITIONS.
+It therefore accumulated AAPL until buying_power hit 0 and cash went negative, after
+which every new buy was rejected: batch 001 ran orders_filled=0, n=0 latency probes and
+mismatches=1 (broker_only_position) -> VERDICT FAIL. The window could never return PASS.
+This position was soak residue, not a user holding. Reclaimed via one market SELL.
+
+before  equity=111920.11 cash=-122422.75 buying_power=0
+        positions=[{'symbol': 'AAPL', 'qty': 712.50489538}]  (accumulates every run)
+sell AAPL 712.50489538 -> accepted status=pending (fractional market sell settles async)
+        order 202dcc13-8f51-453f-a65f-e37d83a3cfcb filled on the broker within seconds
+
+after   equity=111871.61 cash=111871.61 buying_power=447486.44
+        positions=[] open_orders=[]
+flat=True buying_power_restored=True
+regression closed by scripts/evidence/run_real_paper_soak.py::_flatten_own_delta
+(each batch now closes its own net position delta back to the pre-run baseline).
+VERDICT: PASS
