@@ -129,6 +129,49 @@ Immediate rotation is required whenever a key is suspected exposed. Live keys
 should be read via Vault when configured (VAULT_ADDR/token) — never committed
 to the repo.
 
+## 7b. The soak service: `railway redeploy` will NOT pick up new code
+
+`traderos-soak` has **no GitHub source connection**. Every deployment of it is
+reported with `reason=redeploy`, i.e. Railway re-runs the **last built image**.
+So this sequence silently deploys the old code:
+
+```
+git push origin main            # code is on GitHub
+railway redeploy -s traderos-soak        # <-- re-runs the OLD image
+railway redeploy -s traderos-soak --from-source   # <-- ALSO re-runs the old image
+```
+
+This was found the hard way during Sprint 50: two "redeploys" of the fixed soak
+both ran the pre-fix harness and leaked a further 389 AAPL into the paper account
+before it was noticed. The production `TraderOS` service *is* connected
+(`reason=deploy` on push) — the difference is not obvious from the CLI.
+
+**Deploy the soak from the working tree instead:**
+
+```
+railway up -s traderos-soak --detach --yes     # builds from the current checkout
+```
+
+**Always verify the running code, not the deploy's success.** The batch output
+format is the tell — the fixed harness prints `still_resting=`,
+`positions_back_at_baseline=` and a baseline reconcile line, and the pre-fix
+harness printed `cancel_failures=` and `local_positions=0`:
+
+```
+railway logs -s traderos-soak -n 40
+```
+
+Then confirm the account directly rather than trusting the harness verdict
+(it has lied before — see `docs/sprints/SPRINT_50.md`):
+
+```
+railway logs -s traderos-soak -n 40 | grep -E 'VERDICT|positions_back_at_baseline'
+```
+
+If a batch reports PASS, still read the Alpaca paper account's positions a
+minute later. A green batch whose fills are still landing is the exact failure
+mode Sprint 50 fixed, and only the broker can tell you about it.
+
 ## 8. Rollback
 
 Railway keeps deployment history in the dashboard: select the previous healthy

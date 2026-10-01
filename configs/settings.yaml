@@ -1,7 +1,7 @@
 # Market Intelligence Platform Configuration
 
 project_name: "Market Intelligence Platform"
-version: "1.3.2"
+version: "1.3.3"
 
 database:
   path: "database/market_intelligence.db"
