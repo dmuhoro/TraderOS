@@ -573,6 +573,10 @@ def build_orchestrator(
         reconciliation=reconciliation,
         broker_reconciliation=broker_reconciliation,
         preflight_service=preflight_service,
+        # Broker reconciliation matches on `symbol`; a real broker reports its
+        # own tickers. Hand the orchestrator the SAME map the adapter submits
+        # with so both sides of the reconcile speak the broker's vocabulary.
+        symbol_resolver=lambda mid: symbol_map.get(mid, str(mid)),
         event_bus=event_bus,
         health=health,
         audit=audit,

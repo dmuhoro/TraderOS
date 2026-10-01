@@ -73,7 +73,11 @@ class MockBroker(BrokerAdapter):
 
 
 class TestTradingOrchestrator:
-    def _make(self, mode: TradingMode = TradingMode.PAPER) -> TradingOrchestrator:
+    def _make(
+        self,
+        mode: TradingMode = TradingMode.PAPER,
+        symbol_resolver=None,
+    ) -> TradingOrchestrator:
         return TradingOrchestrator(
             mode=mode,
             signal_service=Mock(),
@@ -91,6 +95,7 @@ class TestTradingOrchestrator:
             notifications=Mock(),
             run_manifest=RunManifestService(),
             market_ids=[uuid.uuid4()],
+            symbol_resolver=symbol_resolver,
         )
 
     def test_start_and_stop(self) -> None:
@@ -321,5 +326,109 @@ class TestTradingOrchestrator:
         broker.get_open_orders.return_value = []
         service = BrokerStateReconciliationService(broker)
         result = service.reconcile(local_positions=local_positions, local_orders=local_orders)
+        assert result.failed
+        assert service.can_accept_orders is False
+
+    # ---- Broker vocabulary: local state must speak the BROKER's symbol ----
+    def test_local_state_uses_broker_symbol_not_market_id(self) -> None:
+        # The reconcile matches on `symbol`. A real broker reports its own
+        # ticker, so local state must be keyed with the same one — otherwise a
+        # held position exists twice (phantom local_only + broker_only).
+        market_id = uuid.uuid4()
+        orch = self._make(symbol_resolver=lambda mid: "AAPL")
+        position = Position(
+            market_id=market_id, quantity=1.0, entry_price=100.0, current_price=100.0, pnl=0.0
+        )
+        trade = Trade(
+            signal_id=uuid.uuid4(),
+            market_id=market_id,
+            side=TradeSide.BUY,
+            quantity=1.0,
+            price=100.0,
+        )
+        trade.submit("ord-real")
+        portfolio = Mock()
+        portfolio.position_repo.list_open.return_value = [position]
+        portfolio.trade_repo.get_open.return_value = [trade]
+        orch.portfolio_service = portfolio
+
+        positions, orders = orch._local_reconciliation_state()
+        assert positions[0]["symbol"] == "AAPL"
+        assert orders[0]["symbol"] == "AAPL"
+        assert str(market_id) not in {p["symbol"] for p in positions}
+
+    def test_live_broker_symbol_reconciles_clean_and_stays_tradeable(self) -> None:
+        """The G-02 soak finding, at the real boundary.
+
+        Alpaca reports `AAPL`; the orchestrator used to report the internal UUID.
+        Reconcile then failed closed and blocked order acceptance for as long as
+        any position was open. This drives the REAL reconciliation service with
+        REAL broker payloads and asserts the GO gate stays open.
+        """
+        market_id = uuid.uuid5(uuid.NAMESPACE_DNS, "traderos/AAPL")
+        orch = self._make(mode=TradingMode.LIVE, symbol_resolver=lambda mid: "AAPL")
+        position = Position(
+            market_id=market_id, quantity=2.0, entry_price=185.0, current_price=185.0, pnl=0.0
+        )
+        trade = Trade(
+            signal_id=uuid.uuid4(),
+            market_id=market_id,
+            side=TradeSide.BUY,
+            quantity=2.0,
+            price=185.0,
+        )
+        trade.submit("ord-live-1")
+        portfolio = Mock()
+        portfolio.position_repo.list_open.return_value = [position]
+        portfolio.trade_repo.get_open.return_value = [trade]
+        orch.portfolio_service = portfolio
+
+        broker = Mock()
+        broker.get_positions.return_value = [{"symbol": "AAPL", "qty": 2.0}]
+        broker.get_open_orders.return_value = [
+            {"id": "ord-live-1", "symbol": "AAPL", "qty": 2.0, "side": "buy"}
+        ]
+        service = BrokerStateReconciliationService(broker)
+        local_positions, local_orders = orch._local_reconciliation_state()
+        result = service.reconcile(local_positions=local_positions, local_orders=local_orders)
+
+        assert result.mismatches == []
+        assert service.can_accept_orders is True
+
+        # Negative control, same inputs, resolver removed: this is exactly the
+        # defect. It is a real behavioural failure, not a signature mismatch —
+        # one held position shows up twice and the GO gate closes forever.
+        orch.symbol_resolver = None
+        unkeyed_positions, unkeyed_orders = orch._local_reconciliation_state()
+        broken = BrokerStateReconciliationService(broker)
+        broken_result = broken.reconcile(
+            local_positions=unkeyed_positions, local_orders=unkeyed_orders
+        )
+        kinds = {m.mismatch_type.value for m in broken_result.mismatches}
+        assert "broker_only_position" in kinds
+        assert "local_only_position" in kinds
+        assert broken.can_accept_orders is False
+
+    def test_missing_symbol_mapping_fails_closed_not_guessed(self) -> None:
+        """An unmapped market must surface as a mismatch (fail closed), never
+        be silently matched to some unrelated ticker."""
+        market_id = uuid.uuid4()
+        orch = self._make(symbol_resolver=lambda mid: {"known": "AAPL"}.get(mid, str(mid)))
+        position = Position(
+            market_id=market_id, quantity=1.0, entry_price=10.0, current_price=10.0, pnl=0.0
+        )
+        portfolio = Mock()
+        portfolio.position_repo.list_open.return_value = [position]
+        portfolio.trade_repo.get_open.return_value = []
+        orch.portfolio_service = portfolio
+
+        local_positions, _ = orch._local_reconciliation_state()
+        assert local_positions[0]["symbol"] == str(market_id)
+
+        broker = Mock()
+        broker.get_positions.return_value = [{"symbol": "AAPL", "qty": 1.0}]
+        broker.get_open_orders.return_value = []
+        service = BrokerStateReconciliationService(broker)
+        result = service.reconcile(local_positions=local_positions, local_orders=[])
         assert result.failed
         assert service.can_accept_orders is False
