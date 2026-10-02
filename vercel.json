@@ -1,0 +1,37 @@
+{
+  "cleanUrls": true,
+  "trailingSlash": true,
+  "rewrites": [
+    {
+      "source": "/v1/:path*",
+      "destination": "https://traderos-production.up.railway.app/v1/:path*"
+    },
+    {
+      "source": "/metrics",
+      "destination": "https://traderos-production.up.railway.app/metrics"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://traderos-production.up.railway.app/v1/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        }
+      ]
+    }
+  ]
+}
