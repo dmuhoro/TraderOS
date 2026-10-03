@@ -1,0 +1,45 @@
+ADR-009 MONEY PRECISION — MEASURED EVIDENCE
+date: 2026-10-03   commit-under-test: (uncommitted)
+reproduce: PYTHONPATH=src python3 -m pytest tests/test_money_conversion.py
+
+CLAIM UNDER TEST: binary float cannot represent money exactly, and SQLite
+NUMERIC affinity would not have fixed it.
+
+=== 1. SQLite NUMERIC affinity is REAL storage ===
+  CREATE TABLE t (v NUMERIC); inserting '1.10','0.07','8.29' -> typeof(v) = real
+  Python's sqlite3 refuses Decimal binding outright:
+    sqlite3.ProgrammingError: type 'decimal.Decimal' is not supported
+  So NUMERIC can only be reached by passing a float in, i.e. the loss is
+  unavoidable, and the column type change is cosmetic.
+
+=== 2. TEXT money compares lexicographically ===
+  '9.00' > '10.00' evaluates TRUE, so WHERE v > '10.00' returns the wrong row.
+  Exact storage, wrong ordering.
+
+=== 3. INTEGER minor units are exact and orderable ===
+  typeof = integer; ORDER BY correct; 110000000 -> 1.10000000 exactly.
+
+=== 4. The divergence, measured on the actual risk rail (notional = qty*price) ===
+    0.1 x 0.2  float=0.020000000000000004:0.02
+    1.1 x 0.1  float=0.11000000000000001:0.11
+    2.675 x 1.005  float=2.6883749999999997:2.688375
+
+=== 5. Accumulated realized_pnl over 60 fills of 0.1 ===
+    float   = 5.999999999999995
+    Decimal = 6.0
+    delta   = -5.329070518200751e-15
+    This is the ADR proof obligation, and it is exactly the quantity that
+    decides whether a replayed ledger reconciles against the broker.
+
+=== 6. Compounded Kelly sizing, equity 45000.12345678 x 0.995, 200 steps ===
+    float   = 16513.14728110859
+    Decimal = 16513.14728110859853437269582
+    agree?  = False
+
+=== 7. The float-refusal tripwire ===
+    to_minor_units(0.1) raises MoneyPrecisionError naming ADR-009, so a
+    future float-money regression fails loudly at the boundary instead of
+    propagating silently into the ledger.
+
+RESULT: 19/19 tests pass. Two of the three 'obvious' storage choices are
+demonstrably wrong; the third is unreachable without passing a float.
