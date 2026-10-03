@@ -46,11 +46,13 @@ class DataIngestionService:
         raw = collector.fetch_historical(source.symbol, source.timeframe, limit=limit)
         result: list[dict] = []
         for r in raw:
-            ts = r.timestamp
-            ts_str = ts.isoformat()
             result.append(
                 {
-                    "timestamp": ts_str,
+                    # B-1: the domain carries a real datetime. Serialization
+                    # to text is an interface-layer concern; doing it here
+                    # produced a str that every downstream datetime
+                    # subtraction rejected with TypeError.
+                    "timestamp": r.timestamp,
                     "open": r.open,
                     "high": r.high,
                     "low": r.low,

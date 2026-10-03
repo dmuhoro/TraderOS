@@ -63,13 +63,13 @@ def _candles_for(orch: TradingOrchestrator, symbol: str, limit: int = 90) -> lis
         raise HTTPException(404, f"No registered data source for market '{symbol}'")
     candles: list[Candle] = []
     for r in rows:
+        # B-1: ingestion now guarantees a datetime. This used to coerce a str
+        # and fall back to None on a parse failure, silently building a Candle
+        # whose timestamp was None -- the same TypeError one layer deeper,
+        # and fail-open. Refuse explicitly instead.
         ts = r.get("timestamp")
-        ts_val: Any = ts
-        if isinstance(ts_val, str):
-            try:
-                ts_val = datetime.fromisoformat(ts_val)
-            except ValueError:
-                ts_val = None
+        if not isinstance(ts, datetime):
+            raise HTTPException(502, f"Ingestion returned a non-datetime timestamp for '{symbol}'")
         candles.append(
             Candle(
                 market_id=mid,
@@ -80,7 +80,7 @@ def _candles_for(orch: TradingOrchestrator, symbol: str, limit: int = 90) -> lis
                     close=Decimal(str(r["close"])),
                     volume=Decimal(str(r.get("volume", 0))),
                 ),
-                timestamp=ts_val,
+                timestamp=ts,
                 timeframe=Timeframe.HOUR_1,
                 source=symbol,
             )
