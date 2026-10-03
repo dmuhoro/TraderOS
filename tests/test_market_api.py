@@ -59,13 +59,18 @@ class _StubObservations:
 
 
 def _make_rows(n: int, base: float = 100.0) -> list[dict]:
+    """Rows shaped like DataIngestionService.fetch_all output.
+
+    B-1: the timestamp is a real datetime. These rows used to carry an ISO
+    string, which is what let a str reach ``Candle(timestamp: datetime)``.
+    """
     rows = []
     start = datetime(2025, 1, 1, tzinfo=UTC)
     price = base
     for i in range(n):
         rows.append(
             {
-                "timestamp": (start + timedelta(hours=i)).isoformat(),
+                "timestamp": start + timedelta(hours=i),
                 "open": price,
                 "high": price * 1.01,
                 "low": price * 0.99,
@@ -216,7 +221,13 @@ class TestResearchObservations:
 
 
 class TestMarketErrorPaths:
-    def test_bad_timestamp_string_is_none(self) -> None:
+    def test_bad_timestamp_refuses_closed(self) -> None:
+        """A malformed timestamp must be refused, never coerced to None.
+
+        This test previously asserted ``200`` with ``timestamp is None`` --
+        i.e. that bad data silently became a null-timestamp candle, which is
+        the fail-open behavior B-1 was propagating. Constitution: fail closed.
+        """
         rows = _make_rows(1)
         rows[0]["timestamp"] = "not-a-timestamp"
         mid = uuid.uuid4()
@@ -231,8 +242,8 @@ class TestMarketErrorPaths:
         app.include_router(router)
         client = TestClient(app)
         resp = client.get("/market/candles", params={"symbol": "SPY"})
-        assert resp.status_code == 200
-        assert resp.json()["candles"][0]["timestamp"] is None
+        assert resp.status_code == 502
+        assert "non-datetime timestamp" in resp.json()["detail"]
 
     def test_create_observation_value_error_400(self) -> None:
         rows = _make_rows(3)

@@ -1,0 +1,74 @@
+# B-1 negative run (pre-fix)
+# command: PYTHONPATH=src python3 -m pytest tests/wiring/test_live_ingestion_wiring.py -p no:randomly --no-cov -q
+# recorded: 2026-10-03T12:35:21Z
+# result: 9 failed, 2 passed -- real DataIngestionService + real Candle + real RiskService, no boundary mocks
+
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/daniel-muhoro/workspace/projects/TraderOS
+configfile: pyproject.toml
+plugins: anyio-4.14.2, cov-7.1.0, typeguard-4.4.4
+collected 11 items
+
+tests/wiring/test_live_ingestion_wiring.py FFFF..FFFFF                   [100%]
+
+=================================== FAILURES ===================================
+_______ TestB1TimestampBoundary.test_candle_timestamp_is_a_real_datetime _______
+tests/wiring/test_live_ingestion_wiring.py:113: in test_candle_timestamp_is_a_real_datetime
+    assert isinstance(c.timestamp, datetime), (
+E   AssertionError: B-1: Candle.timestamp must be datetime, got str: '2026-10-03T12:35:20.014444+00:00'
+E   assert False
+E    +  where False = isinstance('2026-10-03T12:35:20.014444+00:00', datetime)
+E    +    where '2026-10-03T12:35:20.014444+00:00' = Candle(market_id=UUID('18bb91bc-5d3b-439a-985e-178f5f1e4a92'), ohlcv=OHLCV(open=Decimal('50000'), high=Decimal('50200'...0.014444+00:00', timeframe=<Timeframe.HOUR_1: '1h'>, source='BTC-USD', id=UUID('89fcbb13-11bd-4a61-9bfa-b7551fe3f298')).timestamp
+___ TestB1TimestampBoundary.test_live_gap_breaker_arithmetic_does_not_raise ____
+tests/wiring/test_live_ingestion_wiring.py:130: in test_live_gap_breaker_arithmetic_does_not_raise
+    stale_seconds = (now_ts - last_ts).total_seconds()
+                     ^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+_ TestB1TimestampBoundary.test_risk_service_staleness_arithmetic_does_not_raise _
+tests/wiring/test_live_ingestion_wiring.py:141: in test_risk_service_staleness_arithmetic_does_not_raise
+    staleness = (now - last_candle_at).total_seconds()
+                 ^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+____ TestB1TimestampBoundary.test_fetch_latest_rows_carry_datetime_not_str _____
+tests/wiring/test_live_ingestion_wiring.py:153: in test_fetch_latest_rows_carry_datetime_not_str
+    assert isinstance(r["timestamp"], datetime), (
+E   AssertionError: fetch_all must not pre-stringify the timestamp, got str
+E   assert False
+E    +  where False = isinstance('2026-10-03T12:35:20.188106+00:00', datetime)
+_____________ test_staleness_arithmetic_survives_any_data_age[0.0] _____________
+tests/wiring/test_live_ingestion_wiring.py:209: in test_staleness_arithmetic_survives_any_data_age
+    stale_seconds = (datetime.now(UTC) - candles[-1].timestamp).total_seconds()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+____________ test_staleness_arithmetic_survives_any_data_age[60.0] _____________
+tests/wiring/test_live_ingestion_wiring.py:209: in test_staleness_arithmetic_survives_any_data_age
+    stale_seconds = (datetime.now(UTC) - candles[-1].timestamp).total_seconds()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+____________ test_staleness_arithmetic_survives_any_data_age[299.0] ____________
+tests/wiring/test_live_ingestion_wiring.py:209: in test_staleness_arithmetic_survives_any_data_age
+    stale_seconds = (datetime.now(UTC) - candles[-1].timestamp).total_seconds()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+____________ test_staleness_arithmetic_survives_any_data_age[600.0] ____________
+tests/wiring/test_live_ingestion_wiring.py:209: in test_staleness_arithmetic_survives_any_data_age
+    stale_seconds = (datetime.now(UTC) - candles[-1].timestamp).total_seconds()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+___________ test_staleness_arithmetic_survives_any_data_age[86400.0] ___________
+tests/wiring/test_live_ingestion_wiring.py:209: in test_staleness_arithmetic_survives_any_data_age
+    stale_seconds = (datetime.now(UTC) - candles[-1].timestamp).total_seconds()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+=========================== short test summary info ============================
+FAILED tests/wiring/test_live_ingestion_wiring.py::TestB1TimestampBoundary::test_candle_timestamp_is_a_real_datetime
+FAILED tests/wiring/test_live_ingestion_wiring.py::TestB1TimestampBoundary::test_live_gap_breaker_arithmetic_does_not_raise
+FAILED tests/wiring/test_live_ingestion_wiring.py::TestB1TimestampBoundary::test_risk_service_staleness_arithmetic_does_not_raise
+FAILED tests/wiring/test_live_ingestion_wiring.py::TestB1TimestampBoundary::test_fetch_latest_rows_carry_datetime_not_str
+FAILED tests/wiring/test_live_ingestion_wiring.py::test_staleness_arithmetic_survives_any_data_age[0.0]
+FAILED tests/wiring/test_live_ingestion_wiring.py::test_staleness_arithmetic_survives_any_data_age[60.0]
+FAILED tests/wiring/test_live_ingestion_wiring.py::test_staleness_arithmetic_survives_any_data_age[299.0]
+FAILED tests/wiring/test_live_ingestion_wiring.py::test_staleness_arithmetic_survives_any_data_age[600.0]
+FAILED tests/wiring/test_live_ingestion_wiring.py::test_staleness_arithmetic_survives_any_data_age[86400.0]
+========================= 9 failed, 2 passed in 0.49s ==========================

@@ -1,0 +1,155 @@
+# B-1 proof-of-proof: BUG REINTRODUCED, wiring tests must FAIL
+# command: PYTHONPATH=src python3 -m pytest tests/wiring/ -p no:randomly --no-cov -q
+# recorded: 2026-10-03T12:52:40Z
+# result: 18 failed, 3 passed -- confirms these tests detect B-1 on the real LIVE path
+#         (the pre-existing 2364-test suite did NOT)
+
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/daniel-muhoro/workspace/projects/TraderOS
+configfile: pyproject.toml
+plugins: anyio-4.14.2, cov-7.1.0, typeguard-4.4.4
+collected 21 items
+
+tests/wiring/test_live_cycle_broker_reachability.py FFFFFFFFF.           [ 47%]
+tests/wiring/test_live_ingestion_wiring.py FFFF..FFFFF                   [100%]
+
+=================================== FAILURES ===================================
+_ TestB1LiveCycleNoLongerRaisesTypeError.test_stale_data_blocks_and_does_not_raise _
+tests/wiring/test_live_cycle_broker_reachability.py:293: in test_stale_data_blocks_and_does_not_raise
+    result = executor.run(market_id, close_price=100.5)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/traderos/application/cycle_executor.py:161: in run
+    stale_seconds = (now_ts - last_ts).total_seconds()
+                     ^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+_ TestB1LiveCycleNoLongerRaisesTypeError.test_stale_data_never_reaches_the_broker _
+tests/wiring/test_live_cycle_broker_reachability.py:305: in test_stale_data_never_reaches_the_broker
+    executor.run(market_id, close_price=100.5)
+src/traderos/application/cycle_executor.py:161: in run
+    stale_seconds = (now_ts - last_ts).total_seconds()
+                     ^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+_ TestB1LiveCycleNoLongerRaisesTypeError.test_stale_data_records_the_data_gap_metric _
+tests/wiring/test_live_cycle_broker_reachability.py:314: in test_stale_data_records_the_data_gap_metric
+    executor.run(market_id, close_price=100.5)
+src/traderos/application/cycle_executor.py:161: in run
+    stale_seconds = (now_ts - last_ts).total_seconds()
+                     ^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+_ TestB1LiveCycleNoLongerRaisesTypeError.test_fresh_data_reaches_the_pipeline __
+tests/wiring/test_live_cycle_broker_reachability.py:328: in test_fresh_data_reaches_the_pipeline
+    result = executor.run(market_id, close_price=100.5)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/traderos/application/cycle_executor.py:161: in run
+    stale_seconds = (now_ts - last_ts).total_seconds()
+                     ^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+__________________ test_live_cycle_survives_any_data_age[0.0] __________________
+tests/wiring/test_live_cycle_broker_reachability.py:347: in test_live_cycle_survives_any_data_age
+    result = executor.run(market_id, close_price=100.5)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/traderos/application/cycle_executor.py:161: in run
+    stale_seconds = (now_ts - last_ts).total_seconds()
+                     ^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+_________________ test_live_cycle_survives_any_data_age[299.0] _________________
+tests/wiring/test_live_cycle_broker_reachability.py:347: in test_live_cycle_survives_any_data_age
+    result = executor.run(market_id, close_price=100.5)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/traderos/application/cycle_executor.py:161: in run
+    stale_seconds = (now_ts - last_ts).total_seconds()
+                     ^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+_________________ test_live_cycle_survives_any_data_age[301.0] _________________
+tests/wiring/test_live_cycle_broker_reachability.py:347: in test_live_cycle_survives_any_data_age
+    result = executor.run(market_id, close_price=100.5)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/traderos/application/cycle_executor.py:161: in run
+    stale_seconds = (now_ts - last_ts).total_seconds()
+                     ^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+________________ test_live_cycle_survives_any_data_age[3600.0] _________________
+tests/wiring/test_live_cycle_broker_reachability.py:347: in test_live_cycle_survives_any_data_age
+    result = executor.run(market_id, close_price=100.5)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/traderos/application/cycle_executor.py:161: in run
+    stale_seconds = (now_ts - last_ts).total_seconds()
+                     ^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+_______________ test_live_cycle_survives_any_data_age[604800.0] ________________
+tests/wiring/test_live_cycle_broker_reachability.py:347: in test_live_cycle_survives_any_data_age
+    result = executor.run(market_id, close_price=100.5)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/traderos/application/cycle_executor.py:161: in run
+    stale_seconds = (now_ts - last_ts).total_seconds()
+                     ^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+_______ TestB1TimestampBoundary.test_candle_timestamp_is_a_real_datetime _______
+tests/wiring/test_live_ingestion_wiring.py:112: in test_candle_timestamp_is_a_real_datetime
+    assert isinstance(c.timestamp, datetime), (
+E   AssertionError: B-1: Candle.timestamp must be datetime, got str: '2026-10-03T12:52:39.041647+00:00'
+E   assert False
+E    +  where False = isinstance('2026-10-03T12:52:39.041647+00:00', datetime)
+E    +    where '2026-10-03T12:52:39.041647+00:00' = Candle(market_id=UUID('e5a81130-af93-4169-aa6b-65523601449d'), ohlcv=OHLCV(open=Decimal('50000'), high=Decimal('50200'...9.041647+00:00', timeframe=<Timeframe.HOUR_1: '1h'>, source='BTC-USD', id=UUID('eaefce3d-8d29-48b3-8055-cf611121f3ab')).timestamp
+___ TestB1TimestampBoundary.test_live_gap_breaker_arithmetic_does_not_raise ____
+tests/wiring/test_live_ingestion_wiring.py:129: in test_live_gap_breaker_arithmetic_does_not_raise
+    stale_seconds = (now_ts - last_ts).total_seconds()
+                     ^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+_ TestB1TimestampBoundary.test_risk_service_staleness_arithmetic_does_not_raise _
+tests/wiring/test_live_ingestion_wiring.py:140: in test_risk_service_staleness_arithmetic_does_not_raise
+    staleness = (now - last_candle_at).total_seconds()
+                 ^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+____ TestB1TimestampBoundary.test_fetch_latest_rows_carry_datetime_not_str _____
+tests/wiring/test_live_ingestion_wiring.py:152: in test_fetch_latest_rows_carry_datetime_not_str
+    assert isinstance(r["timestamp"], datetime), (
+E   AssertionError: fetch_all must not pre-stringify the timestamp, got str
+E   assert False
+E    +  where False = isinstance('2026-10-03T12:52:39.099587+00:00', datetime)
+_____________ test_staleness_arithmetic_survives_any_data_age[0.0] _____________
+tests/wiring/test_live_ingestion_wiring.py:208: in test_staleness_arithmetic_survives_any_data_age
+    stale_seconds = (datetime.now(UTC) - candles[-1].timestamp).total_seconds()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+____________ test_staleness_arithmetic_survives_any_data_age[60.0] _____________
+tests/wiring/test_live_ingestion_wiring.py:208: in test_staleness_arithmetic_survives_any_data_age
+    stale_seconds = (datetime.now(UTC) - candles[-1].timestamp).total_seconds()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+____________ test_staleness_arithmetic_survives_any_data_age[299.0] ____________
+tests/wiring/test_live_ingestion_wiring.py:208: in test_staleness_arithmetic_survives_any_data_age
+    stale_seconds = (datetime.now(UTC) - candles[-1].timestamp).total_seconds()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+____________ test_staleness_arithmetic_survives_any_data_age[600.0] ____________
+tests/wiring/test_live_ingestion_wiring.py:208: in test_staleness_arithmetic_survives_any_data_age
+    stale_seconds = (datetime.now(UTC) - candles[-1].timestamp).total_seconds()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+___________ test_staleness_arithmetic_survives_any_data_age[86400.0] ___________
+tests/wiring/test_live_ingestion_wiring.py:208: in test_staleness_arithmetic_survives_any_data_age
+    stale_seconds = (datetime.now(UTC) - candles[-1].timestamp).total_seconds()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'str'
+=========================== short test summary info ============================
+FAILED tests/wiring/test_live_cycle_broker_reachability.py::TestB1LiveCycleNoLongerRaisesTypeError::test_stale_data_blocks_and_does_not_raise
+FAILED tests/wiring/test_live_cycle_broker_reachability.py::TestB1LiveCycleNoLongerRaisesTypeError::test_stale_data_never_reaches_the_broker
+FAILED tests/wiring/test_live_cycle_broker_reachability.py::TestB1LiveCycleNoLongerRaisesTypeError::test_stale_data_records_the_data_gap_metric
+FAILED tests/wiring/test_live_cycle_broker_reachability.py::TestB1LiveCycleNoLongerRaisesTypeError::test_fresh_data_reaches_the_pipeline
+FAILED tests/wiring/test_live_cycle_broker_reachability.py::test_live_cycle_survives_any_data_age[0.0]
+FAILED tests/wiring/test_live_cycle_broker_reachability.py::test_live_cycle_survives_any_data_age[299.0]
+FAILED tests/wiring/test_live_cycle_broker_reachability.py::test_live_cycle_survives_any_data_age[301.0]
+FAILED tests/wiring/test_live_cycle_broker_reachability.py::test_live_cycle_survives_any_data_age[3600.0]
+FAILED tests/wiring/test_live_cycle_broker_reachability.py::test_live_cycle_survives_any_data_age[604800.0]
+FAILED tests/wiring/test_live_ingestion_wiring.py::TestB1TimestampBoundary::test_candle_timestamp_is_a_real_datetime
+FAILED tests/wiring/test_live_ingestion_wiring.py::TestB1TimestampBoundary::test_live_gap_breaker_arithmetic_does_not_raise
+FAILED tests/wiring/test_live_ingestion_wiring.py::TestB1TimestampBoundary::test_risk_service_staleness_arithmetic_does_not_raise
+FAILED tests/wiring/test_live_ingestion_wiring.py::TestB1TimestampBoundary::test_fetch_latest_rows_carry_datetime_not_str
+FAILED tests/wiring/test_live_ingestion_wiring.py::test_staleness_arithmetic_survives_any_data_age[0.0]
+FAILED tests/wiring/test_live_ingestion_wiring.py::test_staleness_arithmetic_survives_any_data_age[60.0]
+FAILED tests/wiring/test_live_ingestion_wiring.py::test_staleness_arithmetic_survives_any_data_age[299.0]
+FAILED tests/wiring/test_live_ingestion_wiring.py::test_staleness_arithmetic_survives_any_data_age[600.0]
+FAILED tests/wiring/test_live_ingestion_wiring.py::test_staleness_arithmetic_survives_any_data_age[86400.0]
+========================= 18 failed, 3 passed in 1.20s =========================
