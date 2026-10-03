@@ -1,0 +1,36 @@
+OD-14 DOCS-DRIFT GATE — PROOF OF PROOF
+date: 2026-10-03   commit-under-test: (uncommitted)   exit-code contract: 0=clean, 1=drift
+
+Purpose: show each check class FAILS when the drift it claims to catch is present.
+Method: reintroduce one drift class at a time, observe FAIL, restore.
+
+=== MUTATION 1: false enforcement claim (OD-14) ===
+Removed the command citations from the NO-GO paragraph of LIVE_RUN_POLICY.md
+so that 'is enforced mechanically' no longer names anything runnable.
+  detected: CLAIM: docs/engineering/LIVE_RUN_POLICY.md:162 asserts enforcement
+            with nothing to run: default is enforced mechanically rather than by intention.
+  VERDICT: FAIL — 1 drift finding(s)   (gate exit code 1)
+
+=== MUTATION 2: version drift ===
+Set pyproject.toml version to 1.3.4, leaving configs/settings.yaml at 1.3.3.
+  detected: VERSION DRIFT: pyproject.toml=1.3.4 but configs/settings.yaml=1.3.3
+  detected: RELEASE: pyproject.toml is 1.3.4 but no tag v1.3.4 exists.
+  detected: RELEASE: CHANGELOG.md has no entry for the current version 1.3.4
+  VERDICT: FAIL — 3 drift finding(s)   (gate exit code 1)
+
+=== MUTATION 3: second source of truth ===
+Created a tracked VERSION file at the repo root.
+  detected: VERSION: a VERSION file exists; pyproject.toml must be the only source
+  VERDICT: FAIL — 1 drift finding(s)   (gate exit code 1)
+
+=== FAILED PROOF ATTEMPT 1 (recorded, not hidden) ===
+The first attempt at MUTATION 1 replaced only the FIRST occurrence of
+scripts/governance/live_gate.py in the file (line 87). The enforcement claim
+lives at line 162 and kept its own citation, so the gate correctly reported
+PASS. The mutation was wrong, not the gate. Re-ran against the claim paragraph
+itself; detection confirmed above. Recorded because a proof that passes for
+the wrong reason is worse than no proof (TEST_STRATEGY.md 2.4).
+
+=== RESTORED ===
+All mutations reverted. Gate re-run: VERDICT: PASS, exit code 0.
+Working tree contains only the intended fixes (see git diff --stat).

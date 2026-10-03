@@ -118,8 +118,10 @@ unsigned artifact never touches live. Paper drills need no signature.
 
 ## 5. Honest accounting (what these runs do NOT prove)
 
-The 24h aggregate log proves order-integrity guarantees and ack latency on
-real paper. It does **not** prove: an edge, fill-price fidelity vs live,
+The 24h aggregate log (`docs/evidence/2026-08-04_sprint27_multirestart_replay.log`)
+records order-integrity outcomes and ack latency on real paper; the drills that
+produce them are run by `python3 scripts/evidence/run_ci_drills.py`. It does
+**not** prove: an edge, fill-price fidelity vs live,
 extended-hours behavior, or any PnL. WP7 re-arm is evidence-gated on §4.2; a
 paper-soak pass is necessary, never sufficient. If any of that is the state,
 say so in the evidence rather than dressing it as GO.

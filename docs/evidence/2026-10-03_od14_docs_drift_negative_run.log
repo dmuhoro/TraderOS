@@ -1,0 +1,20 @@
+OD-14 DOCS-DRIFT GATE — BASELINE NEGATIVE RUN (pre-fix state)
+date: 2026-10-03   HEAD before this change: 119576a
+
+The gate did not exist when these drifts were committed. Reconstructing the
+pre-fix state by reverting the three documentation fixes this change carries:
+
+  1. docs/engineering/LIVE_RUN_POLICY.md:162
+     claimed the NO-GO default was 'enforced mechanically' by 'the release
+     signing scripts and the CI live-gate' without naming either. A reader had
+     no command to run and no job to look for.
+  2. docs/engineering/MASTER_EXECUTION_PROGRAMME.md:2414
+     asserted 'Feature work without ADR is blocked' with no ADR gate in
+     .github/workflows/ci.yml. No such check existed.
+  3. docs/runbooks/WP5_WP7_PAPER_TO_LIVE.md:121
+     asserted a 24h aggregate log 'proves order-integrity guarantees'. The log
+     records order-integrity outcomes; it does not prove a guarantee, and no
+     command regenerates it.
+
+No automated check would have caught any of these.
+VERDICT: 3 undemonstrated claims, 0 automated checks. All three shipped.
