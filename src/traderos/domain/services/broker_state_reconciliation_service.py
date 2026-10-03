@@ -51,6 +51,11 @@ class BrokerReconciliationResult:
 
 _STALE_THRESHOLD_SECONDS = 300
 
+# Severity at or above which reconciliation drift blocks order acceptance.
+# Matches the threshold DaemonController._handle_reconciliation_result already
+# uses to count kill-switch failures, so the gate and the alert cannot disagree.
+_BLOCKING_SEVERITY = 2
+
 
 class BrokerStateReconciliationService:
     def __init__(
@@ -128,6 +133,9 @@ class BrokerStateReconciliationService:
             errors.append(f"Failed to fetch broker state: {e}")
             mismatches.append(MismatchDetail(MismatchType.BROKER_FAILURE, str(e), severity=3))
             self._consecutive_failures += 1
+            # B-3: an unreadable broker revokes order acceptance. This path
+            # returns before the summary below, so it must revoke here too.
+            self._startup_reconciled = False
             result = BrokerReconciliationResult(
                 matched_positions=0,
                 reconciled_positions=0,
@@ -272,12 +280,23 @@ class BrokerStateReconciliationService:
                 )
 
         reconciled_positions = matched_positions
-        if not errors and not mismatches:
+        # B-3: order acceptance is a latch that reflects the CURRENT
+        # reconciliation, not a one-way "startup succeeded" flag. It was only
+        # ever set True, so once a clean startup opened the gate, a later
+        # severe drift (or an unreadable broker) left `can_accept_orders`
+        # True and every consumer -- daemon loop, operator session, preflight,
+        # live readiness, CLI -- kept trading through a drift it was
+        # simultaneously alerting on. Fail closed, and let a genuinely clean
+        # reconciliation re-open it.
+        severe = [m for m in mismatches if m.severity >= _BLOCKING_SEVERITY]
+        if not errors and not severe:
             self._startup_reconciled = True
             self._reconciled_at = datetime.now(UTC)
             self._consecutive_failures = 0
-        elif mismatches:
-            self._consecutive_failures += 1
+        else:
+            self._startup_reconciled = False
+            if mismatches:
+                self._consecutive_failures += 1
 
         result = BrokerReconciliationResult(
             matched_positions=matched_positions,

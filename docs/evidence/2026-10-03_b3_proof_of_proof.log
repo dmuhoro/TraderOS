@@ -1,0 +1,55 @@
+# B-3 proof-of-proof: one-way latch restored, wiring tests must FAIL
+# command: PYTHONPATH=src python3 -m pytest tests/wiring/test_reconciliation_blocks_orders.py -p no:randomly --no-cov -q
+# recorded: 2026-10-03T17:33:40Z
+
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/daniel-muhoro/workspace/projects/TraderOS
+configfile: pyproject.toml
+plugins: anyio-4.14.2, cov-7.1.0, typeguard-4.4.4
+collected 8 items
+
+tests/wiring/test_reconciliation_blocks_orders.py FFFFFF..               [100%]
+
+=================================== FAILURES ===================================
+_ TestB3LatchIsTwoWay.test_clean_startup_then_severe_drift_revokes_order_acceptance _
+tests/wiring/test_reconciliation_blocks_orders.py:148: in test_clean_startup_then_severe_drift_revokes_order_acceptance
+    assert svc.can_accept_orders is False, "severe drift must revoke order acceptance"
+E   AssertionError: severe drift must revoke order acceptance
+E   assert True is False
+E    +  where True = <traderos.domain.services.broker_state_reconciliation_service.BrokerStateReconciliationService object at 0x7a8c3da7cad0>.can_accept_orders
+_ TestB3LatchIsTwoWay.test_repeated_clean_reconciles_do_not_re_enable_after_revoke _
+tests/wiring/test_reconciliation_blocks_orders.py:163: in test_repeated_clean_reconciles_do_not_re_enable_after_revoke
+    assert svc.can_accept_orders is False
+E   assert True is False
+E    +  where True = <traderos.domain.services.broker_state_reconciliation_service.BrokerStateReconciliationService object at 0x7a8c3dc1ad50>.can_accept_orders
+_______ TestB3LatchIsTwoWay.test_broker_failure_revokes_order_acceptance _______
+tests/wiring/test_reconciliation_blocks_orders.py:183: in test_broker_failure_revokes_order_acceptance
+    assert svc.can_accept_orders is False, "an unreadable broker must revoke acceptance"
+E   AssertionError: an unreadable broker must revoke acceptance
+E   assert True is False
+E    +  where True = <traderos.domain.services.broker_state_reconciliation_service.BrokerStateReconciliationService object at 0x7a8c3dc1b110>.can_accept_orders
+_ TestB3LatchIsTwoWay.test_unconfirmed_intent_severity_two_revokes_acceptance __
+tests/wiring/test_reconciliation_blocks_orders.py:200: in test_unconfirmed_intent_severity_two_revokes_acceptance
+    assert svc.can_accept_orders is False
+E   assert True is False
+E    +  where True = <traderos.domain.services.broker_state_reconciliation_service.BrokerStateReconciliationService object at 0x7a8c3da2eea0>.can_accept_orders
+_ TestB3DaemonLoopStopsTrading.test_daemon_does_not_reach_broker_after_severe_drift _
+tests/wiring/test_reconciliation_blocks_orders.py:230: in test_daemon_does_not_reach_broker_after_severe_drift
+    assert svc.can_accept_orders is False, "periodic reconcile must revoke acceptance"
+E   AssertionError: periodic reconcile must revoke acceptance
+E   assert True is False
+E    +  where True = <traderos.domain.services.broker_state_reconciliation_service.BrokerStateReconciliationService object at 0x7a8c3da2f950>.can_accept_orders
+_ TestB3DaemonLoopStopsTrading.test_periodic_reconciliation_result_is_not_discarded _
+tests/wiring/test_reconciliation_blocks_orders.py:289: in test_periodic_reconciliation_result_is_not_discarded
+    assert svc.can_accept_orders is False
+E   assert True is False
+E    +  where True = <traderos.domain.services.broker_state_reconciliation_service.BrokerStateReconciliationService object at 0x7a8c3da9f0b0>.can_accept_orders
+=========================== short test summary info ============================
+FAILED tests/wiring/test_reconciliation_blocks_orders.py::TestB3LatchIsTwoWay::test_clean_startup_then_severe_drift_revokes_order_acceptance
+FAILED tests/wiring/test_reconciliation_blocks_orders.py::TestB3LatchIsTwoWay::test_repeated_clean_reconciles_do_not_re_enable_after_revoke
+FAILED tests/wiring/test_reconciliation_blocks_orders.py::TestB3LatchIsTwoWay::test_broker_failure_revokes_order_acceptance
+FAILED tests/wiring/test_reconciliation_blocks_orders.py::TestB3LatchIsTwoWay::test_unconfirmed_intent_severity_two_revokes_acceptance
+FAILED tests/wiring/test_reconciliation_blocks_orders.py::TestB3DaemonLoopStopsTrading::test_daemon_does_not_reach_broker_after_severe_drift
+FAILED tests/wiring/test_reconciliation_blocks_orders.py::TestB3DaemonLoopStopsTrading::test_periodic_reconciliation_result_is_not_discarded
+========================= 6 failed, 2 passed in 0.53s ==========================
