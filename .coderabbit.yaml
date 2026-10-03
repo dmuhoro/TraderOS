@@ -1,0 +1,101 @@
+# CodeRabbit configuration — TraderOS
+#
+# Scope note (fail-closed): CodeRabbit is an ASSISTANT review layer. It is
+# explicitly NOT a quality gate and never a substitute for the deterministic
+# gates in .github/workflows/ci.yml. Nothing in this file may be used to claim
+# that a rail is enforced when it is only "suggested". The binding gates are
+# OD-12 (lint/typecheck/tests), OD-13 (secrets), OD-14 (docs drift) and OD-15
+# (doctrine: no promotion without a machine-checkable gate).
+
+language: en-GB
+
+# Only the surfaces that carry money, orders or governance. Generated and
+# vendored trees are excluded so review attention is not diluted.
+include_paths:
+  - src/traderos/domain/**
+  - src/traderos/application/**
+  - src/traderos/infrastructure/**
+  - src/traderos/interfaces/**
+  - tests/wiring/**
+  - scripts/evidence/**
+  - docs/engineering/**
+
+ignore_paths:
+  - "**/node_modules/**"
+  - "**/htmlcov/**"
+  - "**/.venv/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "frontend/**/dist/**"
+  - "docs/evidence/**"
+  - "**/*.log"
+
+# OD-15: a principle is only as strong as the gate that enforces it. Comments
+# on nearly every line train the reviewer to skip them.
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  review_title: "TraderOS: {{PR_TITLE}}"
+  inline_comments: true
+  commit_messages: false
+  # No `reviewers:` block on purpose. Naming a GitHub user here would be an
+  # invented identity; the org-level CodeRabbit App assignment in GitHub
+  # settings decides who is asked, not this file.
+  # Walk the constitution, not just the diff.
+  path_instructions:
+    - path: "src/traderos/domain/services/risk_service.py"
+      instructions: >-
+        This file sizes real positions. Money is never float: reject any
+        probability, fraction or amount that is invented rather than measured.
+        A default that stands in for a measurement is a fabricated claim.
+        Refusals must carry a reason and must be counted, never silent.
+    - path: "src/traderos/domain/services/broker_state_reconciliation_service.py"
+      instructions: >-
+        Order acceptance is a latch that must reflect the CURRENT
+        reconciliation. Flag any code path that can leave acceptance True after
+        a failed or severely mismatched reconcile. Fail closed.
+    - path: "src/traderos/infrastructure/journaled_broker.py"
+      instructions: >-
+        Idempotency must key on caller-supplied intent, never on request
+        shape. Two orders that share a shape are two orders. Every order
+        method must accept and forward client_order_id.
+    - path: "src/traderos/application/cycle_executor.py"
+      instructions: >-
+        This is the live order path. Every `continue` must either be counted,
+        audited with a reason, or be a genuinely silent no-op. Never let a
+        sizing or rail refusal disappear without an operator-visible record.
+    - path: "src/traderos/domain/services/flatten_service.py"
+      instructions: >-
+        Emergency flatten is the kill-switch exit. A failed close must be
+        counted and surfaced; never report a flatten as successful while
+        failed_orders is non-zero or a position remains open.
+    - path: "tests/wiring/**"
+      instructions: >-
+        Wiring tests must exercise the real boundary and assert the innermost
+        broker is NOT reached when a rail refuses. A test that passes because
+        an unrelated precondition skipped the code path is a false gate; prove
+        the refusal path is the one exercised.
+    - path: "**/*.md"
+      instructions: >-
+        Documentation drift is a defect. Reject any new claim of capability
+        without a named command that demonstrates it.
+
+# The three failure classes this codebase has actually shipped. These are the
+# review comments that earn their keep.
+auto_review:
+  enabled: true
+  auto_increment: false
+  ignore_title_keywords:
+    - "wip"
+    - "revert"
+  labels: []
+  drafts: false
+
+chat:
+  auto_reply: true
+  # Keep the assistant inside the repository's own doctrine.
+  instructions: >-
+    Follow docs/engineering/CONSTITUTION.md and the accepted ADRs. Money is
+    never float. Fail closed: refuse rather than default. Never invent a
+    business number. A gate that cannot fail is not a gate.
