@@ -19,6 +19,20 @@ from traderos.domain.ports import Event
 _TABLE = "order_events"
 
 
+def _coerce_key(event_id: Any) -> str:
+    """Normalize an event id to the TEXT the columns actually store.
+
+    B-2: ``client_order_id`` is caller-supplied and typed ``str | None``, but
+    a UUID (or any object) reaching here bound straight into a TEXT column and
+    raised ``sqlite3.ProgrammingError`` -- which is not in
+    ``_CYCLE_EXCEPTIONS``, so it escaped the cycle. The storage boundary
+    coerces rather than trusting every caller.
+    """
+    if isinstance(event_id, str):
+        return event_id
+    return str(event_id)
+
+
 class OrderEventJournal:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
@@ -40,7 +54,9 @@ class OrderEventJournal:
         self.conn.commit()
 
     def contains(self, event_id: str) -> bool:
-        row = self.conn.execute(f"SELECT 1 FROM {_TABLE} WHERE id = ?", (event_id,)).fetchone()
+        row = self.conn.execute(
+            f"SELECT 1 FROM {_TABLE} WHERE id = ?", (_coerce_key(event_id),)
+        ).fetchone()
         return row is not None
 
     def load_event_ids(self) -> set[str]:
@@ -50,7 +66,7 @@ class OrderEventJournal:
     def get(self, event_id: str) -> dict[str, Any] | None:
         """Return ``{status, payload}`` for a recorded event, else ``None``."""
         row = self.conn.execute(
-            f"SELECT status, payload FROM {_TABLE} WHERE id = ?", (event_id,)
+            f"SELECT status, payload FROM {_TABLE} WHERE id = ?", (_coerce_key(event_id),)
         ).fetchone()
         if row is None:
             return None
@@ -60,7 +76,7 @@ class OrderEventJournal:
         """Update an existing durable record (durable intent confirmations)."""
         self.conn.execute(
             f"UPDATE {_TABLE} SET status = ?, payload = ? WHERE id = ?",
-            (status, json.dumps(payload, default=str), event_id),
+            (status, json.dumps(payload, default=str), _coerce_key(event_id)),
         )
         self.conn.commit()
 
@@ -69,8 +85,8 @@ class OrderEventJournal:
             f"INSERT INTO {_TABLE} (id, trade_id, status, payload, published, applied_at)"
             " VALUES (?, ?, ?, ?, 0, ?)",
             (
-                event_id,
-                trade_id,
+                _coerce_key(event_id),
+                _coerce_key(trade_id),
                 status,
                 json.dumps(payload, default=str),
                 datetime.now(tz=UTC).isoformat(),
@@ -79,7 +95,9 @@ class OrderEventJournal:
         self.conn.commit()
 
     def mark_published(self, event_id: str) -> None:
-        self.conn.execute(f"UPDATE {_TABLE} SET published = 1 WHERE id = ?", (event_id,))
+        self.conn.execute(
+            f"UPDATE {_TABLE} SET published = 1 WHERE id = ?", (_coerce_key(event_id),)
+        )
         self.conn.commit()
 
     def pending_events(self) -> list[tuple[str, str, dict[str, Any]]]:

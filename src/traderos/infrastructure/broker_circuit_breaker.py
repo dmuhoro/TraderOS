@@ -47,8 +47,11 @@ class CircuitBreakeredBroker(BrokerAdapter):
         side: str,
         quantity: float,
         close_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
-        return self._inner.place_flatten_order(market_id, side, quantity, close_price)
+        return self._inner.place_flatten_order(
+            market_id, side, quantity, close_price, client_order_id=client_order_id
+        )
 
     @with_circuit_breaker(BROKER_CB, timeout=5.0)
     def place_limit_order(

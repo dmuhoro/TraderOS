@@ -84,12 +84,15 @@ class GuardrailedBroker(BrokerAdapter):
         side: str,
         quantity: float,
         close_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
         # Kill-switch closes must never be refused by size policy: a flatten
         # closes exactly the exposure we hold, so the notional/min-qty guards
         # (which protect against mis-sized *strategy* orders) would only block
         # the emergency exit. Delegate straight through.
-        return self._inner.place_flatten_order(market_id, side, quantity, close_price)
+        return self._inner.place_flatten_order(
+            market_id, side, quantity, close_price, client_order_id=client_order_id
+        )
 
     def place_limit_order(
         self,

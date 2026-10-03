@@ -1,0 +1,15 @@
+# B-2 positive run: intent-keyed idempotency, distinct flatten submits
+# recorded: 2026-10-03T17:19:55Z
+
+## B-2 wiring
+tests/wiring/test_live_ingestion_wiring.py ...........                   [100%]
+
+============================== 34 passed in 0.62s ==============================
+
+## journal / wrapper / soak
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 30 passed, 1 warning in 7.57s =========================
+
+## full suite
+=========== 2400 passed, 7 skipped, 2 warnings in 539.56s (0:08:59) ============

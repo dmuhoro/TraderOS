@@ -6,7 +6,6 @@ from uuid import uuid4
 from traderos.domain.adapters.broker_adapter import FillResult
 from traderos.infrastructure.journal import OrderEventJournal
 from traderos.infrastructure.journaled_broker import JournaledBroker
-from traderos.infrastructure.journaled_broker import _client_key
 
 
 class FakeBroker:
@@ -18,7 +17,9 @@ class FakeBroker:
         self.calls += 1
         return self.last_result
 
-    def place_flatten_order(self, market_id, side, quantity, close_price=None):
+    def place_flatten_order(
+        self, market_id, side, quantity, close_price=None, client_order_id=None
+    ):
         self.calls += 1
         return self.last_result
 
@@ -64,28 +65,53 @@ def test_forwards_result_into_journal():
 
 
 def test_duplicate_submit_does_not_resubmit_broker():
+    """Exactly-once is keyed on INTENT, not on request shape (B-2).
+
+    This test used to submit the same (market, side, qty, method) twice with
+    no id and assert one broker call -- which is precisely the defect: two
+    genuinely distinct orders that share a shape were collapsed into one.
+    Exactly-once is now expressed the only way it can be honoured: the same
+    client_order_id presented twice.
+    """
     conn, broker, jb = _make()
     mid = uuid4()
-    jb.place_market_order(mid, "buy", 2.0)
+    cid = "intent-1"
+    jb.place_market_order(mid, "buy", 2.0, client_order_id=cid)
     assert broker.calls == 1
-    res2 = jb.place_market_order(mid, "buy", 2.0)
-    assert broker.calls == 1  # short-circuited, no second broker call
+    res2 = jb.place_market_order(mid, "buy", 2.0, client_order_id=cid)
+    assert broker.calls == 1  # same intent -> short-circuited, no second call
     assert res2.status == "filled"  # replayed stored outcome
     conn.close()
 
 
+def test_distinct_intents_with_identical_shape_both_submit():
+    """B-2 regression: same shape, different intent -> two broker calls."""
+    conn, broker, jb = _make()
+    mid = uuid4()
+    jb.place_market_order(mid, "buy", 2.0, client_order_id="intent-a")
+    jb.place_market_order(mid, "buy", 2.0, client_order_id="intent-b")
+    assert broker.calls == 2
+    conn.close()
+
+
 def test_restart_replays_without_broker_call():
+    """A retry of the SAME intent across a restart must replay (B-2).
+
+    The caller carries the stable client_order_id through the restart; that
+    is what makes this replayable rather than a blind resubmit.
+    """
     conn = sqlite3.connect(":memory:")
     journal = OrderEventJournal(conn)
     mid = uuid4()
+    cid = "intent-restart"
 
     crashed = FakeBroker()
-    JournaledBroker(crashed, journal).place_market_order(mid, "buy", 2.0)
+    JournaledBroker(crashed, journal).place_market_order(mid, "buy", 2.0, client_order_id=cid)
     assert crashed.calls == 1
 
     fresh = FakeBroker()
     jb_restart = JournaledBroker(fresh, journal)  # same durable journal
-    res = jb_restart.place_market_order(mid, "buy", 2.0)
+    res = jb_restart.place_market_order(mid, "buy", 2.0, client_order_id=cid)
     assert fresh.calls == 0  # broker never contacted again
     assert res.order_id == "ext-1"
     conn.close()
@@ -98,10 +124,10 @@ def test_intent_only_surfaces_as_pending_for_reconcile():
     broker = FakeBroker()
     jb = JournaledBroker(broker, journal)
 
-    key = _client_key(mid, "buy", 2.0, "place_market_order")
+    key = "intent-orphan"
     journal.record(key, key, "intent", {"method": "place_market_order"})
 
-    res = jb.place_market_order(mid, "buy", 2.0)
+    res = jb.place_market_order(mid, "buy", 2.0, client_order_id=key)
     assert res.status == "needs_reconcile"
     assert broker.calls == 0  # must not double-submit
     assert len(jb.pending()) == 1
@@ -148,14 +174,30 @@ def test_limit_stop_trailing_and_modify_submit_through_journal():
 def test_flatten_order_journaled_and_idempotent():
     conn, broker, jb = _make()
     mid = uuid4()
-    res = jb.place_flatten_order(mid, "sell", 2.0, close_price=100.0)
+    res = jb.place_flatten_order(mid, "sell", 2.0, close_price=100.0, client_order_id="f-1")
     assert res == broker.last_result
     assert broker.calls == 1
     assert jb.pending() == []  # intent confirmed, no drift
 
-    # A repeated flatten of the same position replays the stored outcome and
-    # never re-submits to the broker (exactly-once even across the seam).
-    res2 = jb.place_flatten_order(mid, "sell", 2.0, close_price=100.0)
+    # A retry of the SAME flatten intent replays and never re-submits
+    # (exactly-once even across the seam).
+    res2 = jb.place_flatten_order(mid, "sell", 2.0, close_price=100.0, client_order_id="f-1")
     assert broker.calls == 1
     assert res2.order_id == "ext-1"
+    conn.close()
+
+
+def test_second_distinct_flatten_submits():
+    """B-2 regression: an emergency close must never be silently dropped.
+
+    Two flattens of the same size used to collapse onto one derived key, so
+    the second returned the FIRST order's id while the broker was never
+    called -- a kill-switch exit that reported success and left the position
+    open.
+    """
+    conn, broker, jb = _make()
+    mid = uuid4()
+    jb.place_flatten_order(mid, "sell", 2.0, close_price=100.0, client_order_id="f-1")
+    jb.place_flatten_order(mid, "sell", 2.0, close_price=100.0, client_order_id="f-2")
+    assert broker.calls == 2
     conn.close()

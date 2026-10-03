@@ -40,7 +40,16 @@ CONFIRMED = "confirmed"
 
 
 def _client_key(market_id: Any, side: str, quantity: float, method: str) -> str:
-    return str(uuid.uuid5(_NS, f"order:{market_id}:{side}:{quantity}:{method}"))
+    """Derive a key for callers that supply no ``client_order_id``.
+
+    B-2: this shape-derived key CANNOT distinguish two genuinely distinct
+    orders that share (market, side, quantity, method) -- the second was
+    silently replayed instead of submitted. It is therefore only ever used
+    for a *unique* per-call nonce, never as a content hash, so two calls can
+    never collide. Retry-safety is the caller's job: a caller that wants
+    replay-on-retry passes a stable ``client_order_id``.
+    """
+    return str(uuid.uuid5(_NS, f"order:{market_id}:{side}:{quantity}:{method}:{uuid.uuid4().hex}"))
 
 
 def _to_result(payload: dict[str, Any]) -> FillResult:
@@ -155,6 +164,7 @@ class JournaledBroker(BrokerAdapter):
         side: str,
         quantity: float,
         close_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
         return self._submit(
             "place_flatten_order",
@@ -162,6 +172,7 @@ class JournaledBroker(BrokerAdapter):
             side,
             quantity,
             close_price=close_price,
+            client_order_id=client_order_id,
         )
 
     def place_limit_order(
