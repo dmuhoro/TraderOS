@@ -119,6 +119,23 @@ jobs:
           path: docs/evidence/
           retention-days: 14
 
+  # OD-14: documentation drift is a defect. A doc that claims enforcement
+  # without a command someone can run is a false promise, and the gate fails
+  # closed when it cannot verify (e.g. no tag readable, nothing scanned).
+  docs-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags are needed to compare the declared version against what has
+          # actually been released; without them the check fails closed.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Check version sources, demonstrated claims and release metadata
+        run: python3 scripts/ci/check_docs_drift.py
+
   security:
     runs-on: ubuntu-latest
     steps:
@@ -141,7 +158,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, security]
+    needs: [lint, typecheck, test, security, docs-drift]
     permissions:
       contents: read
       packages: write
@@ -172,7 +189,7 @@ jobs:
 
   deploy-check:
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, security]
+    needs: [lint, typecheck, test, security, docs-drift]
     services:
       postgres:
         image: postgres:16

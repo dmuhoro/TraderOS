@@ -158,5 +158,7 @@ GO requires all of the following, empirically demonstrated — not declared:
 6. Pilot bounded per §6 with the hard stop defined before launch.
 
 **NO-GO until then is the default, not a failure state.** This policy, the
-release signing scripts, and the CI live-gate are the mechanism by which that
-default is enforced mechanically rather than by intention.
+release signing scripts (`scripts/governance/sign_release.py sign`), and the
+CI live-gate (`scripts/governance/live_gate.py`, run as the `live-gate` job in
+`.github/workflows/ci.yml`) are the mechanism by which that default is
+enforced mechanically rather than by intention.

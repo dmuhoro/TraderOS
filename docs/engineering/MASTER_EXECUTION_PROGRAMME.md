@@ -2411,7 +2411,11 @@ Each month, the review board evaluates:
    - If yes: Stop feature work. Dedicate sprint to remediation.
 
 2. **Are our ADRs keeping pace with architectural decisions?**
-   - If no: Feature work without ADR is blocked.
+   - If no: Feature work without an ADR is held at review. This is a board
+     decision recorded in the sprint log, not a machine gate: per OD-15 no
+     principle counts as enforced until it has a check that can fail, so this
+     item is governance, and the automated counterpart is
+     `python3 scripts/ci/check_docs_drift.py`.
 
 3. **Is the strangler fig pattern progressing?**
    - If no progress for 2 consecutive months: Escalate to CTO.
