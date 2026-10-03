@@ -65,6 +65,10 @@ class FlattenService:
 
         positions: list[Position] = self._portfolio_service.get_summary(0.0).open_positions
         result = FlattenResult(flattened=True, reason=reason)
+        # B-2: one stable id per flatten *intent*. Each order in this run keys
+        # off it, so a retry of THIS flatten replays while a later, genuinely
+        # new flatten is a distinct intent and does submit.
+        intent_id = f"flatten-{uuid.uuid4().hex}"
         for pos in positions:
             qty = abs(float(pos.quantity))
             if qty <= 0.0:
@@ -72,7 +76,13 @@ class FlattenService:
             side = "sell" if pos.quantity > 0 else "buy"
             price = self._market_prices(pos.market_id) if self._market_prices else pos.current_price
             try:
-                fill = self._broker.place_flatten_order(pos.market_id, side, qty, close_price=price)
+                fill = self._broker.place_flatten_order(
+                    pos.market_id,
+                    side,
+                    qty,
+                    close_price=price,
+                    client_order_id=f"{intent_id}:{pos.market_id}",
+                )
             except Exception as e:  # noqa: BLE001 — a failed close must never crash flatten
                 result.failed_orders += 1
                 result.errors.append(f"{pos.market_id}: flatten close failed: {e}")

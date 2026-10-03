@@ -14,7 +14,9 @@ class _MockInner:
         self.place_calls += 1
         return FillResult(True, quantity, 100.0, 0.0, "filled", "ord1")
 
-    def place_flatten_order(self, market_id, side, quantity, close_price=None):
+    def place_flatten_order(
+        self, market_id, side, quantity, close_price=None, client_order_id=None
+    ):
         self.place_calls += 1
         return FillResult(True, quantity, close_price or 100.0, 0.0, "filled", "ord1")
 

@@ -70,10 +70,17 @@ class RateLimitedBroker(BrokerAdapter):
         side: str,
         quantity: float,
         close_price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FillResult:
         # Kill-switch / fatal-freeze closes must never be throttled: a delayed
         # flatten is a live risk position, not a queueing problem.
-        return self._inner.place_market_order(market_id, side, quantity, close_price)
+        #
+        # B-2: client_order_id MUST be forwarded. Dropping it here would make
+        # every retry through this decorator derive a fresh key and
+        # double-submit the emergency close.
+        return self._inner.place_market_order(
+            market_id, side, quantity, close_price, client_order_id
+        )
 
     def place_limit_order(
         self,

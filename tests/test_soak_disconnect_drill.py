@@ -187,13 +187,22 @@ class TestSoakDisconnectDrill:
 
         broker_v1 = JournaledBroker(adapter, journal)
         mid = uuid.uuid4()
-        first = broker_v1.place_market_order(mid, "buy", 2.0, close_price=100.0)
+        # B-2: replay-across-restart is keyed on the caller's stable intent id,
+        # not on the request shape. A shape-derived key cannot tell "the same
+        # order after a crash" from "a second order that happens to match",
+        # and choosing the former silently dropped the latter.
+        cid = "soak:restart-intent"
+        first = broker_v1.place_market_order(
+            mid, "buy", 2.0, close_price=100.0, client_order_id=cid
+        )
         assert first.filled and first.order_id
         calls_before = flaky.submit_calls
         orders_before = len(flaky.orders)
 
         broker_v2 = JournaledBroker(adapter, journal)
-        second = broker_v2.place_market_order(mid, "buy", 2.0, close_price=100.0)
+        second = broker_v2.place_market_order(
+            mid, "buy", 2.0, close_price=100.0, client_order_id=cid
+        )
 
         assert second.filled and second.order_id == first.order_id
         assert flaky.submit_calls == calls_before, "restart must NOT re-submit to the broker"
