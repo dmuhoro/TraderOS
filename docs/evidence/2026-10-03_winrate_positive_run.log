@@ -1,0 +1,12 @@
+# Win-rate provenance positive run: sizing requires a sourced win rate
+# recorded: 2026-10-03T18:26:42Z
+
+## wiring
+
+============================== 49 passed in 0.77s ==============================
+
+## risk rails drill (6/6 fail-closed)
+VERDICT: PASS — 6/6 rails proven fail-closed
+
+## full suite
+=========== 2416 passed, 7 skipped, 2 warnings in 548.21s (0:09:08) ============

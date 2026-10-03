@@ -1,0 +1,52 @@
+# Win-rate provenance proof-of-proof: original defect reconstructed
+# (default win_rate=0.5 restored AND both production callers omit it again)
+# command: PYTHONPATH=src python3 -m pytest tests/wiring/test_win_rate_provenance.py -p no:randomly --no-cov -q
+# recorded: 2026-10-03T18:26:23Z
+
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/daniel-muhoro/workspace/projects/TraderOS
+configfile: pyproject.toml
+plugins: anyio-4.14.2, cov-7.1.0, typeguard-4.4.4
+collected 7 items
+
+tests/wiring/test_win_rate_provenance.py FF..FF.                         [100%]
+
+=================================== FAILURES ===================================
+__ TestNoInventedWinRate.test_assess_trade_refuses_without_a_sourced_win_rate __
+tests/wiring/test_win_rate_provenance.py:164: in test_assess_trade_refuses_without_a_sourced_win_rate
+    assert result.kelly_fraction == 0.0, "no win rate may not imply a position size"
+E   AssertionError: no win rate may not imply a position size
+E   assert 0.25 == 0.0
+E    +  where 0.25 = RiskAssessment(kelly_fraction=0.25, suggested_stop_loss=90.0, suggested_take_profit=115.0, risk_per_unit=10.0, max_risk_amount=200.0, reason='').kelly_fraction
+_________ TestNoInventedWinRate.test_signature_has_no_invented_default _________
+tests/wiring/test_win_rate_provenance.py:172: in test_signature_has_no_invented_default
+    assert (
+E   AssertionError: win_rate must be supplied explicitly; an unsupplied value is unknown, not 0.5
+E   assert 0.5 is <class 'inspect._empty'>
+E    +  where 0.5 = <Parameter "win_rate: 'float | None' = 0.5">.default
+E    +  and   <class 'inspect._empty'> = <class 'inspect.Parameter'>.empty
+E    +    where <class 'inspect.Parameter'> = <module 'inspect' from '/usr/lib/python3.14/inspect.py'>.Parameter
+_ TestLiveCycleRefusesUnsourcedSizing.test_live_cycle_places_no_order_without_a_sourced_win_rate _
+tests/wiring/test_win_rate_provenance.py:210: in test_live_cycle_places_no_order_without_a_sourced_win_rate
+    result = executor.run(uuid.uuid4(), 100.0)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/traderos/application/cycle_executor.py:407: in run
+    fill = self._broker.place_market_order(
+tests/wiring/test_win_rate_provenance.py:110: in place_market_order
+    raise AssertionError("an order was placed from an unsourced win rate")
+E   AssertionError: an order was placed from an unsourced win rate
+__ TestLiveCycleRefusesUnsourcedSizing.test_refusal_is_recorded_not_swallowed __
+tests/wiring/test_win_rate_provenance.py:222: in test_refusal_is_recorded_not_swallowed
+    executor.run(uuid.uuid4(), 100.0)
+src/traderos/application/cycle_executor.py:407: in run
+    fill = self._broker.place_market_order(
+tests/wiring/test_win_rate_provenance.py:110: in place_market_order
+    raise AssertionError("an order was placed from an unsourced win rate")
+E   AssertionError: an order was placed from an unsourced win rate
+=========================== short test summary info ============================
+FAILED tests/wiring/test_win_rate_provenance.py::TestNoInventedWinRate::test_assess_trade_refuses_without_a_sourced_win_rate
+FAILED tests/wiring/test_win_rate_provenance.py::TestNoInventedWinRate::test_signature_has_no_invented_default
+FAILED tests/wiring/test_win_rate_provenance.py::TestLiveCycleRefusesUnsourcedSizing::test_live_cycle_places_no_order_without_a_sourced_win_rate
+FAILED tests/wiring/test_win_rate_provenance.py::TestLiveCycleRefusesUnsourcedSizing::test_refusal_is_recorded_not_swallowed
+========================= 4 failed, 3 passed in 0.51s ==========================

@@ -149,6 +149,11 @@ def _make_executor(
         run_manifest=InMemoryManifestService(),
         data_ingestion=data_ingestion,
         default_cash=10000.0,
+        # These tests pin the fill -> trade -> position path (I1, I3), which
+        # requires a position size. Sizing now refuses unless a win rate is
+        # sourced, so supply one explicitly here; the refusal path itself is
+        # covered in tests/wiring/test_win_rate_provenance.py.
+        win_rate_provider=lambda: 0.55,
     )
 
 

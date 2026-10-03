@@ -26,6 +26,9 @@ class RiskAssessment(NamedTuple):
     suggested_take_profit: float
     risk_per_unit: float
     max_risk_amount: float
+    # Why the position size is what it is. Empty when sizing was computed;
+    # set when the assessment refuses, so a refusal is never silent.
+    reason: str = ""
 
 
 class PortfolioRisk(NamedTuple):
@@ -321,24 +324,55 @@ class RiskService:
         confidence: float,
         atr: float,
         account_equity: float,
-        win_rate: float = 0.5,
+        win_rate: float | None,
     ) -> RiskAssessment:
-        if win_rate <= 0 or win_rate >= 1:
-            return RiskAssessment(
-                kelly_fraction=0.0,
-                suggested_stop_loss=price - atr * 2,
-                suggested_take_profit=price + atr * 3,
-                risk_per_unit=price - (price - atr * 2),
-                max_risk_amount=account_equity * 0.02,
-            )
-        b = win_rate / (1 - win_rate)
-        kelly = (b * confidence - (1 - confidence)) / b
-        kelly = max(0.0, min(kelly, self.max_position_size))
+        """Size a trade from a *sourced* win rate.
 
+        ``win_rate`` is deliberately required and has no default. It previously
+        defaulted to 0.5, and both production callers omitted it, so every LIVE
+        position size was the output of a fabricated coin-flip assumption
+        presented as a Kelly estimate. There is no default that is not a claim:
+        an unsupplied win rate is unknown, and unknown sizing is refused.
+
+        Pass ``None`` to say "not measured". That is different from passing a
+        number, and it refuses too -- but with a different, honest reason.
+
+        Stop and target levels come from the real ATR and stay available on a
+        refusal -- refusing a size is not the same as pretending the market
+        data is missing.
+        """
         stop_loss = price - atr * 2
         take_profit = price + atr * 3
         risk_per_unit = price - stop_loss
         max_risk = account_equity * 0.02
+
+        if win_rate is None:
+            return RiskAssessment(
+                kelly_fraction=0.0,
+                suggested_stop_loss=stop_loss,
+                suggested_take_profit=take_profit,
+                risk_per_unit=risk_per_unit,
+                max_risk_amount=max_risk,
+                reason=(
+                    "no measured win rate is available for this strategy; "
+                    "a Kelly size cannot be computed and none is invented"
+                ),
+            )
+        if win_rate <= 0 or win_rate >= 1:
+            return RiskAssessment(
+                kelly_fraction=0.0,
+                suggested_stop_loss=stop_loss,
+                suggested_take_profit=take_profit,
+                risk_per_unit=risk_per_unit,
+                max_risk_amount=max_risk,
+                reason=(
+                    f"win_rate={win_rate} is not a usable probability in (0, 1); "
+                    "no position size is asserted"
+                ),
+            )
+        b = win_rate / (1 - win_rate)
+        kelly = (b * confidence - (1 - confidence)) / b
+        kelly = max(0.0, min(kelly, self.max_position_size))
 
         return RiskAssessment(
             kelly_fraction=kelly,
