@@ -129,6 +129,11 @@ def _executor(conn, risk_service: RiskService, broker: _SpyBroker, trading_user_
         run_manifest=SQLiteManifestService(conn),
         enabled_strategies=lambda: [("risk_gate_always_signal", "risk_gate_always_signal", {})],
         trading_user_id=trading_user_id,
+        # This harness pins the exposure cap / allowlist rails, not sizing.
+        # Sizing refuses without a sourced win rate, so supply one to keep
+        # the rail the thing under test; the refusal path is covered in
+        # tests/wiring/test_win_rate_provenance.py.
+        win_rate_provider=lambda: 0.55,
     )
 
 
@@ -211,6 +216,10 @@ class TestOrderRiskGateAtSubmissionBoundary:
                 enabled_strategies=lambda: [
                     ("risk_gate_always_signal", "risk_gate_always_signal", {})
                 ],
+                # Within-limits control: the risk gate is what is under test,
+                # so sizing must be given a sourced win rate to get as far as
+                # the gate. See tests/wiring/test_win_rate_provenance.py.
+                win_rate_provider=lambda: 0.55,
             )
             result = executor.run(uuid.uuid4(), close_price=100.0)
             assert broker.place_market_order_calls, "within-limits order should reach broker"

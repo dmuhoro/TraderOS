@@ -20,12 +20,26 @@ class TestRiskService:
             confidence=0.7,
             atr=5.0,
             account_equity=10000.0,
+            win_rate=0.55,
         )
         assert 0 <= result.kelly_fraction <= 0.25
         assert result.suggested_stop_loss < 100.0
         assert result.suggested_take_profit > 100.0
         assert result.risk_per_unit > 0
         assert result.max_risk_amount == 200.0
+
+    def test_assess_trade_without_a_measured_win_rate_refuses(self) -> None:
+        """None means "not measured": refuse, and say so."""
+        svc = RiskService()
+        result = svc.assess_trade(
+            price=100.0,
+            confidence=0.7,
+            atr=5.0,
+            account_equity=10000.0,
+            win_rate=None,
+        )
+        assert result.kelly_fraction == 0.0
+        assert "no measured win rate" in result.reason
 
     def test_assess_trade_zero_win_rate(self) -> None:
         svc = RiskService()

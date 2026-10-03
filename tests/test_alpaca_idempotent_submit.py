@@ -147,6 +147,11 @@ def _executor(conn, fake_client):
         notifications=Mock(),
         run_manifest=SQLiteManifestService(conn),
         enabled_strategies=lambda: [("idem_always_signal", "idem_always_signal", {})],
+        # These harnesses pin other rails (submit idempotency, exposure
+        # caps, allowlists). Sizing now refuses without a sourced win
+        # rate, so supply one to keep those rails the thing under test;
+        # the refusal path is covered in tests/wiring/test_win_rate_provenance.py.
+        win_rate_provider=lambda: 0.55,
     )
 
 

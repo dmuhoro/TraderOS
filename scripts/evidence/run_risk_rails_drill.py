@@ -156,6 +156,10 @@ def _executor(
         data_ingestion=data_ingestion,
         enabled_strategies=lambda: [("risk_rails_drill_signal", "risk_rails_drill_signal", {})],
         flatten_service=flatten_service,
+        # This drill proves the portfolio risk rails, so sizing must be given
+        # a sourced win rate to reach them. Without one, sizing refuses first
+        # and every rail would report "broker untouched" for the wrong reason.
+        win_rate_provider=lambda: 0.55,
     )
 
 

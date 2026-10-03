@@ -143,6 +143,11 @@ def _executor(
         data_ingestion=data_ingestion,
         enabled_strategies=lambda: [("risk_rails_always_signal", "risk_rails_always_signal", {})],
         flatten_service=flatten_service,
+        # This harness pins the exposure cap / allowlist rails, not sizing.
+        # Sizing refuses without a sourced win rate, so supply one to keep
+        # the rail the thing under test; the refusal path is covered in
+        # tests/wiring/test_win_rate_provenance.py.
+        win_rate_provider=lambda: 0.55,
     )
 
 

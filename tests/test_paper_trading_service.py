@@ -418,7 +418,7 @@ class TestPaperSessionFlow:
         signal_service = MagicMock()
         signal_service.get_active_signals.return_value = [signal]
         risk = MagicMock()
-        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1)
+        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1, reason="")
         portfolio = MagicMock()
         portfolio.size_position.return_value = 50.0
         portfolio.compute_pnl.return_value = 0.0
@@ -444,7 +444,7 @@ class TestPaperSessionFlow:
         signal_service = MagicMock()
         signal_service.get_active_signals.return_value = [signal]
         risk = MagicMock()
-        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1)
+        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1, reason="")
         portfolio = MagicMock()
         portfolio.size_position.return_value = 50.0
         portfolio.compute_pnl.return_value = 0.0
@@ -482,7 +482,9 @@ class TestPaperSessionFlow:
         signal_service = MagicMock()
         signal_service.get_active_signals.return_value = [signal]
         risk = MagicMock()
-        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.0)
+        risk.assess_trade.return_value = SimpleNamespace(
+            kelly_fraction=0.0, reason="no measured win rate"
+        )
         svc = self._svc(
             signal_service=signal_service,
             risk_service=risk,
@@ -500,7 +502,7 @@ class TestPaperSessionFlow:
         signal_service = MagicMock()
         signal_service.get_active_signals.return_value = [signal]
         risk = MagicMock()
-        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1)
+        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1, reason="")
         portfolio = MagicMock()
         portfolio.size_position.return_value = 0.0
         portfolio.compute_pnl.return_value = 0.0
@@ -521,7 +523,7 @@ class TestPaperSessionFlow:
         signal_service = MagicMock()
         signal_service.get_active_signals.return_value = [signal]
         risk = MagicMock()
-        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1)
+        risk.assess_trade.return_value = SimpleNamespace(kelly_fraction=0.1, reason="")
         portfolio = MagicMock()
         portfolio.size_position.return_value = 50.0
         portfolio.compute_pnl.return_value = 0.0

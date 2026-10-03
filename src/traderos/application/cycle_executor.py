@@ -11,6 +11,7 @@ from traderos.application.models import CycleResult
 from traderos.application.models import RetailOrderResult
 from traderos.application.models import TradingMode
 from traderos.domain.adapters.broker_adapter import BrokerAdapter
+from traderos.domain.entities.signal import Signal
 from traderos.domain.entities.trade import TradeSide
 from traderos.domain.exceptions import InfrastructureError
 from traderos.domain.exceptions import ServiceError
@@ -77,6 +78,7 @@ class CycleExecutor:
         research: ResearchService | None = None,
         flatten_service: FlattenService | None = None,
         trading_user_id: str | None = None,
+        win_rate_provider: Callable[[], float | None] | None = None,
     ) -> None:
         self._mode = mode
         self._signal_service = signal_service
@@ -100,6 +102,12 @@ class CycleExecutor:
         self._research = research
         self._flatten_service = flatten_service
         self._trading_user_id = trading_user_id
+        # Source of the win rate used for position sizing. None means no
+        # measurement is available, and sizing then refuses rather than
+        # inventing a value. Nothing is allowed to substitute a default here:
+        # the seam exists so a measured estimator can be wired in, not so a
+        # plausible-looking constant can be.
+        self._win_rate_provider = win_rate_provider
 
     def _record_causal(
         self,
@@ -322,13 +330,21 @@ class CycleExecutor:
                             continue
                         cash = self._cash_balance()
                         eq = self._portfolio_service.get_summary(cash).total_equity
+                        # None when nothing has measured this strategy's win
+                        # rate; assess_trade then refuses to size a position.
+                        win_rate = self._win_rate_provider() if self._win_rate_provider else None
                         risk = self._risk_service.assess_trade(
                             price=close_price,
                             confidence=signal.confidence,
                             atr=atr_14,
                             account_equity=eq,
+                            win_rate=win_rate,
                         )
                         if risk.kelly_fraction <= 0:
+                            # Not a silent skip: record why, so a cycle in which
+                            # every signal is refused is visible rather than
+                            # looking like a quiet, signal-free cycle.
+                            self._record_sizing_refusal(signal, risk.reason)
                             continue
                         qty = self._portfolio_service.size_position(
                             cash=cash,
@@ -655,6 +671,25 @@ class CycleExecutor:
         if self._mode == TradingMode.LIVE:
             return self._broker.get_account_balance()
         return self._default_cash
+
+    def _record_sizing_refusal(self, signal: Signal, reason: str) -> None:
+        """Record a refused position size. Never a silent skip.
+
+        A cycle that refuses every signal because no win rate has been measured
+        looks identical, from the outside, to a cycle that simply had no
+        signals. Counting and auditing the refusal keeps that distinction
+        visible to an operator instead of hiding it in a ``continue``.
+        """
+        detail = reason or "position size refused without a stated reason"
+        self._metrics.counter("risk.sizing_refused")
+        self._record_causal(
+            "risk.sizing_refused",
+            signal.market_id,
+            "risk",
+            signal_id=str(signal.id),
+            confidence=signal.confidence,
+            reason=detail,
+        )
 
     def _record_trade_evidence(
         self,

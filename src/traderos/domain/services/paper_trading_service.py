@@ -43,6 +43,9 @@ class PaperSession:
     trades: list[Trade] = field(default_factory=list)
     positions: dict[uuid.UUID, Position] = field(default_factory=dict)
     equity_curve: list[tuple[datetime, float]] = field(default_factory=list)
+    # Why signals were refused rather than sized. Without this a session that
+    # refused every signal is indistinguishable from one that had none.
+    sizing_refusals: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -331,8 +334,15 @@ class PaperTradingService:
                 confidence=signal.confidence,
                 atr=close_price * 0.01,
                 account_equity=session.current_capital,
+                # No measured win rate for this strategy yet. A number here
+                # would be a fabricated claim, and inventing a default is what
+                # this replaces, so the assessment refuses rather than guessing.
+                win_rate=None,
             )
             if risk.kelly_fraction <= 0:
+                session.sizing_refusals.append(
+                    risk.reason or "position size refused without a stated reason"
+                )
                 continue
             qty = self.portfolio_service.size_position(
                 cash=session.current_capital,
