@@ -26,14 +26,17 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
+from fastapi import Query
 from pydantic import BaseModel
 from pydantic import Field
+from starlette.responses import JSONResponse
 
 from traderos.application.orchestrator import TradingOrchestrator
 from traderos.domain.entities import OHLCV
 from traderos.domain.entities import Candle
 from traderos.domain.entities import Timeframe
 from traderos.domain.services.analysis_service import AnalysisService
+from traderos.domain.services.risk_metrics import RiskMetrics
 from traderos.domain.services.strategy_framework import registry as strategy_registry
 from traderos.interfaces.api.security import require_operate
 from traderos.interfaces.api.security import require_read
@@ -203,6 +206,86 @@ def register_market_research_endpoints(
                     "k": _series(stoch.k),
                     "d": _series(stoch.d),
                 },
+            },
+        }
+
+    @router.get("/research/risk", dependencies=[Depends(require_read)])
+    def research_risk(
+        symbol: str,
+        confidence: float,
+        lookback: int = Query(..., ge=1),
+    ):
+        """Risk on observed per-unit price changes; this is not account PnL."""
+        orch = orch_provider()
+        if orch.data_ingestion is None:
+            raise HTTPException(503, "Data ingestion not configured")
+        raw = orch.data_ingestion.fetch_all(limit=lookback + 1)
+        if symbol not in raw:
+            raise HTTPException(404, f"Unknown market symbol '{symbol}'")
+        if not raw[symbol]:
+            return JSONResponse(
+                status_code=422,
+                content={"error": {"code": 422, "reason": "no_price_observations"}},
+            )
+        series = _candles_for(orch, symbol, limit=lookback + 1)
+        if len(series) < 2:
+            return JSONResponse(
+                status_code=422,
+                content={"error": {"code": 422, "reason": "insufficient_price_observations"}},
+            )
+        if len(series) < lookback + 1:
+            return JSONResponse(
+                status_code=422,
+                content={"error": {"code": 422, "reason": "lookback_exceeds_available_history"}},
+            )
+
+        window = series[-(lookback + 1) :]
+        pnl = [
+            window[index].ohlcv.close - window[index - 1].ohlcv.close
+            for index in range(1, len(window))
+        ]
+        equity = [(c.timestamp, c.ohlcv.close) for c in window]
+        try:
+            historical = RiskMetrics.historical_simulation_var(
+                pnl, confidence=confidence, lookback=lookback
+            )
+            parametric = RiskMetrics.parametric_var(pnl, confidence=confidence, lookback=lookback)
+            drawdown = RiskMetrics.maximum_drawdown(equity)
+        except ValueError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error": {
+                        "code": 422,
+                        "reason": "invalid_risk_observations",
+                        "message": str(exc),
+                    }
+                },
+            )
+        return {
+            "symbol": symbol,
+            "unit": "quote_currency_per_one_base_unit",
+            "confidence": confidence,
+            "lookback": lookback,
+            "observations": len(pnl),
+            "historical_var": {
+                "value": str(historical.value),
+                "confidence": historical.confidence,
+                "observations": historical.observations,
+            },
+            "parametric_var": {
+                "value": str(parametric.value),
+                "confidence": parametric.confidence,
+                "observations": parametric.observations,
+            },
+            "drawdown": {
+                "amount": str(drawdown.amount),
+                "percent": str(drawdown.percent),
+                "peak_at": drawdown.peak_at.isoformat() if drawdown.peak_at else None,
+                "trough_at": drawdown.trough_at.isoformat() if drawdown.trough_at else None,
+                "recovered_at": (
+                    drawdown.recovered_at.isoformat() if drawdown.recovered_at else None
+                ),
             },
         }
 
