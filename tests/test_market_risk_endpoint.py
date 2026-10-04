@@ -69,6 +69,17 @@ def _set_prices(risk_client: TestClient, prices: list[int]) -> None:
     ]
 
 
+def test_risk_openapi_contract_disclaims_account_and_position_exposure(
+    risk_client: TestClient,
+) -> None:
+    operation = risk_client.app.openapi()["paths"]["/v1/research/risk"]["get"]
+    description = operation["description"].lower()
+    assert "per-unit candle-price change" in description
+    assert "not account exposure" in description
+    assert "not portfolio exposure" in description
+    assert "not position exposure" in description
+
+
 def test_risk_endpoint_returns_exact_decimal_money_through_market_router(
     risk_client: TestClient,
 ) -> None:
@@ -82,6 +93,10 @@ def test_risk_endpoint_returns_exact_decimal_money_through_market_router(
     body = response.json()
     assert body["symbol"] == SYMBOL
     assert body["unit"] == "quote_currency_per_one_base_unit"
+    assert body["risk_scope"] == (
+        "Per-unit candle-price change figures; NOT account exposure, NOT portfolio "
+        "exposure, and NOT position exposure."
+    )
     assert body["historical_var"]["value"] == "20"
     assert isinstance(body["parametric_var"]["value"], str)
     assert body["drawdown"]["amount"] == "20"

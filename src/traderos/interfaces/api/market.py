@@ -209,7 +209,15 @@ def register_market_research_endpoints(
             },
         }
 
-    @router.get("/research/risk", dependencies=[Depends(require_read)])
+    @router.get(
+        "/research/risk",
+        dependencies=[Depends(require_read)],
+        description=(
+            "Reports per-unit candle-price change figures from observed market closes. "
+            "These are NOT account exposure, NOT portfolio exposure, and NOT position "
+            "exposure; they do not use account equity, holdings, or position quantities."
+        ),
+    )
     def research_risk(
         symbol: str,
         confidence: float,
@@ -265,6 +273,10 @@ def register_market_research_endpoints(
         return {
             "symbol": symbol,
             "unit": "quote_currency_per_one_base_unit",
+            "risk_scope": (
+                "Per-unit candle-price change figures; NOT account exposure, NOT portfolio "
+                "exposure, and NOT position exposure."
+            ),
             "confidence": confidence,
             "lookback": lookback,
             "observations": len(pnl),
