@@ -6,11 +6,16 @@ Python: 3.14.4
 Measured stdout:
 {"candles": 5000, "indicator_batch_seconds": 0.781921, "indicators": ["compute_sma", "compute_ema", "compute_rsi", "compute_atr", "compute_bollinger_bands", "compute_stochastics"]}
 
+Repeat after commit (same command):
+{"candles": 5000, "indicator_batch_seconds": 1.070562, "indicators": ["compute_sma", "compute_ema", "compute_rsi", "compute_atr", "compute_bollinger_bands", "compute_stochastics"]}
+
 The benchmark warms each implementation once, then times one batch across all
 six indicators on the deterministic 5,000-candle series. The prior captured
 pre-change and post-change values provided to this task were 2.827 s and
-0.800 s respectively; this run measured 0.781921 s for the post-change batch.
-These measurements are machine-specific, not a production latency guarantee.
+0.800 s respectively. This run measured 0.781921 s; the repeat measured
+1.070562 s and exceeded the existing one-second test budget. Runtime is
+variable here and the budget is not consistently met. These measurements are
+machine-specific, not a production latency guarantee.
 
 Correctness evidence: tests/test_analysis_performance.py::test_rolling_indicator_golden_is_bit_for_bit_unchanged
 asserts the SHA-256 digest of exact float.hex() output for all six indicators.
