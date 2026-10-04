@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 from datetime import datetime
 from typing import NamedTuple
 
@@ -27,14 +28,20 @@ class AnalysisService:
         market_id = candles[0].market_id
         name = f"sma_{window}"
         result: list[Indicator] = []
-        for i in range(len(candles)):
+        closes: deque[float] = deque()
+        total = 0.0
+        for i, candle in enumerate(candles):
+            close = float(candle.ohlcv.close)
+            closes.append(close)
+            total += close
+            if len(closes) > window:
+                total -= closes.popleft()
             if i < window - 1:
                 continue
-            total = sum(float(candles[j].ohlcv.close) for j in range(i - window + 1, i + 1))
             result.append(
                 Indicator(
                     market_id=market_id,
-                    timestamp=candles[i].timestamp,
+                    timestamp=candle.timestamp,
                     name=name,
                     value=total / window,
                 )
@@ -50,13 +57,18 @@ class AnalysisService:
         multiplier = 2.0 / (window + 1)
         result: list[Indicator] = []
         ema: float | None = None
+        closes: deque[float] = deque()
+        rolling_total = 0.0
         for i, candle in enumerate(candles):
             close = float(candle.ohlcv.close)
+            closes.append(close)
+            rolling_total += close
+            if len(closes) > window:
+                rolling_total -= closes.popleft()
             if i < window - 1:
                 continue
             if ema is None:
-                total = sum(float(candles[j].ohlcv.close) for j in range(i - window + 1, i + 1))
-                ema = total / window
+                ema = rolling_total / window
             else:
                 ema = (close - ema) * multiplier + ema
             result.append(
@@ -76,17 +88,29 @@ class AnalysisService:
         market_id = candles[0].market_id
         name = f"rsi_{window}"
         result: list[Indicator] = []
-        for i in range(len(candles)):
+        gains_window: deque[float] = deque()
+        losses_window: deque[float] = deque()
+        gains = 0.0
+        losses = 0.0
+        previous_close: float | None = None
+        for i, candle in enumerate(candles):
+            close = float(candle.ohlcv.close)
+            if previous_close is None:
+                previous_close = close
+                continue
+            change = close - previous_close
+            previous_close = close
+            gain = change if change > 0 else 0.0
+            loss = -change if change < 0 else 0.0
+            gains_window.append(gain)
+            losses_window.append(loss)
+            gains += gain
+            losses += loss
+            if len(gains_window) > window:
+                gains -= gains_window.popleft()
+                losses -= losses_window.popleft()
             if i < window:
                 continue
-            gains = 0.0
-            losses = 0.0
-            for j in range(i - window + 1, i + 1):
-                change = float(candles[j].ohlcv.close) - float(candles[j - 1].ohlcv.close)
-                if change > 0:
-                    gains += change
-                else:
-                    losses -= change
             avg_gain = gains / window
             avg_loss = losses / window
             if avg_loss == 0:
@@ -97,7 +121,7 @@ class AnalysisService:
             result.append(
                 Indicator(
                     market_id=market_id,
-                    timestamp=candles[i].timestamp,
+                    timestamp=candle.timestamp,
                     name=name,
                     value=rsi,
                 )
@@ -111,21 +135,29 @@ class AnalysisService:
         market_id = candles[0].market_id
         name = f"atr_{window}"
         result: list[Indicator] = []
-        for i in range(len(candles)):
+        tr_window: deque[float] = deque()
+        tr_total = 0.0
+        previous_close: float | None = None
+        for i, candle in enumerate(candles):
+            close = float(candle.ohlcv.close)
+            if previous_close is None:
+                previous_close = close
+                continue
+            high = float(candle.ohlcv.high)
+            low = float(candle.ohlcv.low)
+            tr = max(high - low, abs(high - previous_close), abs(low - previous_close))
+            previous_close = close
+            tr_window.append(tr)
+            tr_total += tr
+            if len(tr_window) > window:
+                tr_total -= tr_window.popleft()
             if i < window:
                 continue
-            tr_values: list[float] = []
-            for j in range(i - window + 1, i + 1):
-                high = float(candles[j].ohlcv.high)
-                low = float(candles[j].ohlcv.low)
-                prev_close = float(candles[j - 1].ohlcv.close)
-                tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
-                tr_values.append(tr)
-            atr = sum(tr_values) / window
+            atr = tr_total / window
             result.append(
                 Indicator(
                     market_id=market_id,
-                    timestamp=candles[i].timestamp,
+                    timestamp=candle.timestamp,
                     name=name,
                     value=atr,
                 )
@@ -144,14 +176,27 @@ class AnalysisService:
         middle_list: list[Indicator] = []
         upper_list: list[Indicator] = []
         lower_list: list[Indicator] = []
-        for i in range(len(candles)):
+        closes: deque[float] = deque()
+        origin = float(candles[0].ohlcv.close)
+        offset_total = 0.0
+        offset_squares = 0.0
+        for i, candle in enumerate(candles):
+            close = float(candle.ohlcv.close)
+            if len(closes) == window:
+                expired = closes.popleft() - origin
+                offset_total -= expired
+                offset_squares -= expired * expired
+            closes.append(close)
+            offset = close - origin
+            offset_total += offset
+            offset_squares += offset * offset
             if i < window - 1:
                 continue
-            closes = [float(candles[j].ohlcv.close) for j in range(i - window + 1, i + 1)]
-            mean = sum(closes) / window
-            variance = sum((c - mean) ** 2 for c in closes) / window
+            mean_offset = offset_total / window
+            mean = origin + mean_offset
+            variance = max(0.0, offset_squares / window - mean_offset * mean_offset)
             std = math.sqrt(variance)
-            ts = candles[i].timestamp
+            ts = candle.timestamp
             middle_list.append(
                 Indicator(
                     market_id=market_id,
@@ -189,11 +234,26 @@ class AnalysisService:
         market_id = candles[0].market_id
         k_values: list[float] = []
         k_timestamps: list[datetime] = []
+        highs: deque[tuple[int, float]] = deque()
+        lows: deque[tuple[int, float]] = deque()
         for i in range(len(candles)):
+            high_value = float(candles[i].ohlcv.high)
+            low_value = float(candles[i].ohlcv.low)
+            while highs and highs[-1][1] <= high_value:
+                highs.pop()
+            highs.append((i, high_value))
+            while lows and lows[-1][1] >= low_value:
+                lows.pop()
+            lows.append((i, low_value))
+            expired = i - k_window
+            while highs and highs[0][0] <= expired:
+                highs.popleft()
+            while lows and lows[0][0] <= expired:
+                lows.popleft()
             if i < k_window - 1:
                 continue
-            high = max(float(candles[j].ohlcv.high) for j in range(i - k_window + 1, i + 1))
-            low = min(float(candles[j].ohlcv.low) for j in range(i - k_window + 1, i + 1))
+            high = highs[0][1]
+            low = lows[0][1]
             close = float(candles[i].ohlcv.close)
             if high == low:
                 k = 50.0
@@ -206,10 +266,16 @@ class AnalysisService:
             for ts, v in zip(k_timestamps, k_values, strict=True)
         ]
         d_indicators: list[Indicator] = []
-        for i in range(len(k_values)):
+        d_window_values: deque[float] = deque()
+        d_total = 0.0
+        for i, k_value in enumerate(k_values):
+            d_window_values.append(k_value)
+            d_total += k_value
+            if len(d_window_values) > d_window:
+                d_total -= d_window_values.popleft()
             if i < d_window - 1:
                 continue
-            d_val = sum(k_values[i - d_window + 1 : i + 1]) / d_window
+            d_val = d_total / d_window
             d_indicators.append(
                 Indicator(
                     market_id=market_id,
