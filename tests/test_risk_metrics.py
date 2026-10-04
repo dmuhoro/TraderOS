@@ -62,3 +62,42 @@ def test_var_requires_valid_confidence_and_lookback() -> None:
         RiskMetrics.historical_simulation_var([Decimal(1)], confidence=1, lookback=1)
     with pytest.raises(ValueError):
         RiskMetrics.historical_simulation_var([Decimal(1)], confidence=0.95, lookback=0)
+
+
+def test_drawdown_rejects_out_of_order_timestamps() -> None:
+    points = _series(["100", "110"])
+    points.reverse()
+    with pytest.raises(ValueError, match="^equity observations must be ordered by timestamp$"):
+        RiskMetrics.maximum_drawdown(points)
+
+
+def test_drawdown_rejects_non_positive_peak_for_percent() -> None:
+    points = _series(["-100", "-90", "-100"])
+    with pytest.raises(ValueError, match="^drawdown percent requires a positive peak equity$"):
+        RiskMetrics.maximum_drawdown(points)
+
+
+def test_historical_var_rejects_non_finite_confidence() -> None:
+    with pytest.raises(
+        ValueError,
+        match="^confidence must be finite and strictly between 0 and 1$",
+    ):
+        RiskMetrics.historical_simulation_var([Decimal(1)], confidence=float("nan"), lookback=1)
+
+
+def test_historical_var_rejects_non_positive_lookback() -> None:
+    with pytest.raises(ValueError, match="^lookback must be positive$"):
+        RiskMetrics.historical_simulation_var([Decimal(1)], confidence=0.95, lookback=0)
+
+
+def test_var_rejects_lookback_larger_than_history() -> None:
+    with pytest.raises(ValueError, match="^lookback exceeds available PnL observations$"):
+        RiskMetrics.historical_simulation_var([Decimal(1)], confidence=0.95, lookback=2)
+
+
+def test_drawdown_rejects_non_finite_decimal_equity() -> None:
+    timestamp = datetime(2025, 1, 1, tzinfo=UTC)
+    with pytest.raises(
+        ValueError, match="^risk metric inputs must be finite Decimal money values$"
+    ):
+        RiskMetrics.maximum_drawdown([(timestamp, Decimal("NaN"))])
