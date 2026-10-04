@@ -22,5 +22,21 @@ asserts the SHA-256 digest of exact float.hex() output for all six indicators.
 The prior synthetic Decimal-series comparison reported maximum absolute
 deviation 9.95e-14, below the documented 1e-12 convergence bound.
 
-Target comparison is blocked: docs/perf_targets.md is absent from the current
-codex/analytics worktree, so no documented target can be verified or claimed.
+The requested docs/perf_targets.md is absent from this worktree. The one-second
+budget is defined by the existing test at tests/test_analysis_performance.py:81;
+that test is the available authoritative target.
+
+Repeated controlled benchmark (updated command implementation)
+Command: PYTHONPATH=src python3 scripts/benchmark_analytics.py
+Workload: identical six calculation calls, 5,000 deterministic candles and
+parameters as tests/test_analysis_performance.py; one measured batch per sample.
+Warmups: 3. Iterations: 21. Process pinned to CPU 0; host logical CPU count: 8.
+Python: 3.14.4. System aggregate CPU busy: 66.81%; estimated other load:
+4.373 CPU-core equivalents (detected).
+
+Measured stdout:
+{"budget_met_at_p50": true, "budget_met_at_p95": false, "budget_seconds": 1.0, "candles": 5000, "cpu_affinity": [0], "cpu_count": 8, "estimated_other_cpu_core_equivalents": 4.373, "indicators": ["compute_sma", "compute_ema", "compute_rsi", "compute_atr", "compute_bollinger_bands", "compute_stochastics"], "iterations": 21, "measurement": "same six-indicator batch as tests/test_analysis_performance.py", "other_load_detected": true, "pinned_cpu": 0, "python": "3.14.4", "seconds": {"max": 1.234986, "min": 0.639116, "p50": 0.713505, "p95": 1.058359}, "warmups": 3}
+
+At this run's p50 the existing strict one-second budget was met; at p95 it
+was missed. The measured external host load means this run does not establish
+an idle-machine tail latency.
