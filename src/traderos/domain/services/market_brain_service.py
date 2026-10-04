@@ -98,7 +98,7 @@ class StateSnapshot(NamedTuple):
     known: bool
     regime: str
     trend_stage: str
-    volatility_percentile: float
+    volatility_percentile: float | None
     momentum: float
     rsi: float
     liquidity: int
@@ -236,7 +236,7 @@ class MarketBrainService:
             known=False,
             regime="unknown",
             trend_stage=TrendStage.UNKNOWN.value,
-            volatility_percentile=0.0,
+            volatility_percentile=None,
             momentum=0.0,
             rsi=0.0,
             liquidity=0,
@@ -351,6 +351,14 @@ class MarketBrainService:
                 allowed=False,
                 moves=[],
                 reason="brain warming up: insufficient data",
+                snapshot=snap,
+            )
+
+        if snap.volatility_percentile is None:
+            return Advice(
+                allowed=False,
+                moves=[],
+                reason="brain warming up: volatility percentile unavailable",
                 snapshot=snap,
             )
 
