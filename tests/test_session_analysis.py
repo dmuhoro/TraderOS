@@ -51,7 +51,12 @@ class TestSessionAssignment:
 
 class TestSessionStats:
     def test_empty(self) -> None:
-        assert SessionAnalysisService.compute_session_stats([], {"London": [7, 16]}) == []
+        assert (
+            SessionAnalysisService.compute_session_stats(
+                [], {"London": [7, 16]}, confidence=0.95, lookback=1
+            )
+            == []
+        )
 
     def test_stats_computed(self) -> None:
         candles = [
@@ -60,13 +65,22 @@ class TestSessionStats:
             _c(101, hour=10, day=1),
         ]
         sessions = {"London": [7, 16]}
-        stats = SessionAnalysisService.compute_session_stats(candles, sessions)
+        stats = SessionAnalysisService.compute_session_stats(
+            candles, sessions, confidence=0.5, lookback=2
+        )
         assert len(stats) == 1
         s = stats[0]
         assert s.session == "London"
         assert s.bar_count == 3
         # high = max(102, 104, 103) = 104, low = min(98, 100, 99) = 98
         assert abs(s.range_size - 6.0) < 0.01
+        assert s.max_drawdown is not None
+        assert s.max_drawdown.amount == Decimal(1)
+        assert s.historical_var is not None
+        assert s.historical_var.value == Decimal(1)
+        assert s.parametric_var is not None
+        assert s.parametric_var.value == Decimal("-0.5")
+        assert s.risk_unavailable_reason is None
 
     def test_two_days_two_sessions(self) -> None:
         candles = [
@@ -76,5 +90,9 @@ class TestSessionStats:
             _c(103, hour=10, day=2),
         ]
         sessions = {"Asia": [20, 4], "London": [7, 16]}
-        stats = SessionAnalysisService.compute_session_stats(candles, sessions)
+        stats = SessionAnalysisService.compute_session_stats(
+            candles, sessions, confidence=0.95, lookback=1
+        )
         assert len(stats) == 4  # 2 sessions × 2 days
+        assert all(s.max_drawdown is None for s in stats)
+        assert all(s.risk_unavailable_reason == "insufficient_price_observations" for s in stats)

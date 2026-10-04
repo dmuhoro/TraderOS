@@ -5,6 +5,9 @@ from datetime import datetime
 from typing import NamedTuple
 
 from traderos.domain.entities import Candle
+from traderos.domain.services.risk_metrics import Drawdown
+from traderos.domain.services.risk_metrics import RiskMetrics
+from traderos.domain.services.risk_metrics import ValueAtRisk
 
 
 class SessionStats(NamedTuple):
@@ -13,6 +16,10 @@ class SessionStats(NamedTuple):
     volatility: float
     range_size: float
     bar_count: int
+    max_drawdown: Drawdown | None
+    historical_var: ValueAtRisk | None
+    parametric_var: ValueAtRisk | None
+    risk_unavailable_reason: str | None
 
 
 class SessionAnalysisService:
@@ -41,6 +48,9 @@ class SessionAnalysisService:
     def compute_session_stats(
         candles: list[Candle],
         sessions: dict[str, list[int]],
+        *,
+        confidence: float,
+        lookback: int,
     ) -> list[SessionStats]:
         assignments = SessionAnalysisService.assign_sessions(candles, sessions)
 
@@ -61,6 +71,25 @@ class SessionAnalysisService:
             volatility = math.sqrt(variance)
             high = max(float(c.ohlcv.high) for c in group)
             low = min(float(c.ohlcv.low) for c in group)
+            ordered_group = sorted(group, key=lambda candle: candle.timestamp)
+            decimal_closes = [c.ohlcv.close for c in ordered_group]
+            pnl = [decimal_closes[i] - decimal_closes[i - 1] for i in range(1, len(decimal_closes))]
+            if not pnl:
+                drawdown = historical_var = parametric_var = None
+                unavailable = "insufficient_price_observations"
+            elif len(pnl) < lookback:
+                drawdown = historical_var = parametric_var = None
+                unavailable = "lookback_exceeds_session_history"
+            else:
+                equity = [(c.timestamp, c.ohlcv.close) for c in ordered_group]
+                drawdown = RiskMetrics.maximum_drawdown(equity)
+                historical_var = RiskMetrics.historical_simulation_var(
+                    pnl, confidence=confidence, lookback=lookback
+                )
+                parametric_var = RiskMetrics.parametric_var(
+                    pnl, confidence=confidence, lookback=lookback
+                )
+                unavailable = None
             stats.append(
                 SessionStats(
                     date=day,
@@ -68,6 +97,10 @@ class SessionAnalysisService:
                     volatility=volatility,
                     range_size=high - low,
                     bar_count=len(group),
+                    max_drawdown=drawdown,
+                    historical_var=historical_var,
+                    parametric_var=parametric_var,
+                    risk_unavailable_reason=unavailable,
                 )
             )
 
