@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import threading
 import time
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import pytest
@@ -295,7 +296,9 @@ class TestBrokerProbe:
         from traderos.infrastructure.resilience import CircuitOpenError
 
         with pytest.raises(CircuitOpenError):
-            broker.place_limit_order(orch.market_ids[0], "buy", 1.0, 0.01, close_price=None)
+            broker.place_limit_order(
+                orch.market_ids[0], "buy", Decimal(1), Decimal("0.01"), close_price=None
+            )
         assert broker.get_open_orders() == []
 
 
@@ -347,17 +350,21 @@ class TestCircuitBreakeredBroker:
     def test_stop_order_delegates(self, broker) -> None:
         import uuid
 
-        res = broker.place_stop_order(uuid.uuid4(), "buy", 1.0, 90.0, market_price=100.0)
+        res = broker.place_stop_order(
+            uuid.uuid4(), "buy", Decimal(1), Decimal(90), market_price=Decimal(100)
+        )
         assert res.status == "pending"
 
     def test_trailing_stop_order_delegates(self, broker) -> None:
         import uuid
 
-        res = broker.place_trailing_stop_order(uuid.uuid4(), "buy", 1.0, 0.01, market_price=100.0)
+        res = broker.place_trailing_stop_order(
+            uuid.uuid4(), "buy", Decimal(1), 0.01, market_price=Decimal(100)
+        )
         assert res.status == "pending"
 
     def test_modify_order_delegates(self, broker) -> None:
-        res = broker.modify_order("ord1", qty=2.0, limit_price=101.0)
+        res = broker.modify_order("ord1", qty=Decimal(2), limit_price=Decimal(101))
         assert res.status == "modified"
 
     def test_reads_pass_through_unwrapped(self, broker) -> None:
@@ -378,7 +385,7 @@ class TestCircuitBreakeredBroker:
         shed = 0
         for _ in range(BROKER_CB.threshold + 3):
             try:
-                limited.place_market_order(mid, "buy", 1.0)
+                limited.place_market_order(mid, "buy", Decimal(1))
             except RateLimitExceededError:
                 shed += 1
         # Far more rejections than the breaker threshold, yet the breaker stays
@@ -387,7 +394,7 @@ class TestCircuitBreakeredBroker:
         assert BROKER_CB.state == "closed"
         assert BROKER_CB.failure_count == 0
         # Legitimate traffic resumes cleanly through the same shared breaker.
-        res = limited.place_limit_order(mid, "buy", 1.0, 100.0)
+        res = limited.place_limit_order(mid, "buy", Decimal(1), Decimal(100))
         assert res.status == "pending"
 
 
@@ -480,7 +487,15 @@ class TestPostgresCircuitWiring:
 
     A missing driver (ImportError) is a packaging bug, NOT a database outage,
     and must never trip PG_CB — only genuine connect failures do.
+
+    Every DSN here is loopback. ``_connect_postgres`` is interlocked: under
+    pytest it refuses a non-loopback host before reaching the driver, so a
+    "host=h" DSN would be rejected by the safety guard and PG_CB would never see
+    a transport failure to count. These tests are about breaker behaviour, and
+    loopback keeps the transport failure as the thing under test.
     """
+
+    DSN = "postgresql://u:p@localhost:1/db"
 
     @pytest.fixture(autouse=True)
     def _reset_breakers(self) -> None:
@@ -497,10 +512,10 @@ class TestPostgresCircuitWiring:
         monkeypatch.setattr(psycopg2, "connect", _boom)
         for _ in range(PG_CB.threshold):
             with pytest.raises(psycopg2.OperationalError):
-                _connect_postgres("postgresql://u:p@h:1/db")
+                _connect_postgres(self.DSN)
         assert PG_CB.state == "open"
         with pytest.raises(CircuitOpenError):
-            _connect_postgres("postgresql://u:p@h:1/db")
+            _connect_postgres(self.DSN)
 
     def test_import_error_does_not_trip_breaker(self, monkeypatch) -> None:
         import builtins
@@ -514,7 +529,7 @@ class TestPostgresCircuitWiring:
 
         monkeypatch.setattr(builtins, "__import__", _guarded)
         with pytest.raises(ImportError):
-            _connect_postgres("postgresql://u:p@h/db")
+            _connect_postgres(self.DSN)
         assert PG_CB.state == "closed"
         assert PG_CB.failure_count == 0
 
@@ -538,13 +553,13 @@ class TestPostgresCircuitWiring:
         monkeypatch.setattr(psycopg2, "connect", _transport)
         for _ in range(PG_CB.threshold):
             with pytest.raises(psycopg2.OperationalError):
-                _connect_postgres("postgresql://u:p@h/db")
+                _connect_postgres(self.DSN)
         assert PG_CB.state == "open"
 
         mode["fail"] = False
         clock["now"] += PG_CB.recovery_seconds + 1
-        conn = _connect_postgres("postgresql://u:p@h/db")
+        conn = _connect_postgres(self.DSN)
         assert conn.autocommit is False
-        _connect_postgres("postgresql://u:p@h/db")
+        _connect_postgres(self.DSN)
         assert PG_CB.state == "closed"
         assert PG_CB.failure_count == 0

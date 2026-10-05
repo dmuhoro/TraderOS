@@ -51,10 +51,18 @@ class TestMigrationsOnBoot:
 
     def test_sqlite_default_no_url_is_skipped(self, monkeypatch) -> None:
         """Without a DATABASE_URL the dev default is not mutated by the API
-        boot (matches the pre-A4 behaviour for local runs)."""
+        boot (matches the pre-A4 behaviour for local runs).
+
+        The variable is set to the empty string rather than deleted. ``Config.load()``
+        calls ``load_dotenv()`` on every invocation, which re-populates a deleted
+        ``DATABASE_URL`` from the developer's ``.env``. Deleting it therefore did
+        not mean "not configured" -- it meant "re-read from .env", so this test
+        silently inherited whatever production URL the machine had. An empty
+        string is not overridden by ``load_dotenv``, so it expresses the intent.
+        """
         from traderos.infrastructure.boot import run_migrations_on_boot
 
-        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("DATABASE_URL", "")
         monkeypatch.delenv("RUN_MIGRATIONS_ON_BOOT", raising=False)
         assert run_migrations_on_boot() is None
 

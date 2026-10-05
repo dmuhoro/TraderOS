@@ -21,16 +21,44 @@ _POOLS: dict[str, ConnectionPool] = {}
 _POOLS_LOCK = threading.Lock()
 
 
-def resolve_backend(database_url: str = "") -> str:
-    url = database_url or os.getenv("DATABASE_URL", "")
+def resolve_backend(database_url: str | None = None) -> str:
+    """Return "postgres" or "sqlite" for a DSN.
+
+    ``None`` means "not specified", and only then is the ambient
+    ``DATABASE_URL`` consulted. An empty string is a real answer: it means no
+    PostgreSQL URL was given, so the backend is sqlite. Treating "" as "not
+    specified" made this function read the environment when the caller passed
+    an empty string on purpose, so ``resolve_backend("")`` reported postgres
+    whenever DATABASE_URL happened to be set -- the same class of bug as
+    ``get_connection``, where the environment overrode an explicit argument.
+    """
+    url = os.getenv("DATABASE_URL", "") if database_url is None else database_url
     if url.startswith(("postgresql://", "postgres://")):
         return "postgres"
     return "sqlite"
 
 
 def get_connection(config: Config | None = None) -> Any:
-    cfg = config or Config.load()
-    url = cfg.database_url or os.getenv("DATABASE_URL", "")
+    """Open a connection for the given config, or load the ambient one.
+
+    When a config is passed explicitly it is authoritative, including its
+    ``database_url``. Falling back to ``os.environ["DATABASE_URL"]`` for a
+    caller that already said which database it wants means the ambient
+    environment silently overrides the argument: a test asking for
+    ``Config(db_path=...)`` got a PostgreSQL connection whenever DATABASE_URL
+    happened to be set, and then failed on sqlite-only APIs (``execute``,
+    ``row_factory``, ``total_changes``).
+
+    An explicit argument must beat an environment variable. The env fallback
+    applies only to the no-argument path, where ``Config.load()`` is the source
+    of truth and already reads the environment itself.
+    """
+    if config is None:
+        cfg = Config.load()
+        url = cfg.database_url or os.getenv("DATABASE_URL", "")
+    else:
+        cfg = config
+        url = config.database_url
     if url.startswith(("postgresql://", "postgres://")):
         return _connect_postgres(url)
     return _connect_sqlite(cfg)

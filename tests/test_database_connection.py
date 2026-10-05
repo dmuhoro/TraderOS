@@ -148,15 +148,37 @@ class TestGetConnection:
 
 class TestConnectPostgres:
     def test_success(self):
+        """A loopback DSN reaches the driver and gets autocommit disabled.
+
+        The URL is loopback because ``_connect_postgres`` is now interlocked:
+        under pytest it refuses a non-loopback host before the driver is even
+        imported. Using a bare "host" here made this test assert the opposite of
+        the guard's purpose, and it was silently red the moment the guard landed.
+        The refusal itself is asserted in ``test_remote_url_is_refused`` below and
+        in tests/wiring/test_remote_destructive_guard.py.
+        """
         fake = ModuleType("psycopg2")
         fake.connect = MagicMock()
         conn = MagicMock()
         fake.connect.return_value = conn
         with patch.dict("sys.modules", {"psycopg2": fake}):
-            result = _connect_postgres("postgresql://user:pass@host/db")
+            result = _connect_postgres("postgresql://user:pass@localhost/db")
         assert result is conn
-        fake.connect.assert_called_once_with("postgresql://user:pass@host/db")
+        fake.connect.assert_called_once_with("postgresql://user:pass@localhost/db")
         assert conn.autocommit is False
+
+    def test_remote_url_is_refused(self):
+        """The interlock, asserted at the function every real caller funnels into."""
+        from traderos.infrastructure.database.safety_guard import RemoteDestructiveRefusedError
+
+        fake = ModuleType("psycopg2")
+        fake.connect = MagicMock()
+        with (
+            patch.dict("sys.modules", {"psycopg2": fake}),
+            pytest.raises(RemoteDestructiveRefusedError),
+        ):
+            _connect_postgres("postgresql://user:pass@db.example.invalid/db")
+        fake.connect.assert_not_called()
 
     def test_missing_psycopg2_raises(self):
         with (
