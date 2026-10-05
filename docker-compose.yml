@@ -73,8 +73,13 @@ services:
       POSTGRES_USER: traderos
       POSTGRES_PASSWORD: traderos
       POSTGRES_DB: traderos_test
+    # Loopback-bound deliberately. This is a THROWAWAY database whose whole
+    # purpose is to be dropped and recreated by the test suite; publishing it
+    # on 0.0.0.0 would expose an unauthenticated-feeling DROP-everything
+    # target to the local network. Tests dial 127.0.0.1:5433, so this is
+    # sufficient for `make test-postgres`.
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U traderos -d traderos_test"]
       interval: 5s
