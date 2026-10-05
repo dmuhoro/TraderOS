@@ -169,3 +169,71 @@ def test_read_path_leaves_no_open_transaction_per_driver(repo) -> None:
         "after a read the connection is not IDLE — a transaction is still "
         "open (INTRANS), holding row locks and able to block migrations"
     )
+
+
+_IDLE = psycopg2.extensions.TRANSACTION_STATUS_IDLE
+
+
+def _repositories():
+    """Every postgres repository whose read path must end its transaction.
+
+    Listed explicitly rather than discovered so that a NEW repository cannot
+    silently join the leaking set: adding a repo here is a deliberate act.
+    """
+    import uuid
+
+    from traderos.infrastructure.repositories.postgres.knowledge import (
+        PostgresKnowledgeEdgeRepository,
+    )
+    from traderos.infrastructure.repositories.postgres.knowledge import (
+        PostgresKnowledgeNodeRepository,
+    )
+    from traderos.infrastructure.repositories.postgres.research import PostgresExperimentRepository
+    from traderos.infrastructure.repositories.postgres.research import PostgresObservationRepository
+    from traderos.infrastructure.repositories.postgres.signals import PostgresSignalRepository
+    from traderos.infrastructure.repositories.postgres.strategies import PostgresStrategyRepository
+    from traderos.infrastructure.repositories.postgres.trades import PostgresPositionRepository
+    from traderos.infrastructure.repositories.postgres.trades import PostgresTradeRepository
+
+    probe = uuid.uuid4()
+    return [
+        (PostgresKnowledgeNodeRepository, lambda r: r.get_by_label("absent")),
+        (PostgresKnowledgeEdgeRepository, lambda r: r.get_by_source(probe)),
+        (PostgresObservationRepository, lambda r: r.get_by_symbol("ABSENT")),
+        (PostgresExperimentRepository, lambda r: r.get_by_hypothesis(probe)),
+        (PostgresSignalRepository, lambda r: r.get_active(probe)),
+        (PostgresStrategyRepository, lambda r: r.get_by_name("absent")),
+        (PostgresStrategyRepository, lambda r: r.list_active()),
+        (PostgresTradeRepository, lambda r: r.get_by_market(probe)),
+        (PostgresTradeRepository, lambda r: r.get_open()),
+        (PostgresPositionRepository, lambda r: r.get_by_market(probe)),
+        (PostgresPositionRepository, lambda r: r.list_open()),
+    ]
+
+
+@pytest.mark.parametrize("cls,invoke", _repositories(), ids=lambda v: getattr(v, "__name__", ""))
+def test_every_repository_read_ends_its_transaction(monkeypatch, cls, invoke) -> None:
+    """No postgres repository read may leave a transaction open.
+
+    This is the regression guard for the whole defect class, not just the
+    users repository. Pre-fix, each of these reads left the backend in
+    ``idle in transaction``.
+    """
+    monkeypatch.setenv("DATABASE_URL", _as_url(DSN))
+    conn = get_connection()
+    try:
+        repo = cls(conn)
+        conn.rollback()  # discard the CREATE TABLE IF NOT EXISTS transaction
+        assert conn.get_transaction_status() == _IDLE
+
+        invoke(repo)
+
+        assert conn.get_transaction_status() == _IDLE, (
+            f"{cls.__name__} read left a transaction open (INTRANS); it holds "
+            f"row locks and can block DDL/migrations"
+        )
+    finally:
+        try:
+            conn.rollback()
+        finally:
+            conn.close()
