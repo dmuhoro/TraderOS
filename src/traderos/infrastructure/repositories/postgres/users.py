@@ -81,19 +81,19 @@ class PostgresUserRepository(UserRepository):
         return user
 
     def get_user(self, user_id: uuid.UUID) -> User | None:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(f"SELECT * FROM {_USERS} WHERE id = %s", (str(user_id),))
             row = cur.fetchone()
         return self._user_from_row(row) if row else None
 
     def get_user_by_username(self, username: str) -> User | None:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(f"SELECT * FROM {_USERS} WHERE username = %s", (username,))
             row = cur.fetchone()
         return self._user_from_row(row) if row else None
 
     def list_users(self) -> list[User]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(f"SELECT * FROM {_USERS} ORDER BY created_at")
             rows = cur.fetchall()
         return [self._user_from_row(row) for row in rows]
@@ -114,7 +114,7 @@ class PostgresUserRepository(UserRepository):
         return session
 
     def get_session(self, token_hash: str) -> UserSession | None:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(f"SELECT * FROM {_SESSIONS} WHERE token_hash = %s", (token_hash,))
             row = cur.fetchone()
         if row is None:
@@ -150,13 +150,13 @@ class PostgresUserRepository(UserRepository):
         return key
 
     def get_api_key(self, key_hash: str) -> UserApiKey | None:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(f"SELECT * FROM {_API_KEYS} WHERE key_hash = %s", (key_hash,))
             row = cur.fetchone()
         return self._key_from_row(row) if row else None
 
     def list_api_keys(self, user_id: uuid.UUID) -> list[UserApiKey]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 f"SELECT * FROM {_API_KEYS} WHERE user_id = %s ORDER BY created_at",
                 (str(user_id),),
