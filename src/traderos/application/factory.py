@@ -199,8 +199,9 @@ def build_orchestrator(
     if backend == PG_BACKEND:
         from traderos.infrastructure.repositories.postgres.users import PostgresUserRepository
 
+        account_repo_conn = db if db is not None else get_connection(cfg)
         account_service = AccountService(
-            PostgresUserRepository(db),
+            PostgresUserRepository(account_repo_conn),
             audit=audit,
         )
     else:
