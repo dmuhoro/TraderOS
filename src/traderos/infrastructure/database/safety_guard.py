@@ -70,16 +70,58 @@ def is_destructive(sql: str) -> bool:
     return bool(_DESTRUCTIVE.match(_strip_noise(sql)))
 
 
-def _host_from_url(database_url: str) -> str:
+def host_from_url(database_url: str) -> str:
+    """Best-effort host extraction that never raises.
+
+    Public because ``conftest`` needs the same resolution logic the guard uses.
+    The two layers must agree exactly on what "remote" means, or a URL could be
+    judged remote by one and local by the other. Exported rather than imported
+    privately so that sharing it is explicit rather than accidental.
+
+    ``urllib.parse.urlparse`` validates the netloc and raises ``ValueError``
+    whenever the authority contains ``[`` or ``]`` and what sits between them is
+    not a valid IPv6 literal. A password containing brackets -- which the real
+    production DSN does -- is enough to trigger it, because the brackets in the
+    userinfo are indistinguishable from an IPv6 host literal. The exception
+    carries the hostname, but only inside its message.
+
+    That case used to be swallowed into ``""``, and ``is_loopback("")`` is True,
+    so an unparseable DSN was treated as *local* and the guard stood down. The
+    production database was dialled straight through the interlock on every test
+    run. Resolve the host by hand instead: split the authority, take everything
+    after the LAST ``@`` (the separator is the final one, since userinfo may
+    contain earlier ones), then drop the port and any IPv6 brackets.
+    """
     if not database_url:
         return ""
     try:
-        return (urlparse(database_url).hostname or "").lower()
+        host = urlparse(database_url).hostname or ""
+        if host:
+            return host.lower()
     except ValueError:
-        return ""
+        pass
+
+    _, _, remainder = database_url.partition("://")
+    authority = remainder.split("/", 1)[0].split("?", 1)[0]
+    if "@" in authority:
+        authority = authority.rpartition("@")[2]
+    authority = authority.strip()
+    if authority.startswith("["):
+        closing = authority.find("]")
+        return authority[1:closing].lower() if closing != -1 else ""
+    host = authority.split(":", 1)[0]
+    return host.strip().lower()
 
 
 def is_loopback(host: str) -> bool:
+    """True only for a host we positively identified as local.
+
+    An empty host means "no host to reason about" -- sqlite, an in-memory
+    database -- and is treated as local. It must NOT be the result of a failed
+    parse; see ``host_from_url``, which now resolves the host by hand rather
+    than collapsing an unparseable DSN to ``""``. A caller that genuinely cannot
+    tell should refuse explicitly rather than rely on this default.
+    """
     if not host:
         return True  # sqlite, or no host to reason about
     host = host.lower().strip("[]")
@@ -137,7 +179,7 @@ def guard_connection(database_url: str) -> None:
     """
     if remote_opt_in() or not under_pytest():
         return
-    host = _host_from_url(database_url)
+    host = host_from_url(database_url)
     if is_loopback(host):
         return
     raise RemoteDestructiveRefusedError(
