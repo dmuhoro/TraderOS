@@ -31,8 +31,33 @@ def _serial(backend: str) -> str:
     return "SERIAL PRIMARY KEY" if backend == PG else "INTEGER PRIMARY KEY AUTOINCREMENT"
 
 
-def _ref(backend: str) -> str:
-    return "INTEGER"
+# The research/indicator tables below are ALSO created at runtime by their
+# repositories (see repositories/{sqlite,postgres}/research.py and
+# sqlite/indicators.py). Both owners must agree, because `CREATE TABLE IF NOT
+# EXISTS` means whichever runs FIRST wins and the loser is silently ignored.
+#
+# These declarations previously used SERIAL/INTEGER surrogate keys while the
+# repositories used TEXT holding uuid4 values -- the domain entities
+# (Observation.id, Hypothesis.observation_id, Lesson.result_id) are all
+# uuid.UUID, and the repositories write `str(entity.id)`. On a fresh PostgreSQL
+# database the mismatch is not cosmetic: if a repository created `observations`
+# first, v001's `hypotheses` FK (`observation_id INTEGER REFERENCES
+# observations(id)`) can never be implemented against a TEXT primary key, and
+# PostgreSQL raises DatatypeMismatch. That aborted v001 mid-run, so every
+# migration after it was skipped and ~25 API tests failed with a confusing
+# error.
+#
+# The repository DDL is authoritative -- it matches the domain types the code
+# actually writes -- so these tables are declared to match it exactly. That
+# makes the two owners agree regardless of which runs first.
+def _text_pk() -> str:
+    # NOT NULL is explicit, not implied. In PostgreSQL a PRIMARY KEY already
+    # implies it; in SQLite ``TEXT PRIMARY KEY`` does not, so a row with a NULL id
+    # is silently accepted. That is how research tables ended up holding rows
+    # with no identity: the writer read cursor.lastrowid, got None, and the row
+    # was unreachable by any join. Declaring NOT NULL makes SQLite refuse the row
+    # the same way PostgreSQL does.
+    return "TEXT PRIMARY KEY NOT NULL"
 
 
 def _dt(backend: str) -> str:
@@ -46,7 +71,6 @@ def _bool(backend: str) -> str:
 def up(conn, backend: str = "sqlite"):
     cursor = conn.cursor()
     s = _serial(backend)
-    ref = _ref(backend)
     dt = _dt(backend)
     bl = _bool(backend)
 
@@ -97,15 +121,17 @@ def up(conn, backend: str = "sqlite"):
         )
     """)
 
+    # Matches sqlite/indicators.py's LiquidityZoneRepository DDL, which is the
+    # only owner of this table (there is no PostgreSQL variant). Same
+    # first-wins hazard as the research tables above.
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS liquidity_zones (
-            id {s},
-            symbol TEXT,
-            timeframe TEXT,
-            zone_type TEXT,
-            price_level REAL,
-            strength REAL,
-            detected_at {dt}
+            id {_text_pk()},
+            market_id TEXT NOT NULL,
+            price_level REAL NOT NULL,
+            zone_type TEXT NOT NULL,
+            strength INTEGER NOT NULL,
+            detected_at TEXT NOT NULL
         )
     """)
 
@@ -132,57 +158,57 @@ def up(conn, backend: str = "sqlite"):
         )
     """)
 
+    # Column shapes below mirror the repository DDL exactly (see the comment on
+    # _text_pk): TEXT uuid keys, TEXT timestamps in ISO-8601, TEXT tags holding a
+    # JSON array. Diverging here reintroduces the DatatypeMismatch above.
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS observations (
-            id {s},
-            timestamp {dt} DEFAULT CURRENT_TIMESTAMP,
-            symbol TEXT,
+            id {_text_pk()},
+            timestamp TEXT NOT NULL,
+            symbol TEXT NOT NULL,
             content TEXT NOT NULL,
-            tags TEXT
+            tags TEXT NOT NULL DEFAULT '[]'
         )
     """)
 
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS hypotheses (
-            id {s},
-            observation_id {ref},
-            timestamp {dt} DEFAULT CURRENT_TIMESTAMP,
+            id {_text_pk()},
+            observation_id TEXT NOT NULL,
             content TEXT NOT NULL,
-            status TEXT DEFAULT 'pending',
-            FOREIGN KEY (observation_id) REFERENCES observations(id)
+            status TEXT NOT NULL DEFAULT 'proposed',
+            created_at TEXT NOT NULL
         )
     """)
 
+    # Legacy research pair. v009 adds the canonical experiments/experiment_results
+    # the current repo contract uses; kept so the version chain stays contiguous
+    # and v009's comment about the legacy tables remains true.
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS research_tests (
-            id {s},
-            hypothesis_id {ref},
-            timestamp {dt} DEFAULT CURRENT_TIMESTAMP,
+            id {_text_pk()},
+            hypothesis_id TEXT NOT NULL,
             test_params TEXT,
-            results_summary TEXT,
-            FOREIGN KEY (hypothesis_id) REFERENCES hypotheses(id)
+            results_summary TEXT
         )
     """)
 
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS research_results (
-            id {s},
-            test_id {ref},
-            timestamp {dt} DEFAULT CURRENT_TIMESTAMP,
+            id {_text_pk()},
+            test_id TEXT NOT NULL,
             metrics_json TEXT,
-            visual_path TEXT,
-            FOREIGN KEY (test_id) REFERENCES research_tests(id)
+            visual_path TEXT
         )
     """)
 
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS lessons (
-            id {s},
-            result_id {ref},
-            timestamp {dt} DEFAULT CURRENT_TIMESTAMP,
+            id {_text_pk()},
+            result_id TEXT NOT NULL,
             content TEXT NOT NULL,
-            tags TEXT,
-            FOREIGN KEY (result_id) REFERENCES research_results(id)
+            tags TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL
         )
     """)
 

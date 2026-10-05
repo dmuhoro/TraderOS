@@ -34,7 +34,7 @@ class PostgresObservationRepository(PostgresRepository[Observation], Observation
         with self.conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS observations (
-                    id TEXT PRIMARY KEY,
+                    id TEXT PRIMARY KEY NOT NULL,
                     timestamp TEXT NOT NULL,
                     symbol TEXT NOT NULL,
                     content TEXT NOT NULL,
@@ -84,7 +84,7 @@ class PostgresHypothesisRepository(PostgresRepository[Hypothesis], HypothesisRep
         with self.conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS hypotheses (
-                    id TEXT PRIMARY KEY,
+                    id TEXT PRIMARY KEY NOT NULL,
                     observation_id TEXT NOT NULL,
                     content TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'proposed',
@@ -133,7 +133,7 @@ class PostgresExperimentRepository(PostgresRepository[Experiment], ExperimentRep
         with self.conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS experiments (
-                    id TEXT PRIMARY KEY,
+                    id TEXT PRIMARY KEY NOT NULL,
                     hypothesis_id TEXT NOT NULL,
                     params TEXT NOT NULL DEFAULT '{}',
                     results TEXT,
@@ -186,7 +186,7 @@ class PostgresExperimentResultRepository(
         with self.conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS experiment_results (
-                    id TEXT PRIMARY KEY,
+                    id TEXT PRIMARY KEY NOT NULL,
                     experiment_id TEXT NOT NULL,
                     metrics TEXT NOT NULL DEFAULT '{}',
                     visual_path TEXT NOT NULL DEFAULT '',
@@ -236,7 +236,7 @@ class PostgresLessonRepository(PostgresRepository[Lesson], LessonRepository):
         with self.conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS lessons (
-                    id TEXT PRIMARY KEY,
+                    id TEXT PRIMARY KEY NOT NULL,
                     result_id TEXT NOT NULL,
                     content TEXT NOT NULL,
                     tags TEXT NOT NULL DEFAULT '[]',

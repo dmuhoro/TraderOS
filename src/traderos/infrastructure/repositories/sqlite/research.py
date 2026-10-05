@@ -33,7 +33,7 @@ class SQLiteObservationRepository(SQLiteRepository[Observation], ObservationRepo
     def _create_table(self) -> None:
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS observations (
-                id TEXT PRIMARY KEY,
+                id TEXT PRIMARY KEY NOT NULL,
                 timestamp TEXT NOT NULL,
                 symbol TEXT NOT NULL,
                 content TEXT NOT NULL,
@@ -79,7 +79,7 @@ class SQLiteHypothesisRepository(SQLiteRepository[Hypothesis], HypothesisReposit
     def _create_table(self) -> None:
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS hypotheses (
-                id TEXT PRIMARY KEY,
+                id TEXT PRIMARY KEY NOT NULL,
                 observation_id TEXT NOT NULL,
                 content TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'proposed',
@@ -124,7 +124,7 @@ class SQLiteExperimentRepository(SQLiteRepository[Experiment], ExperimentReposit
     def _create_table(self) -> None:
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS experiments (
-                id TEXT PRIMARY KEY,
+                id TEXT PRIMARY KEY NOT NULL,
                 hypothesis_id TEXT NOT NULL,
                 params TEXT NOT NULL DEFAULT '{}',
                 results TEXT,
@@ -173,7 +173,7 @@ class SQLiteExperimentResultRepository(
     def _create_table(self) -> None:
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS experiment_results (
-                id TEXT PRIMARY KEY,
+                id TEXT PRIMARY KEY NOT NULL,
                 experiment_id TEXT NOT NULL,
                 metrics TEXT NOT NULL DEFAULT '{}',
                 visual_path TEXT NOT NULL DEFAULT '',
@@ -219,7 +219,7 @@ class SQLiteLessonRepository(SQLiteRepository[Lesson], LessonRepository):
     def _create_table(self) -> None:
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS lessons (
-                id TEXT PRIMARY KEY,
+                id TEXT PRIMARY KEY NOT NULL,
                 result_id TEXT NOT NULL,
                 content TEXT NOT NULL,
                 tags TEXT NOT NULL DEFAULT '[]',

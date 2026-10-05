@@ -1,10 +1,21 @@
 import os
 import sqlite3
+import uuid
 
 import pandas as pd
 
 from traderos.infrastructure.config.config_loader import Config
 from traderos.infrastructure.database.migration_manager import migrate
+
+
+def _market_id_for_symbol(symbol: object) -> str:
+    """Deterministic market id for a symbol.
+
+    The same ``uuid5("traders/{symbol}")`` scheme the factory and the daemon use
+    to route ticks, so a zone written from a symbol frame refers to the same
+    market the trading loop trades.
+    """
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"traderos/{symbol}"))
 
 
 class DatabaseManager:
@@ -64,7 +75,36 @@ class DatabaseManager:
         self.conn.commit()
 
     def save_liquidity_zones(self, zones_df: pd.DataFrame):
-        """Persist liquidity zones."""
+        """Persist liquidity zones.
+
+        The dataframe is renamed to the schema before writing. ``liquidity_zones``
+        is declared by the LiquidityZone repository (market_id/price_level/
+        zone_type/strength/detected_at, see repositories/sqlite/indicators.py) and
+        by v001 to match it, but callers legitimately arrive with the older
+        analysis-shaped frame that carries ``symbol``/``timeframe`` instead of
+        ``market_id``.
+
+        Writing the frame as-is raised
+        ``sqlite3.OperationalError: table liquidity_zones has no column named
+        symbol`` -- the caller and the table disagreed and the failure was
+        reported from deep inside pandas, naming neither side as the cause.
+        Translating the two legacy columns here keeps the drop-in contract and
+        puts the mismatch at the boundary that owns it.
+        """
+        zones_df = zones_df.copy()
+        if "symbol" in zones_df.columns and "market_id" not in zones_df.columns:
+            zones_df["market_id"] = zones_df["symbol"].map(_market_id_for_symbol)
+        for legacy in ("symbol", "timeframe"):
+            if legacy in zones_df.columns:
+                zones_df = zones_df.drop(columns=[legacy])
+        # liquidity_zones.id is TEXT PRIMARY KEY NOT NULL. The incoming frame
+        # carries no id, so to_sql omitted the column entirely and SQLite stored
+        # NULL -- legal for a TEXT PRIMARY KEY, which unlike PostgreSQL does not
+        # imply NOT NULL. Every zone was therefore written without an identity
+        # and could not be addressed by key. Generating the id here restores the
+        # row's identity; an explicit caller-supplied id is preserved.
+        if "id" not in zones_df.columns:
+            zones_df.insert(0, "id", [str(uuid.uuid4()) for _ in range(len(zones_df))])
         zones_df.to_sql("liquidity_zones", self.conn, if_exists="append", index=False)
         self.conn.commit()
 

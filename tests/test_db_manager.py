@@ -158,3 +158,67 @@ class TestDatabaseManager:
         db.close()
         with pytest.raises(sqlite3.ProgrammingError):
             conn.execute("SELECT 1")
+
+
+class TestLiquidityZoneIdentity:
+    """liquidity_zones.id is TEXT PRIMARY KEY NOT NULL, but the incoming frame
+    carries no id. SQLite -- unlike PostgreSQL -- does not imply NOT NULL for a
+    TEXT PRIMARY KEY, so to_sql silently stored NULL and every zone was written
+    without an identity. These tests pin that each row now gets a real id.
+    """
+
+    def test_saved_zone_has_a_non_null_id(self, db) -> None:
+        df = pd.DataFrame(
+            {
+                "symbol": ["BTCUSDT"],
+                "timeframe": ["1h"],
+                "zone_type": ["Support"],
+                "price_level": [50000.0],
+                "strength": [3],
+                "detected_at": [pd.to_datetime("2024-01-01")],
+            }
+        )
+        db.save_liquidity_zones(df)
+        rows = db.conn.execute("SELECT id FROM liquidity_zones").fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] is not None
+        assert str(rows[0][0]).strip() != ""
+
+    def test_multiple_zones_get_distinct_ids(self, db) -> None:
+        df = pd.DataFrame(
+            {
+                "symbol": ["BTCUSDT", "ETHUSDT"],
+                "timeframe": ["1h", "1h"],
+                "zone_type": ["Support", "Resistance"],
+                "price_level": [50000.0, 3000.0],
+                "strength": [3, 2],
+                "detected_at": [pd.to_datetime("2024-01-01"), pd.to_datetime("2024-01-01")],
+            }
+        )
+        db.save_liquidity_zones(df)
+        ids = [row[0] for row in db.conn.execute("SELECT id FROM liquidity_zones")]
+        assert len(ids) == 2
+        assert len(set(ids)) == 2
+
+    def test_caller_supplied_id_is_preserved(self, db) -> None:
+        df = pd.DataFrame(
+            {
+                "id": ["caller-chosen-id"],
+                "market_id": ["m1"],
+                "zone_type": ["Support"],
+                "price_level": [50000.0],
+                "strength": [3],
+                "detected_at": [pd.to_datetime("2024-01-01")],
+            }
+        )
+        db.save_liquidity_zones(df)
+        assert db.conn.execute("SELECT id FROM liquidity_zones").fetchone()[0] == "caller-chosen-id"
+
+    def test_sqlite_rejects_a_null_id_directly(self, db) -> None:
+        """The schema-level refusal that made this visible."""
+        with pytest.raises(sqlite3.IntegrityError):
+            db.conn.execute(
+                "INSERT INTO liquidity_zones "
+                "(id, market_id, price_level, zone_type, strength, detected_at) "
+                "VALUES (NULL, 'm1', 1.0, 'Support', 1, '2024-01-01')"
+            )
