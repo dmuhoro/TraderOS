@@ -63,7 +63,7 @@ class PostgresObservationRepository(PostgresRepository[Observation], Observation
         )
 
     def get_by_symbol(self, symbol: str) -> list[Observation]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM observations WHERE symbol = %s ORDER BY timestamp",
                 (symbol,),
@@ -112,7 +112,7 @@ class PostgresHypothesisRepository(PostgresRepository[Hypothesis], HypothesisRep
         )
 
     def get_by_observation(self, observation_id: uuid.UUID) -> list[Hypothesis]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM hypotheses WHERE observation_id = %s ORDER BY created_at",
                 (str(observation_id),),
@@ -163,7 +163,7 @@ class PostgresExperimentRepository(PostgresRepository[Experiment], ExperimentRep
         )
 
     def get_by_hypothesis(self, hypothesis_id: uuid.UUID) -> list[Experiment]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM experiments WHERE hypothesis_id = %s ORDER BY created_at",
                 (str(hypothesis_id),),
@@ -215,7 +215,7 @@ class PostgresExperimentResultRepository(
         )
 
     def get_by_experiment(self, experiment_id: uuid.UUID) -> list[ExperimentResult]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM experiment_results WHERE experiment_id = %s ORDER BY created_at",
                 (str(experiment_id),),
@@ -265,7 +265,7 @@ class PostgresLessonRepository(PostgresRepository[Lesson], LessonRepository):
         )
 
     def get_by_result(self, result_id: uuid.UUID) -> list[Lesson]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM lessons WHERE result_id = %s ORDER BY created_at",
                 (str(result_id),),
@@ -277,7 +277,7 @@ class PostgresLessonRepository(PostgresRepository[Lesson], LessonRepository):
         result: list[Lesson] = []
         for tag in tags:
             like = f"%{tag}%"
-            with self.conn.cursor() as cur:
+            with self.conn, self.conn.cursor() as cur:
                 cur.execute("SELECT * FROM lessons WHERE tags LIKE %s", (like,))
                 rows = cur.fetchall()
             result.extend(self._from_row(row) for row in rows)

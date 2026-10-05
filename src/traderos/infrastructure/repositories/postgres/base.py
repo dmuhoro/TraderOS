@@ -63,7 +63,7 @@ class PostgresRepository(Repository[T]):
         return deepcopy(entity)
 
     def get(self, entity_id: uuid.UUID) -> T | None:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 f"SELECT * FROM {self._table_name} WHERE id = %s",
                 (str(entity_id),),
@@ -74,7 +74,7 @@ class PostgresRepository(Repository[T]):
         return self._from_row(row)
 
     def list(self) -> list[T]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(f"SELECT * FROM {self._table_name}")
             rows = cur.fetchall()
         return [self._from_row(row) for row in rows]

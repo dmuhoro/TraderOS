@@ -65,13 +65,13 @@ class PostgresStrategyRepository(PostgresRepository[Strategy], StrategyRepositor
         )
 
     def get_by_name(self, name: str) -> Strategy | None:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute("SELECT * FROM strategies WHERE name = %s", (name,))
             row = cur.fetchone()
         return self._from_row(row) if row else None
 
     def list_active(self) -> list[Strategy]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM strategies WHERE status IN (%s, %s)",
                 (StrategyStatus.ACTIVE.value, StrategyStatus.PROMOTED.value),
@@ -167,7 +167,7 @@ class PostgresBacktestResultRepository(
         )
 
     def get_by_strategy(self, strategy_id: uuid.UUID) -> list[BacktestResult]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM backtest_results WHERE strategy_id = %s ORDER BY created_at",
                 (str(strategy_id),),
@@ -176,7 +176,7 @@ class PostgresBacktestResultRepository(
         return [self._from_row(row) for row in rows]
 
     def get_by_market(self, market_id: uuid.UUID) -> list[BacktestResult]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM backtest_results WHERE market_id = %s ORDER BY created_at",
                 (str(market_id),),

@@ -59,13 +59,13 @@ class PostgresKnowledgeNodeRepository(PostgresRepository[KnowledgeNode], Knowled
         )
 
     def get_by_label(self, label: str) -> list[KnowledgeNode]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute("SELECT * FROM knowledge_nodes WHERE label = %s", (label,))
             rows = cur.fetchall()
         return [self._from_row(row) for row in rows]
 
     def get_by_type(self, node_type: str) -> list[KnowledgeNode]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute("SELECT * FROM knowledge_nodes WHERE node_type = %s", (node_type,))
             rows = cur.fetchall()
         return [self._from_row(row) for row in rows]
@@ -124,7 +124,7 @@ class PostgresKnowledgeEdgeRepository(PostgresRepository[KnowledgeEdge], Knowled
         )
 
     def get_by_source(self, source_id: uuid.UUID) -> list[KnowledgeEdge]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM knowledge_edges WHERE source_id = %s",
                 (str(source_id),),
@@ -133,7 +133,7 @@ class PostgresKnowledgeEdgeRepository(PostgresRepository[KnowledgeEdge], Knowled
         return [self._from_row(row) for row in rows]
 
     def get_by_target(self, target_id: uuid.UUID) -> list[KnowledgeEdge]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM knowledge_edges WHERE target_id = %s",
                 (str(target_id),),
@@ -152,7 +152,7 @@ class PostgresKnowledgeEdgeRepository(PostgresRepository[KnowledgeEdge], Knowled
                 f"SELECT * FROM knowledge_edges WHERE source_id IN ({ph})"
                 f" OR target_id IN ({ph})"
             )
-            with self.conn.cursor() as cur:
+            with self.conn, self.conn.cursor() as cur:
                 cur.execute(sql, frontier + frontier)
                 rows = cur.fetchall()
             for row in rows:
@@ -167,7 +167,7 @@ class PostgresKnowledgeEdgeRepository(PostgresRepository[KnowledgeEdge], Knowled
         if not visited:
             return []
         placeholders = ",".join("%s" for _ in visited)
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 f"SELECT * FROM knowledge_nodes WHERE id IN ({placeholders})",
                 list(visited),

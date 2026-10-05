@@ -81,7 +81,7 @@ class PostgresTradeRepository(PostgresRepository[Trade], TradeRepository):
         return trade
 
     def get_by_signal(self, signal_id: uuid.UUID) -> list[Trade]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM trades WHERE signal_id = %s ORDER BY created_at",
                 (str(signal_id),),
@@ -90,7 +90,7 @@ class PostgresTradeRepository(PostgresRepository[Trade], TradeRepository):
         return [self._from_row(row) for row in rows]
 
     def get_by_market(self, market_id: uuid.UUID) -> list[Trade]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM trades WHERE market_id = %s ORDER BY created_at",
                 (str(market_id),),
@@ -101,7 +101,7 @@ class PostgresTradeRepository(PostgresRepository[Trade], TradeRepository):
     def get_open(self) -> list[Trade]:
         open_values = tuple(v.value for v in OPEN_TRADE_STATUSES)
         placeholders = ", ".join("%s" for _ in open_values)
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 f"SELECT * FROM trades WHERE status IN ({placeholders}) ORDER BY created_at",
                 open_values,
@@ -163,13 +163,13 @@ class PostgresPositionRepository(PostgresRepository[Position], PositionRepositor
         return pos
 
     def get_by_market(self, market_id: uuid.UUID) -> Position | None:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute("SELECT * FROM positions WHERE market_id = %s", (str(market_id),))
             row = cur.fetchone()
         return self._from_row(row) if row else None
 
     def list_open(self) -> list[Position]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute("SELECT * FROM positions WHERE quantity != 0")
             rows = cur.fetchall()
         return [self._from_row(row) for row in rows]

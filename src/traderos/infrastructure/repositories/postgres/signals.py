@@ -60,7 +60,7 @@ class PostgresSignalRepository(PostgresRepository[Signal], SignalRepository):
 
     def get_active(self, market_id: uuid.UUID) -> list[Signal]:
         now = datetime.now(UTC)
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM signals WHERE market_id = %s AND expires_at > %s"
                 " ORDER BY generated_at DESC",
@@ -70,7 +70,7 @@ class PostgresSignalRepository(PostgresRepository[Signal], SignalRepository):
         return [self._from_row(row) for row in rows]
 
     def get_by_strategy(self, strategy_id: uuid.UUID) -> list[Signal]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM signals WHERE strategy_id = %s ORDER BY generated_at DESC",
                 (str(strategy_id),),
@@ -84,7 +84,7 @@ class PostgresSignalRepository(PostgresRepository[Signal], SignalRepository):
         start: datetime,
         end: datetime,
     ) -> list[Signal]:
-        with self.conn.cursor() as cur:
+        with self.conn, self.conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM signals WHERE market_id = %s"
                 " AND generated_at >= %s AND generated_at <= %s"
