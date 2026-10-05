@@ -201,6 +201,18 @@ unfinishable and hardens the LIVE reconciliation path. No new capability.
 
 ## [Unreleased]
 
+### Session 2026-10-05 — Alpaca credentials activated, CI drill suite green
+
+- **20/20 CI credential-free drills green** with `ALPACA_API_KEY`/`ALPACA_SECRET_KEY` set:
+  account, auth_fail_closed, causal_replay, firm_ops, governance, market_brain,
+  multirestart_replay, oncall_transport, operational_health, oracle_conformance,
+  paper_soak, partial_fill_reconnect, real_market_walk_forward, rate_limiter_burst,
+  risk_rails, runbook_cli, secret_lifecycle, trigger_alerting, transient_broker_error,
+  walk_forward_evidence. Previously gated by missing credentials.
+
+### Session 2026-10-04 — VaR derivation, performance targets, evidence contract
+
+
 ### Session 2026-10-04 — VaR derivation, performance targets, evidence contract
 
 - **Historical VaR derivation fixed** (`src/traderos/domain/services/risk_metrics.py`): returns
