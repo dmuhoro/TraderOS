@@ -10,6 +10,12 @@ VERSION = 3
 DESCRIPTION = "Strategy registry table with 3 built-in seed strategies"
 
 
+# Tables created by this migration. The version marker is a claim, not a proof:
+# migration_manager.schema_drift() checks these actually exist so a marker at head
+# can never silently paper over a missing table.
+TABLES: tuple[str, ...] = ("strategy_registry",)
+
+
 def up(conn: Any, backend: str = "sqlite") -> None:
     execute(
         conn,

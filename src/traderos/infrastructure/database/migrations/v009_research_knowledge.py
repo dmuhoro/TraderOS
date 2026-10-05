@@ -10,6 +10,17 @@ VERSION = 9
 DESCRIPTION = "Canonical research + knowledge-graph tables for durable stores"
 
 
+# Tables created by this migration. The version marker is a claim, not a proof:
+# migration_manager.schema_drift() checks these actually exist so a marker at head
+# can never silently paper over a missing table.
+TABLES: tuple[str, ...] = (
+    "experiments",
+    "experiment_results",
+    "knowledge_nodes",
+    "knowledge_edges",
+)
+
+
 def up(conn: Any, backend: str = "sqlite") -> None:
     # Experiments + results: the research repos (SQLite/Postgres) read/write
     # these tables; v001 created a legacy research_tests/research_results pair

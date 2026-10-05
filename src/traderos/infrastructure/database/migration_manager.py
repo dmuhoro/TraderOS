@@ -53,6 +53,7 @@ def _discover_migrations(migrations_dir: str | None = None) -> list[dict[str, An
                 "description": mod.DESCRIPTION,
                 "up": mod.up,
                 "down": mod.down,
+                "tables": tuple(getattr(mod, "TABLES", ()) or ()),
             }
         )
     return migrations
@@ -64,11 +65,78 @@ def get_current_version(conn: Any) -> int:
     return row[0] if row else 0
 
 
+class SchemaDriftError(RuntimeError):
+    """The version marker claims a migration ran, but its tables are absent.
+
+    The marker is a claim, never a proof. A test that drops a table, a failed
+    up() that committed its marker before finishing, or a restored dump can all
+    leave ``_schema_version`` at head while the schema is incomplete. migrate()
+    then no-ops and the application starts against tables that do not exist.
+    """
+
+    def __init__(self, drift: dict[int, tuple[str, ...]]) -> None:
+        self.drift = drift
+        detail = "; ".join(f"v{v}: missing {', '.join(t)}" for v, t in sorted(drift.items()))
+        super().__init__(f"schema marker at head but schema incomplete -> {detail}")
+
+
+def _existing_tables(conn: Any) -> set[str]:
+    backend = detect_backend(conn)
+    if backend == PG:
+        rows = execute(
+            conn,
+            "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = current_schema()",
+        ).fetchall()
+    else:
+        rows = execute(conn, "SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+    return {r[0] for r in rows}
+
+
+def _drift_for(migrations: list[dict[str, Any]], current: int, existing: set[str]) -> dict:
+    """Per applied version, the tables its migration declared but that are gone."""
+    drift: dict[int, tuple[str, ...]] = {}
+    for m in migrations:
+        version = int(m["version"])
+        if version > current:
+            continue
+        missing = tuple(t for t in m["tables"] if t not in existing)
+        if missing:
+            drift[version] = missing
+    return drift
+
+
+def schema_drift(conn: Any, migrations_dir: str | None = None) -> dict[int, tuple[str, ...]]:
+    """Report marker/schema disagreement for every migration already marked applied."""
+    current = get_current_version(conn)
+    if current <= 0:
+        return {}
+    return _drift_for(_discover_migrations(migrations_dir), current, _existing_tables(conn))
+
+
+def latest_version(migrations_dir: str | None = None) -> int:
+    """The head version of the migration chain, without touching a database.
+
+    Evidence drills and schema assertions need to know the expected head so they
+    can fail when a database is behind. That is a legitimate query about the
+    chain, so it is public here rather than reached for by importing the private
+    `_discover_migrations`. Deriving it from the chain is the whole point: a
+    hardcoded literal silently rots each time a migration is added, which is how
+    a drill ends up asserting a version nobody ships.
+    """
+    migrations = _discover_migrations(migrations_dir)
+    return max((int(m["version"]) for m in migrations), default=0)
+
+
 def _version_placeholder(backend: str) -> str:
     return "%s" if backend == PG else "?"
 
 
-def migrate(conn: Any, target_version: int | None = None, migrations_dir: str | None = None):
+def migrate(
+    conn: Any,
+    target_version: int | None = None,
+    migrations_dir: str | None = None,
+    repair: bool = True,
+):
     _ensure_version_table(conn)
     migrations = _discover_migrations(migrations_dir)
     backend = detect_backend(conn)
@@ -80,6 +148,17 @@ def migrate(conn: Any, target_version: int | None = None, migrations_dir: str | 
     current = get_current_version(conn)
     if not isinstance(target_version, int):
         raise TypeError(f"target_version must be int, got {type(target_version).__name__}")
+
+    drift = _drift_for(migrations, current, _existing_tables(conn))
+    if drift:
+        if not repair:
+            raise SchemaDriftError(drift)
+        by_version = {int(m["version"]): m for m in migrations}
+        for version in sorted(drift):
+            # Every up() in the chain is CREATE TABLE IF EXISTS, so re-running
+            # one recreates only what is missing and cannot touch existing rows.
+            by_version[version]["up"](conn, backend=backend)
+            conn.commit()
 
     if target_version > current:
         pending = [

@@ -6,6 +6,12 @@ DESCRIPTION = "Historical candle store: durable provider candles for backtesting
 PG = "postgres"
 
 
+# Tables created by this migration. The version marker is a claim, not a proof:
+# migration_manager.schema_drift() checks these actually exist so a marker at head
+# can never silently paper over a missing table.
+TABLES: tuple[str, ...] = ("historical_candles",)
+
+
 def _serial(backend: str) -> str:
     return "SERIAL PRIMARY KEY" if backend == PG else "INTEGER PRIMARY KEY AUTOINCREMENT"
 

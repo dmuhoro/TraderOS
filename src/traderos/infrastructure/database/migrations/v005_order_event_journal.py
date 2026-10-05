@@ -12,6 +12,12 @@ DESCRIPTION = "Durable order-event journal: idempotency keys, outbox state, repl
 TABLE = "order_events"
 
 
+# Tables created by this migration. The version marker is a claim, not a proof:
+# migration_manager.schema_drift() checks these actually exist so a marker at head
+# can never silently paper over a missing table.
+TABLES: tuple[str, ...] = ("order_events",)
+
+
 def up(conn: Any, backend: str = "sqlite") -> None:
     execute(
         conn,

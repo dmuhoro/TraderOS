@@ -10,6 +10,12 @@ VERSION = 4
 DESCRIPTION = "Add external_order_id column to trades table"
 
 
+# Tables created by this migration. The version marker is a claim, not a proof:
+# migration_manager.schema_drift() checks these actually exist so a marker at head
+# can never silently paper over a missing table.
+TABLES: tuple[str, ...] = ()
+
+
 def _trades_table_exists(conn: Any, backend: str) -> bool:
     if backend == PG:
         cur = conn.cursor()
