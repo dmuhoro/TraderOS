@@ -26,6 +26,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
+from fastapi import Request
 from pydantic import BaseModel
 from pydantic import Field
 
@@ -34,11 +35,20 @@ from traderos.domain.entities import OHLCV
 from traderos.domain.entities import Candle
 from traderos.domain.entities import Timeframe
 from traderos.domain.services.analysis_service import AnalysisService
+from traderos.domain.services.risk_metrics import CONFIDENCE_95
+from traderos.domain.services.risk_metrics import decimal_to_wire
+from traderos.domain.services.risk_metrics import historical_var
 from traderos.domain.services.strategy_framework import registry as strategy_registry
+from traderos.interfaces.api.security import current_role
 from traderos.interfaces.api.security import require_operate
 from traderos.interfaces.api.security import require_read
 
 OrchestratorProvider = Callable[[], TradingOrchestrator]
+
+RISK_MEASUREMENT_SCOPE = (
+    "Values are per-unit candle-price changes; they are not account, portfolio, "
+    "or position exposure."
+)
 
 
 class ObservationCreate(BaseModel):
@@ -92,6 +102,12 @@ def register_market_research_endpoints(
     router: APIRouter, orch_provider: OrchestratorProvider
 ) -> None:
     analysis = AnalysisService()
+
+    async def _require_research_read(request: Request):
+        # Resolve the existing RBAC policy inline. This endpoint stays async so
+        # its lightweight research calculation does not rely on a sync route
+        # worker; the auth semantics remain those of require_read.
+        return require_read(request, current_role(request))
 
     @router.get("/market/overview", dependencies=[Depends(require_read)])
     def market_overview():
@@ -161,6 +177,55 @@ def register_market_research_endpoints(
         if orch.data_ingestion is None:
             raise HTTPException(503, "Data ingestion not configured")
         return {"symbols": [s.symbol for s in orch.data_ingestion.sources]}
+
+    @router.get(
+        "/research/risk",
+        description=(
+            "Computes empirical 95% historical VaR from absolute close-to-close "
+            f"candle-price changes. {RISK_MEASUREMENT_SCOPE}"
+        ),
+        dependencies=[Depends(_require_research_read)],
+    )
+    async def research_historical_risk(symbol: str, limit: int = 90):
+        """Return historical VaR as an exact per-unit decimal string."""
+        orch = orch_provider()
+        ingestion = orch.data_ingestion
+        if ingestion is None:
+            raise HTTPException(503, "Data ingestion not configured")
+        rows_by_symbol = ingestion.fetch_all(limit=limit)
+        if symbol not in rows_by_symbol:
+            raise HTTPException(404, f"Unknown market symbol '{symbol}'")
+
+        rows = rows_by_symbol[symbol]
+        try:
+            closes = [Decimal(str(row["close"])) for row in rows]
+            result = historical_var(closes)
+        except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+            return {
+                "symbol": symbol,
+                "status": "refused",
+                "historical_var": {
+                    "value": None,
+                    "confidence": decimal_to_wire(CONFIDENCE_95),
+                    "observations": 0,
+                    "reason": "invalid_series",
+                },
+                "measurement_scope": RISK_MEASUREMENT_SCOPE,
+                "detail": str(exc),
+            }
+
+        refused = result.refusal_reason is not None
+        return {
+            "symbol": symbol,
+            "status": "refused" if refused else "available",
+            "historical_var": {
+                "value": decimal_to_wire(result.value) if result.value is not None else None,
+                "confidence": decimal_to_wire(CONFIDENCE_95),
+                "observations": result.observations,
+                "reason": result.refusal_reason,
+            },
+            "measurement_scope": RISK_MEASUREMENT_SCOPE,
+        }
 
     @router.get("/research/indicators", dependencies=[Depends(require_read)])
     def research_indicators(symbol: str, limit: int = 90):
