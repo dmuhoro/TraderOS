@@ -10,6 +10,7 @@ from typing import Any
 from typing import Self
 
 from traderos.infrastructure.config.config_loader import Config
+from traderos.infrastructure.database.safety_guard import guard_connection
 from traderos.infrastructure.resilience import PG_CB
 from traderos.infrastructure.resilience import with_circuit_breaker
 
@@ -36,6 +37,10 @@ def get_connection(config: Config | None = None) -> Any:
 
 
 def _connect_postgres(database_url: str) -> Any:
+    # Refuse to dial a remote database from inside the test suite. The prod URL
+    # arrives from .env via load_dotenv(), invisible at the call site, so this
+    # is the only place that can catch a mis-aimed connection.
+    guard_connection(database_url)
     try:
         import psycopg2
     except ImportError as err:

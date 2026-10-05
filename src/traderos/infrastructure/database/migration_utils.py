@@ -10,6 +10,8 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+from traderos.infrastructure.database.safety_guard import guard_destructive_sql
+
 PG = "postgres"
 
 
@@ -25,6 +27,9 @@ def detect_backend(conn: Any) -> str:
 
 
 def execute(conn: Any, sql: str, params: tuple[Any, ...] = ()) -> Any:
+    # Every migration and repository statement funnels through here, so this is
+    # the one place that can refuse destructive SQL aimed at production.
+    guard_destructive_sql(conn, sql)
     backend = detect_backend(conn)
     if backend == PG:
         cur = conn.cursor()
