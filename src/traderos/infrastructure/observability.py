@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import UTC
@@ -17,8 +18,11 @@ from traderos.domain.ports import ManifestPort
 from traderos.domain.ports import MetricSample
 from traderos.domain.ports import MetricsPort
 from traderos.infrastructure.audit import compute_audit_hash
+from traderos.infrastructure.database.connection import ConnectionClosedError
 from traderos.infrastructure.health import DEFAULT_CHECK_TIMEOUT
 from traderos.infrastructure.health import run_with_timeout
+
+logger = logging.getLogger(__name__)
 
 
 class SQLiteAuditService(AuditPort):
@@ -226,6 +230,7 @@ class SQLiteHealthService(HealthPort):
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
         self.services: dict[str, bool] = {}
+        self.history_write_failures = 0
 
     def register(self, name: str, initial: bool = True) -> None:
         self.services[name] = initial
@@ -255,18 +260,28 @@ class SQLiteHealthService(HealthPort):
         return s
 
     def _save(self, status: HealthStatus) -> None:
-        self.conn.execute(
-            "INSERT INTO health_history (service, healthy, message,"
-            " latency_ms, timestamp) VALUES (?, ?, ?, ?, ?)",
-            (
+        try:
+            self.conn.execute(
+                "INSERT INTO health_history (service, healthy, message,"
+                " latency_ms, timestamp) VALUES (?, ?, ?, ?, ?)",
+                (
+                    status.service,
+                    int(status.healthy),
+                    status.message,
+                    status.latency_ms,
+                    status.last_check.isoformat(),
+                ),
+            )
+            self.conn.commit()
+        except (ConnectionClosedError, sqlite3.ProgrammingError) as exc:
+            if not isinstance(exc, ConnectionClosedError) and "closed" not in str(exc).lower():
+                raise
+            self.history_write_failures += 1
+            logger.warning(
+                "health history write skipped: connection closed " "(service=%s, total_skipped=%d)",
                 status.service,
-                int(status.healthy),
-                status.message,
-                status.latency_ms,
-                status.last_check.isoformat(),
-            ),
-        )
-        self.conn.commit()
+                self.history_write_failures,
+            )
 
     def check(self, name: str, check_fn: Any) -> HealthStatus:
         try:

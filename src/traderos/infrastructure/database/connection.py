@@ -121,6 +121,21 @@ class _ThreadSafeSQLiteCursor:
         return getattr(self._cursor, name)
 
 
+class ConnectionClosedError(RuntimeError):
+    """Raised when a statement is issued on an already-closed connection.
+
+    sqlite reports use-after-close as ``sqlite3.ProgrammingError("Cannot
+    operate on a closed database.")``, which is indistinguishable from a
+    genuine SQL programming fault. A background worker that outlives its
+    caller (see ``run_with_timeout``) used to hit exactly that path during
+    teardown and abort the whole pytest session with an INTERNALERROR.
+
+    Raising a distinct, catchable type lets the owner decide explicitly that
+    a late diagnostic write is a no-op, instead of an unrelated consumer
+    catching ``ProgrammingError`` and misreading it as bad SQL.
+    """
+
+
 class ThreadSafeSQLiteConnection:
     """A sqlite3.Connection that is safe to share across threads (OT-011).
 
@@ -135,6 +150,15 @@ class ThreadSafeSQLiteConnection:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
         self._lock = threading.RLock()
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def _guard(self) -> None:
+        if self._closed:
+            raise ConnectionClosedError("connection is closed")
 
     @property
     def row_factory(self) -> Any:
@@ -146,30 +170,39 @@ class ThreadSafeSQLiteConnection:
 
     def execute(self, sql: str, params: Any = ()) -> _ThreadSafeSQLiteCursor:
         with self._lock:
+            self._guard()
             return _ThreadSafeSQLiteCursor(self._conn.execute(sql, params), self._lock)
 
     def executemany(self, sql: str, seq_of_params: Any) -> _ThreadSafeSQLiteCursor:
         with self._lock:
+            self._guard()
             return _ThreadSafeSQLiteCursor(self._conn.executemany(sql, seq_of_params), self._lock)
 
     def executescript(self, sql: str) -> None:
         with self._lock:
+            self._guard()
             self._conn.executescript(sql)
 
     def cursor(self) -> _ThreadSafeSQLiteCursor:
         with self._lock:
+            self._guard()
             return _ThreadSafeSQLiteCursor(self._conn.cursor(), self._lock)
 
     def commit(self) -> None:
         with self._lock:
+            self._guard()
             self._conn.commit()
 
     def rollback(self) -> None:
         with self._lock:
+            self._guard()
             self._conn.rollback()
 
     def close(self) -> None:
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             self._conn.close()
 
     def __enter__(self) -> Self:
