@@ -3,6 +3,7 @@
 Fail-closed guarantees that must hold before any real capital moves:
 1. No Alpaca API key literals are ever committed to tracked files.
 2. LIVE mode refuses to start without credentials (config validation).
+from decimal import Decimal
 3. Observability never persists secret values even when running with keys.
 """
 
@@ -25,6 +26,99 @@ _API_KEY_PATTERN = re.compile(r"\bPK[0-9A-Z]{20,}\b")
 _SECRET_KEY_PATTERN = re.compile(r"ALPACA_SECRET_KEY\s*[=:]\s*['\"]?[A-Za-z0-9]{16,}")
 
 TRACKED_EXTENSIONS = {".py", ".yaml", ".yml", ".json", ".toml", ".sh", ".md", ".env.example"}
+
+
+class TestSecretHistoryHygiene:
+    """Guard the surface that actually leaked.
+
+    The key/secret were published in a COMMIT MESSAGE of 26f8318. The
+    pre-existing test scanned tracked file CONTENT only, so it stayed green
+    while the credential sat in the repository. A commit message is published
+    the moment the commit is pushed and cannot be recalled, so history is a
+    separate leak surface with its own gate.
+
+    These checks scan every reachable commit message. They prove the rewrite
+    held and they fail closed if anyone reintroduces the pattern.
+    """
+
+    # Matches the credential shape observed in the real leak, without embedding
+    # the leaked value itself: an Alpaca key id, or a key-id/secret pair.
+    _HISTORY_KEY_PATTERN = re.compile(r"\bPK[0-9A-Z]{20,}\b")
+    _HISTORY_SECRET_PAIR = re.compile(r"(?i)alpaca\s+keys?\s*:\s*\S+\s*/\s*\S{16,}")
+
+    def _all_commit_messages(self) -> list[tuple[str, str]]:
+        revs = subprocess.run(
+            ["git", "rev-list", "--all"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        messages: list[tuple[str, str]] = []
+        for rev in revs:
+            body = subprocess.run(
+                ["git", "log", "-1", "--format=%B", rev],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            messages.append((rev, body))
+        return messages
+
+    def test_no_alpaca_key_literals_in_any_commit_message(self) -> None:
+        offenders = [
+            rev
+            for rev, body in self._all_commit_messages()
+            if self._HISTORY_KEY_PATTERN.search(body) or self._HISTORY_SECRET_PAIR.search(body)
+        ]
+        assert offenders == [], (
+            "credential values found in commit messages "
+            f"({len(offenders)} commits, shown as short SHAs only): "
+            f"{[rev[:7] for rev in offenders]}. Rotate the credential first, "
+            "then rewrite history -- see principle 7 of the operator rules."
+        )
+
+    def test_no_alpaca_key_literals_in_any_committed_blob(self) -> None:
+        """History CONTENT, not just the working tree.
+
+        The tracked-file check reads the working tree, which says nothing about
+        a blob that existed in an older commit and was deleted later.
+        """
+        revs = subprocess.run(
+            ["git", "rev-list", "--all"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        offenders: list[str] = []
+        for rev in revs:
+            found = subprocess.run(
+                ["git", "grep", "-lE", r"PK[0-9A-Z]{20,}", rev],
+                capture_output=True,
+                text=True,
+            ).stdout.split()
+            offenders.extend(f"{rev[:7]}:{path}" for path in found)
+        assert offenders == [], f"credential values in committed blobs: {offenders}"
+
+    def test_local_repo_does_not_still_hold_the_rotated_credential(self) -> None:
+        """The rewritten commit must be unreachable, not merely unreferenced.
+
+        A leaked commit kept alive by a stray branch, tag, worktree HEAD, or
+        unexpired reflog is still one `git push --all` away from being public.
+        """
+        leaked = "26f83181b3b6a179fef4911ac49367b914d69836"
+        present = (
+            subprocess.run(
+                ["git", "cat-file", "-e", f"{leaked}^{{commit}}"],
+                capture_output=True,
+            ).returncode
+            == 0
+        )
+        assert present is False, (
+            f"commit {leaked[:7]} (the commit message that carried the rotated "
+            "credential) is still in the local object store. Delete any ref or "
+            "worktree holding it, then: git reflog expire --expire=now "
+            "--all && git gc --prune=now"
+        )
 
 
 class TestSecretHygiene:
@@ -70,7 +164,7 @@ class TestSecretHygiene:
         audit = SQLiteAuditService(conn)
         metrics = SQLiteMetricsService(conn)
         audit.record("cycle.start", "system", "trader", "market x at 100")
-        audit.record("trade.executed", "system", "trader", "qty=1 price=100")
+        audit.record("trade.executed", "system", "trader", "qty=1 price=100.0")
         metrics.counter("cycles.completed", 1.0)
 
         rows = " | ".join(str(tuple(r)) for r in conn.execute("SELECT * FROM audit_log").fetchall())
