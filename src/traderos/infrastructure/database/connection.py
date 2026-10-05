@@ -4,6 +4,7 @@ import os
 import sqlite3
 import threading
 from collections.abc import Generator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -58,7 +59,11 @@ def get_connection(config: Config | None = None) -> Any:
         url = cfg.database_url or os.getenv("DATABASE_URL", "")
     else:
         cfg = config
+        # None is "not specified", so the ambient DATABASE_URL still applies; an
+        # explicit "" is the caller's answer and is honoured as-is.
         url = config.database_url
+        if url is None:
+            url = os.getenv("DATABASE_URL", "")
     if url.startswith(("postgresql://", "postgres://")):
         return _connect_postgres(url)
     return _connect_sqlite(cfg)
@@ -142,6 +147,20 @@ class _ThreadSafeSQLiteCursor:
     def fetchmany(self, size: int = 1) -> Any:
         with self._lock:
             return self._cursor.fetchmany(size)
+
+    def __iter__(self) -> Iterator[Any]:
+        # Dunder lookups bypass __getattr__, so the proxy has to advertise
+        # iteration itself. ``for row in conn.execute(...)`` is the dominant read
+        # idiom in this codebase (migrations, run_manifest, the sqlite
+        # repositories), and without this it raised
+        # ``TypeError: '_ThreadSafeSQLiteCursor' object is not iterable`` -- the
+        # proxy was silently unusable as a drop-in sqlite3.Cursor.
+        #
+        # Rows are materialised under the lock rather than streamed: a real
+        # sqlite3.Cursor yields lazily, which would hand callers rows outside the
+        # connection lock this class exists to hold.
+        with self._lock:
+            return iter(self._cursor.fetchall())
 
     def __enter__(self) -> Self:
         return self

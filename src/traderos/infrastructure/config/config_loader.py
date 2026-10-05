@@ -20,7 +20,20 @@ SECRET_FIELDS = {"alpaca_api_key", "alpaca_secret_key"}
 @dataclass(frozen=True)
 class Config:
     db_path: str = "data/trader.db"
-    database_url: str = ""
+    # The type is `str | None` because `load()` assigns
+    # ``os.getenv("DATABASE_URL")``, i.e. None whenever the variable is unset --
+    # the old `str` annotation made every `database_url is not None` check
+    # downstream look unreachable to a type checker while being load-bearing at
+    # runtime. None means "not specified": only then is the ambient DATABASE_URL
+    # consulted.
+    #
+    # The DEFAULT stays "" and must stay "": "" is the answer "this is not
+    # PostgreSQL", so a bare `Config()` is an explicit SQLite decision. Defaulting
+    # to None instead silently handed every `Config()` to whatever DATABASE_URL
+    # the environment happened to hold -- 21 tests flipped to PostgreSQL, and on a
+    # host without pg_dump the backup tests then failed. That is fail-open, and a
+    # default must refuse rather than inherit.
+    database_url: str | None = ""
     log_level: str = "INFO"
     log_file: str | None = None
     data_dir: str = "data"

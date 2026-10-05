@@ -36,6 +36,29 @@ class TestResolveBackend:
         ):
             _connect_postgres("postgresql://localhost/test")
 
+    def test_default_config_refuses_the_ambient_database_url(self, monkeypatch):
+        """``Config()`` is an explicit "not PostgreSQL" and must stay one.
+
+        ``database_url`` is typed ``str | None`` because ``Config.load()`` assigns
+        ``os.getenv("DATABASE_URL")`` and yields None when it is unset. The
+        *default* must still be ``""``: with None, every bare ``Config()`` asked
+        the environment which backend to use and adopted whatever DATABASE_URL
+        happened to hold. 21 tests silently moved onto PostgreSQL that way, and on
+        a host with no pg_dump the backup paths then failed. A default that
+        inherits the environment is fail-open, and this is the pin for it.
+        """
+        monkeypatch.setenv("DATABASE_URL", "postgresql://someone:pw@elsewhere:5432/db")
+
+        assert Config().database_url == "", "the default must not consult the environment"
+        assert resolve_backend(Config().database_url) == "sqlite"
+
+        # None is the one value that does consult the environment: it is what
+        # Config.load() produces when DATABASE_URL is genuinely unset, and
+        # resolve_backend's documented contract is that None means "not
+        # specified". The fail-closed guarantee comes from Config()'s default,
+        # not from resolve_backend overriding its own contract.
+        assert resolve_backend(None) == "postgres"
+
 
 class TestConnectionPool:
     def test_acquire_release(self):
@@ -229,6 +252,66 @@ class TestSqliteConnectionMethods:
     def test_getattr_delegates(self, tmp_path):
         conn = get_connection(Config(db_path=str(tmp_path / "ga.db")))
         assert conn.total_changes == 0
+        conn.close()
+
+    def test_cursor_is_iterable_like_a_real_sqlite_cursor(self, tmp_path):
+        """``for row in conn.execute(...)`` must work through the proxy.
+
+        The proxy's ``__getattr__`` cannot supply ``__iter__``: dunder lookups go
+        through the type, not the instance, so the cursor wrapper silently
+        stopped being a drop-in ``sqlite3.Cursor``. Every caller of that idiom
+        -- the migration runners (``v010``/``v012`` read ``PRAGMA table_info``
+        this way), ``run_manifest``, and the sqlite repositories -- raised
+        ``TypeError: '_ThreadSafeSQLiteCursor' object is not iterable``.
+
+        Asserted against the values a real query returns, because "did not
+        raise" alone would also pass for an iterator that yields nothing.
+        """
+        conn = get_connection(Config(db_path=str(tmp_path / "iter.db")))
+        conn.execute("CREATE TABLE t (id INTEGER, name TEXT)")
+        conn.executemany("INSERT INTO t VALUES (?, ?)", [(1, "a"), (2, "b"), (3, "c")])
+
+        rows = list(conn.execute("SELECT id, name FROM t ORDER BY id"))
+        assert [(r["id"], r["name"]) for r in rows] == [(1, "a"), (2, "b"), (3, "c")]
+
+        # The migration runners' idiom: index access by column position.
+        assert {r[1] for r in conn.execute("PRAGMA table_info(t)")} == {"id", "name"}
+
+        # Iteration must work on a cursor() handle too, not just execute().
+        assert len(list(conn.cursor().execute("SELECT name FROM t"))) == 3
+        conn.close()
+
+    def test_iteration_is_safe_while_another_thread_writes(self, tmp_path):
+        """Rows are materialised under the connection lock, not streamed.
+
+        A real ``sqlite3.Cursor`` yields lazily, so a proxy that delegated
+        ``__iter__`` to the live cursor would hand callers rows outside the lock
+        this class exists to hold. A concurrent writer must not corrupt or lose
+        the rows the reader already committed to iterating.
+        """
+        conn = get_connection(Config(db_path=str(tmp_path / "race.db")))
+        conn.execute("CREATE TABLE t (id INTEGER)")
+        conn.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(50)])
+        conn.commit()
+
+        started = threading.Event()
+        done = threading.Event()
+
+        def _writer() -> None:
+            started.wait(timeout=5)
+            for i in range(50, 100):
+                conn.execute("INSERT INTO t VALUES (?)", (i,))
+            conn.commit()
+            done.set()
+
+        writer = threading.Thread(target=_writer)
+        writer.start()
+        started.set()
+        rows = [r[0] for r in conn.execute("SELECT id FROM t WHERE id < 50 ORDER BY id")]
+        writer.join(timeout=10)
+        done.wait(timeout=5)
+
+        assert rows == list(range(50))
         conn.close()
 
 
