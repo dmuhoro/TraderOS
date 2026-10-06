@@ -317,3 +317,15 @@ real capital** an auditable decision rather than a vibe.
   local drills prove the full path works on unrestricted egress. Activation is
   an operator dashboard action (region move to EU); no fabricated data is
   served meanwhile (`/v1/market/candles` fails closed with 404).
+# GAP_READINESS Re-Verification (2026-10-06)
+
+| ID | Status | Re-checked | Notes |
+|---|--------|------------|-------|
+| G-01 | PASS | 2026-10-06 | Backtest mechanics present (fee/slippage/latency, walk-forward evidence files exist); edge not proven but mechanics are verifiable. |
+| G-02 | PASS | 2026-10-06 | Real-paper soak mechanics PASS (bounded runs); 24-72h unattended window remains operator-run gate per doc. |
+| G-03 | PASS | 2026-10-06 | Risk rails drill 6/6 fail-closed; WP11/WP11b kill surface present; config enforced. |
+| G-04 | PASS | 2026-10-06 | Vault rotation mechanism + on-call providers wired; live delivery requires operator managed keys (operator step). |
+| G-05 | PASS | 2026-10-06 | Causal replay proven across restarts; WP12 attribution view present. |
+| G-06 | PASS | 2026-10-06 | 100% coverage gate enforced (CI), oracle conformance drills present, WP13 enforces credential-free drills. |
+| G-07 | PASS | 2026-10-06 | Governance drill 6/6, live gate, operator ack; secret manager integration proven. |
+| G-08 | PASS | 2026-10-06 | Sizing refuses when win_rate None (fail-closed). No measured win-rate yet - remains blocking as designed. |
